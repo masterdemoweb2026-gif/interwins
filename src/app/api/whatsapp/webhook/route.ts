@@ -173,6 +173,44 @@ async function sendTextMessage(to: string, text: string) {
   }
 }
 
+type OutboundMessage =
+  | { type: "text"; text: string }
+  | { type: "image"; imageUrl: string; caption?: string };
+
+type Reply = string | OutboundMessage | Array<string | OutboundMessage>;
+
+async function sendImageMessage(to: string, imageUrl: string, caption?: string) {
+  const baseUrl = process.env.GOWA_BASE_URL?.trim();
+  if (!baseUrl) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: to, text: "[DEBUG] OUT: missing GOWA_BASE_URL (image)" });
+    return;
+  }
+
+  const headers: Record<string, string> = {};
+  const auth = toBasicAuthHeader(getGowaBasicAuth());
+  if (auth) headers.Authorization = auth;
+  const deviceId = getGowaDeviceId();
+  if (deviceId) headers["X-Device-Id"] = deviceId;
+
+  const form = new FormData();
+  form.append("phone", to);
+  form.append("image_url", imageUrl);
+  if (caption) form.append("caption", caption);
+
+  try {
+    const res = await fetch(`${baseUrl}/send/image`, { method: "POST", headers, body: form });
+    inboxAdd({
+      source: "gowa",
+      signatureValid: null,
+      from: to,
+      text: `[DEBUG] OUT: send/image status=${res.status} ok=${res.ok}`,
+    });
+  } catch (err) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: to, text: `[DEBUG] OUT: send/image error=${String(err)}` });
+    throw err;
+  }
+}
+
 type Branch = "menu" | "catalogo" | "servicio_tecnico" | "proyectos" | "puntos_venta";
 
 type CatalogFilters = {
@@ -215,6 +253,7 @@ type CatalogState = {
   selectedProductId?: string;
   quote?: CatalogQuote;
   status?: "idle" | "wait_finish_cotizacion";
+  forceAskAll?: boolean;
   recommended?: {
     mode?: "offer" | "list" | "detail";
     remainingIds: string[];
@@ -246,6 +285,10 @@ type UserState = {
   catalog: CatalogState;
   projects: ProjectsState;
   points: PointsState;
+  postCotizacion?: {
+    awaitingAction?: boolean;
+    awaitingReuseConfirm?: boolean;
+  };
 };
 
 function getSupabaseUrl() {
@@ -375,6 +418,33 @@ function matchPendingOption(input: string, options: CatalogPendingOption[]) {
   if (!best || bestScore <= 0) return { value: null as string | null, ambiguous: false };
   if (tie) return { value: null as string | null, ambiguous: true };
   return { value: best.value, ambiguous: false };
+}
+
+function extractChoiceNumberFromText(text: string, max: number) {
+  if (!text) return null as number | null;
+  const m = normalizeText(text).match(/\b(\d{1,2})\b/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1 || n > max) return null;
+  return n;
+}
+
+function buildProductFichaMessages(detail: Awaited<ReturnType<typeof loadProductDetail>>) {
+  if (!detail) return [];
+  const title = cleanProductName(detail.nombre || "");
+  const header = title ? `*${title}*` : "*Producto*";
+  const bodyLines: string[] = [];
+  if (detail.precio) bodyLines.push(`💰 Precio: ${detail.precio}`);
+  if (detail.shortFinal) bodyLines.push(detail.shortFinal);
+  if (detail.fichaUrl) bodyLines.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
+  bodyLines.push("");
+  bodyLines.push("Responde: Cotizar / Volver / Nueva búsqueda");
+  const body = bodyLines.filter(Boolean).join("\n");
+
+  const out: Array<string | OutboundMessage> = [header];
+  if (detail.imageUrl) out.push({ type: "image", imageUrl: detail.imageUrl });
+  if (body.trim()) out.push(body);
+  return out;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -845,7 +915,10 @@ function initState(): UserState {
 }
 
 function resetBranchState(state: UserState, branch: Branch) {
-  if (branch === "catalogo") state.catalog = { filters: {}, status: "idle" };
+  if (branch === "catalogo") {
+    const forceAskAll = state.catalog.forceAskAll;
+    state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
+  }
   if (branch === "proyectos") state.projects = { offset: 0 };
   if (branch === "puntos_venta") state.points = {};
 }
@@ -1265,22 +1338,34 @@ async function buildCotizacionResumen(state: UserState) {
   if (includedNames.length) lines.push(`➕ Recomendados incluidos: ${includedNames.join(", ")}`);
 
   lines.push("");
-  lines.push("✅ Ya recibimos tu solicitud. En breve te vamos a contactar.");
+  lines.push("✅ Ya recibimos tu solicitud.");
   return lines.join("\n");
 }
 
-async function finalizeCotizacion(state: UserState, userPhone: string) {
+function buildAfterCotizacionMessage() {
+  return [
+    "Uno de nuestros vendedores se pondrá en contacto contigo.",
+    "",
+    "¿Quieres cotizar otro producto o volver al menú?",
+    "",
+    "Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta",
+  ].join("\n");
+}
+
+async function finalizeCotizacion(state: UserState, userPhone: string): Promise<Reply> {
   await saveCotizacionToSupabase(userPhone, state);
   if (state.catalog.quote?.data) {
     await upsertUserProfile(userPhone, state.catalog.quote.data);
   }
   const resumen = await buildCotizacionResumen(state);
-  state.catalog = { filters: {}, status: "idle" };
+  const forceAskAll = state.catalog.forceAskAll;
+  state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
   state.activeBranch = "menu";
-  return withMainMenu(resumen);
+  state.postCotizacion = { awaitingAction: true };
+  return [resumen, buildAfterCotizacionMessage()];
 }
 
-async function handleCatalog(state: UserState, text: string, userPhone: string): Promise<string> {
+async function handleCatalog(state: UserState, text: string, userPhone: string): Promise<Reply> {
   const input = text.trim();
   const t = normalizeText(input);
 
@@ -1323,7 +1408,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       const lines = items.length
         ? items.map((n, i) => `${i + 1}) ${cleanProductName(n)}`).join("\n")
         : "No encontré recomendados para mostrar ahora.";
-      return [`Estos son los productos recomendados:`, "", lines, "", "Elige un número o responde Terminar."].join("\n");
+      return [`Estos son los productos recomendados:`, "", lines, "", "Indícame qué opción quieres ver (número o nombre) o responde Terminar."].join("\n");
     }
     if (t.startsWith("3") && state.catalog.recommended?.mode === "offer") {
       state.catalog.recommended.rejectedIds.push(...state.catalog.recommended.remainingIds);
@@ -1342,21 +1427,18 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         state.catalog.recommended.currentId = id;
         state.catalog.recommended.mode = "detail";
         const d = await loadProductDetail(id);
-        if (!d) return "No pude cargar ese recomendado. Elige otro número o responde Terminar.";
-        const parts = [
-          `*${d.nombre}*`,
-          d.imageUrl ? `🖼️ ${d.imageUrl}` : "",
-          d.shortFinal ? d.shortFinal : "",
-          d.fichaUrl ? `📄 Ficha técnica: ${d.fichaUrl}` : "",
+        if (!d) return "No pude cargar ese recomendado. Indícame otra opción o responde Terminar.";
+        const base = buildProductFichaMessages(d);
+        return [
+          ...base,
           "",
           "Responde: Incluir / Rechazar / Terminar",
-        ].filter(Boolean);
-        return parts.join("\n");
+        ].filter((x) => (typeof x === "string" ? x.trim() : true));
       }
       if (t.includes("termin")) {
         return await finalizeCotizacion(state, userPhone);
       }
-      return "Elige un número de la lista o responde Terminar.";
+      return "Indícame qué opción quieres ver, o responde Terminar.";
     }
 
     if (state.catalog.recommended?.mode === "detail" && state.catalog.recommended.currentId) {
@@ -1495,15 +1577,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         });
       }
 
-      return await minimaxRewrite({
-        kind: "cierre",
-        input,
-        facts: [
-          "Listo, ya tengo tus datos para la cotización. En breve te vamos a contactar.",
-          "¿Quieres terminar o cancelar la cotización?",
-          "Responde: Terminar / Cancelar.",
-        ],
-      });
+      return await finalizeCotizacion(state, userPhone);
     }
   }
 
@@ -1582,8 +1656,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (state.catalog.selectedProductId) {
     if (t.includes("cotiz")) {
-      const profile = await loadUserProfile(userPhone);
+      const profile = state.catalog.forceAskAll ? null : await loadUserProfile(userPhone);
       const prefill = profile ? { ...profile } : {};
+      state.catalog.forceAskAll = undefined;
       const next = getNextQuoteStep(prefill);
       state.catalog.quote = { step: next, data: prefill };
       if (next === "final") {
@@ -1634,22 +1709,29 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (state.catalog.lastList && state.catalog.lastList.length) {
-    const n = isNumericChoice(t, state.catalog.lastList.length);
+    const max = state.catalog.lastList.length;
+    const n = isNumericChoice(t, max) ?? extractChoiceNumberFromText(input, max);
     if (n) {
       const chosen = state.catalog.lastList[n - 1];
       state.catalog.selectedProductId = chosen.product_id;
       const detail = await loadProductDetail(chosen.product_id);
-      if (!detail) return "No pude cargar la ficha de ese producto. Elige otro número o escribe Nueva búsqueda.";
-      const parts = [
-        `*${detail.nombre}*`,
-        detail.precio ? `💰 Precio: ${detail.precio}` : "",
-        detail.imageUrl ? `🖼️ ${detail.imageUrl}` : "",
-        detail.shortFinal ? detail.shortFinal : "",
-        detail.fichaUrl ? `📄 Ficha técnica: ${detail.fichaUrl}` : "",
-        "",
-        "Responde: Cotizar / Volver / Nueva búsqueda",
-      ].filter(Boolean);
-      return parts.join("\n");
+      if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
+      return buildProductFichaMessages(detail);
+    }
+
+    const productOptions: CatalogPendingOption[] = state.catalog.lastList.map((p) => ({
+      label: cleanProductName(p.nombre),
+      value: p.product_id,
+    }));
+    const match = matchPendingOption(input, productOptions);
+    if (match.value) {
+      state.catalog.selectedProductId = match.value;
+      const detail = await loadProductDetail(match.value);
+      if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
+      return buildProductFichaMessages(detail);
+    }
+    if (match.ambiguous) {
+      return `Me quedaron 2 opciones parecidas. ¿Me dices el número (1–${max}) para elegir bien?`;
     }
   }
 
@@ -1665,7 +1747,13 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   const lines = products.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
-  return ["Estos son los que encontré (máx. 5):", "", lines, "", "Elige un número para ver la ficha."].join("\n");
+  return [
+    "Estos son los que encontré (máx. 5):",
+    "",
+    lines,
+    "",
+    "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre (ej: Motorola DP250).",
+  ].join("\n");
 }
 
 async function tryLoadRecommendedIds(productId?: string) {
@@ -2017,7 +2105,7 @@ export async function POST(request: Request) {
       await sendChatPresence(userKey, "start");
       startedPresence = true;
 
-      let reply: string | string[] = "";
+      let reply: Reply = "";
 
       if (!state.greeted) {
         const saludo = "¡Buenas! Espero que estés teniendo un gran día, ¿en qué te podemos ayudar hoy?";
@@ -2035,6 +2123,69 @@ export async function POST(request: Request) {
           reply = buildMainMenuText();
         }
       } else {
+        if (state.postCotizacion?.awaitingAction) {
+          const intent = detectBranchIntent(inboundText);
+          const wantsCotizarOtro = detectQuoteIntent(inboundText) || normalizeText(inboundText).includes("otra cotizacion") || normalizeText(inboundText).includes("otra cotización");
+
+          if (state.postCotizacion.awaitingReuseConfirm) {
+            const t2 = normalizeText(inboundText);
+            const yes = t2 === "si" || t2 === "sí" || t2.includes("si ") || t2.includes("sí ") || t2.includes("dale") || t2.includes("ok") || t2.includes("de acuerdo");
+            const no = t2 === "no" || t2.startsWith("no ");
+
+            if (yes) {
+              state.postCotizacion = undefined;
+              state.catalog.forceAskAll = undefined;
+              reply = await startCotizarFlow(state, userKey);
+            } else if (no) {
+              state.postCotizacion = undefined;
+              state.catalog.forceAskAll = true;
+              reply = await startCotizarFlow(state, userKey);
+            } else if (intent.wantsMenu) {
+              state.postCotizacion = undefined;
+              state.activeBranch = "menu";
+              resetBranchState(state, "catalogo");
+              resetBranchState(state, "proyectos");
+              resetBranchState(state, "puntos_venta");
+              reply = buildMainMenuText();
+            } else if (intent.branch) {
+              state.postCotizacion = undefined;
+              const previous = state.activeBranch;
+              state.activeBranch = intent.branch;
+              resetBranchState(state, previous);
+              resetBranchState(state, intent.branch);
+              if (intent.branch === "proyectos") reply = await handleProjects(state, inboundText);
+              else if (intent.branch === "servicio_tecnico") reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+              else if (intent.branch === "puntos_venta") reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
+              else if (intent.branch === "catalogo") reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+              else reply = buildMainMenuText();
+            } else {
+              reply = "¿Quieres cotizar con tus datos guardados para hacerlo más rápido? Responde: Sí / No.";
+            }
+          } else if (wantsCotizarOtro) {
+            state.postCotizacion.awaitingReuseConfirm = true;
+            reply = "Perfecto. ¿Quieres cotizar con los datos que ya ingresaste para hacerlo más rápido? Responde: Sí / No.";
+          } else if (intent.wantsMenu) {
+            state.postCotizacion = undefined;
+            state.activeBranch = "menu";
+            resetBranchState(state, "catalogo");
+            resetBranchState(state, "proyectos");
+            resetBranchState(state, "puntos_venta");
+            reply = buildMainMenuText();
+          } else if (intent.branch) {
+            state.postCotizacion = undefined;
+            const previous = state.activeBranch;
+            state.activeBranch = intent.branch;
+            resetBranchState(state, previous);
+            resetBranchState(state, intent.branch);
+            if (intent.branch === "proyectos") reply = await handleProjects(state, inboundText);
+            else if (intent.branch === "servicio_tecnico") reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+            else if (intent.branch === "puntos_venta") reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
+            else if (intent.branch === "catalogo") reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+            else reply = buildMainMenuText();
+          } else {
+            reply = "Dale. ¿Quieres cotizar otro producto o volver al menú? Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta";
+          }
+        } else
         if (state.activeBranch === "menu") {
           if (detectQuoteIntent(inboundText)) {
             reply = await startCotizarFlow(state, userKey);
@@ -2119,9 +2270,19 @@ export async function POST(request: Request) {
       await saveUserState(userKey, state);
       const messages = Array.isArray(reply) ? reply : [reply];
       for (const m of messages) {
-        const msg = String(m ?? "").trim();
-        if (msg) {
-          await sendTextMessage(from, msg);
+        if (typeof m === "string") {
+          const msg = m.trim();
+          if (msg) await sendTextMessage(from, msg);
+          continue;
+        }
+        if (m && typeof m === "object") {
+          if (m.type === "text") {
+            const msg = String(m.text ?? "").trim();
+            if (msg) await sendTextMessage(from, msg);
+          } else if (m.type === "image") {
+            const url = String(m.imageUrl ?? "").trim();
+            if (url) await sendImageMessage(from, url, m.caption);
+          }
         }
       }
     } finally {
