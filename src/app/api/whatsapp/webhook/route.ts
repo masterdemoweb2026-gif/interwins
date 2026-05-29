@@ -299,7 +299,7 @@ function buildMainMenuText() {
     "3. 🏗️ Proyectos",
     "4. 📍 Puntos de Venta",
     "",
-    "Respóndeme con el número (1–4).",
+    "Respóndeme con el número (1–4) o escribiendo la opción y te guío al tiro. 😊",
   ].join("\n");
 }
 
@@ -440,6 +440,8 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
     "Hablas en español chileno, tono cordial, profesional y cercano.",
     "Sé breve, claro y sin redundancias.",
     "Nunca menciones que eres una IA.",
+    "Nunca uses etiquetas como <think> ni expliques tu razonamiento.",
+    "Entrega solo el mensaje final para WhatsApp, sin encabezados ni meta-explicaciones.",
     "No inventes datos: si algo no está en los hechos, no lo agregues.",
   ].join(" ");
 
@@ -478,8 +480,41 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
   const first = Array.isArray(choices) ? (choices[0] as unknown) : undefined;
   const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
   const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
-  if (typeof content === "string" && content.trim()) return content.trim();
+  if (typeof content === "string" && content.trim()) {
+    const cleaned = sanitizeMinimaxOutput(content);
+    if (cleaned) return cleaned;
+  }
   return args.facts.filter(Boolean).join("\n");
+}
+
+function sanitizeMinimaxOutput(raw: string) {
+  const withoutThink = raw
+    .replace(/<think[\s\S]*?<\/think>\s*/gi, "")
+    .replace(/<analysis[\s\S]*?<\/analysis>\s*/gi, "")
+    .replace(/^\s*(tipo de mensaje|mensaje del cliente|hechos a comunicar)\s*:\s*.*$/gim, "")
+    .replace(/^\s*debo\s+.*$/gim, "");
+
+  const withoutTagsAndFences = withoutThink
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/<\/?[^>]+>/g, "")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim();
+
+  const lines = withoutTagsAndFences
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const forbidden = /(soy (una )?ia|como ia|modelo( de lenguaje)?|minimax|gpt|openai|anthropic)/i;
+  const safeLines = lines
+    .filter((l) => !forbidden.test(l))
+    .map((l) => l.replace(forbidden, "").trim())
+    .filter(Boolean);
+
+  const merged = safeLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (!merged) return "";
+  return merged.length > 1200 ? `${merged.slice(0, 1200).trim()}...` : merged;
 }
 
 function initState(): UserState {
@@ -654,11 +689,49 @@ async function searchDealers(query: string) {
   }));
 }
 
+async function searchPuntosVenta(query: string) {
+  const q = normalizeText(query);
+  if (!q) return [];
+  const like = encodeURIComponent(`*${query.trim()}*`);
+
+  const tableCandidates = ["punto_venta", "puntos_venta", "puntos_de_venta"];
+  for (const table of tableCandidates) {
+    const params = [
+      `select=titulo,direccion,categoria`,
+      `or=(titulo.ilike.${like},direccion.ilike.${like},categoria.ilike.${like})`,
+      `limit=5`,
+    ].join("&");
+    const res = await supabaseFetch(`${table}?${params}`, { method: "GET" });
+    if (!res.ok || !Array.isArray(res.data)) continue;
+    const rows = (res.data as unknown[])
+      .map((r) => ({
+        titulo: toTrimmedString(getRecordValue(r, "titulo")),
+        direccion: toTrimmedString(getRecordValue(r, "direccion")),
+        categoria: toTrimmedString(getRecordValue(r, "categoria")),
+      }))
+      .filter((r) => r.titulo && r.direccion);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
 async function answerServicioTecnico(query: string) {
   const q = query.trim();
   if (!q) return null;
   const like = encodeURIComponent(`*${q}*`);
-  const params = [`select=tema,informacion`, `or=(tema.ilike.${like},informacion.ilike.${like})`, `limit=3`].join("&");
+  const tokens = normalizeText(q)
+    .split(/[^a-z0-9]+/g)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3)
+    .slice(0, 5);
+
+  const orParts = [`tema.ilike.${like}`, `informacion.ilike.${like}`];
+  for (const t of tokens) {
+    const arrayExpr = encodeURIComponent(`{${t}}`);
+    orParts.push(`palabras_clave.cs.${arrayExpr}`);
+  }
+
+  const params = [`select=tema,informacion,palabras_clave`, `or=(${orParts.join(",")})`, `limit=3`].join("&");
   const res = await supabaseFetch(`servicio_tecnico?${params}`, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return null;
   const rows = (res.data as unknown[])
@@ -1100,23 +1173,34 @@ async function handlePoints(state: UserState, text: string) {
   const q = text.trim();
   if (!q) return "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
   state.points.lastQuery = q;
-  const dealers = await searchDealers(q);
-  if (!dealers.length) {
+  const [dealers, puntosVenta] = await Promise.all([searchDealers(q), searchPuntosVenta(q)]);
+
+  if (!dealers.length && !puntosVenta.length) {
     state.activeBranch = "menu";
     resetBranchState(state, "puntos_venta");
     return ["No encontré puntos de venta con ese dato.", "", buildMainMenuText()].join("\n");
   }
-  const formatted = dealers
-    .map((d) => {
-      const parts = [
-        `📍 ${d.nombre_punto}`,
-        d.direccion || d.comuna ? `   Dirección: ${[d.direccion, d.comuna].filter(Boolean).join(", ")}` : "",
-        d.region ? `   Región: ${d.region}` : "",
-        d.telefono ? `   Teléfono: ${d.telefono}` : "",
-      ].filter(Boolean);
-      return parts.join("\n");
-    })
-    .join("\n\n");
+
+  const blocks: string[] = [];
+
+  const dealerBlocks = dealers.slice(0, 3).map((d) => {
+    const parts = [
+      `📍 ${d.nombre_punto}`,
+      d.direccion || d.comuna ? `   Dirección: ${[d.direccion, d.comuna].filter(Boolean).join(", ")}` : "",
+      d.region ? `   Región: ${d.region}` : "",
+      d.telefono ? `   Teléfono: ${d.telefono}` : "",
+    ].filter(Boolean);
+    return parts.join("\n");
+  });
+  blocks.push(...dealerBlocks);
+
+  const remaining = Math.max(0, 5 - blocks.length);
+  const pvBlocks = puntosVenta
+    .slice(0, remaining)
+    .map((p) => [`📍 ${p.titulo}`, p.categoria ? `   Zona: ${p.categoria}` : "", `   Dirección: ${p.direccion}`].filter(Boolean).join("\n"));
+  blocks.push(...pvBlocks);
+
+  const formatted = blocks.join("\n\n");
   state.activeBranch = "menu";
   resetBranchState(state, "puntos_venta");
   return [formatted, "", buildMainMenuText()].join("\n");
