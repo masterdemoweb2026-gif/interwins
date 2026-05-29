@@ -74,14 +74,13 @@ export default function Home() {
             Webhook: <span className="font-mono">{webhookUrl}</span>
           </p>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Si envías un mensaje al número de WhatsApp Business (Cloud API), el bot responde:{" "}
-            <span className="font-mono">hola</span>
+            Si envías un mensaje al WhatsApp conectado por GOWA, el bot responde: <span className="font-mono">hola</span>
           </p>
         </div>
 
         <div className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-zinc-950">
           <div className="flex items-center justify-between gap-4">
-            <div className="text-sm font-medium">Conectividad (Meta)</div>
+            <div className="text-sm font-medium">Conectividad (GOWA)</div>
             <button
               type="button"
               onClick={refreshMetaStatus}
@@ -106,7 +105,7 @@ export default function Home() {
             <input
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              placeholder="569XXXXXXXX (formato internacional, sin +)"
+              placeholder="569XXXXXXXX o 569XXXXXXXX@s.whatsapp.net"
               className="h-11 rounded-lg border border-black/10 bg-transparent px-3 outline-none ring-0 focus:border-black/30 dark:border-white/10 dark:focus:border-white/30"
             />
           </div>

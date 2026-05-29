@@ -1,43 +1,62 @@
 import { NextResponse } from "next/server";
 
-function getAccessToken() {
-  return process.env.WHATSAPP_ACCESS_TOKEN ?? "";
+function getGowaBaseUrl() {
+  return (process.env.GOWA_BASE_URL ?? "").replace(/\/+$/, "");
 }
 
-function getPhoneNumberId() {
-  return process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+function getGowaBasicAuth() {
+  return process.env.GOWA_BASIC_AUTH ?? "";
+}
+
+function getGowaDeviceId() {
+  return process.env.GOWA_DEVICE_ID ?? "";
 }
 
 function mask(value: string) {
   if (!value) return "";
-  if (value.length <= 8) return "*".repeat(value.length);
-  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+  if (value.length <= 10) return "*".repeat(value.length);
+  return `${value.slice(0, 10)}...`;
 }
 
-export async function GET() {
-  const accessToken = getAccessToken();
-  const phoneNumberId = getPhoneNumberId();
+function toBasicAuthHeader(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.toLowerCase().startsWith("basic ")) return trimmed;
+  return `Basic ${Buffer.from(trimmed).toString("base64")}`;
+}
 
-  const summary = {
-    hasAccessToken: Boolean(accessToken),
-    hasPhoneNumberId: Boolean(phoneNumberId),
-    phoneNumberId: phoneNumberId ? mask(phoneNumberId) : "",
-  };
-
-  if (!accessToken || !phoneNumberId) {
-    return NextResponse.json({ ok: false, summary, error: "Missing env vars" }, { status: 200 });
-  }
-
-  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}?fields=display_phone_number,verified_name`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
-
+async function safeFetchJson(url: string, headers: Record<string, string>) {
+  const res = await fetch(url, { headers, cache: "no-store" });
   const text = await res.text();
   let data: unknown = text;
   try {
     data = JSON.parse(text);
   } catch {}
+  return { ok: res.ok, status: res.status, data };
+}
 
-  return NextResponse.json({ ok: res.ok, summary, status: res.status, data }, { status: 200 });
+export async function GET() {
+  const baseUrl = getGowaBaseUrl();
+  const basicAuth = getGowaBasicAuth();
+  const deviceId = getGowaDeviceId();
+
+  const summary = {
+    hasBaseUrl: Boolean(baseUrl),
+    baseUrl: baseUrl ? mask(baseUrl) : "",
+    hasBasicAuth: Boolean(basicAuth),
+    hasDeviceId: Boolean(deviceId),
+    deviceId: deviceId ? mask(deviceId) : "",
+  };
+
+  if (!baseUrl) {
+    return NextResponse.json({ ok: false, summary, error: "Missing env vars" }, { status: 200 });
+  }
+
+  const headers: Record<string, string> = {};
+  const auth = toBasicAuthHeader(basicAuth);
+  if (auth) headers.Authorization = auth;
+  if (deviceId) headers["X-Device-Id"] = deviceId;
+
+  const status = await safeFetchJson(`${baseUrl}/app/status`, headers);
+  return NextResponse.json({ ok: status.ok, summary, status }, { status: 200 });
 }

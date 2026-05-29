@@ -1,36 +1,40 @@
 import { NextResponse } from "next/server";
 
-function getMetaAccessToken() {
-  return process.env.WHATSAPP_ACCESS_TOKEN ?? "";
+function getGowaBaseUrl() {
+  return (process.env.GOWA_BASE_URL ?? "").replace(/\/+$/, "");
 }
 
-function getMetaPhoneNumberId() {
-  return process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+function getGowaBasicAuth() {
+  return process.env.GOWA_BASIC_AUTH ?? "";
 }
 
-async function sendViaMeta(to: string, message: string) {
-  const accessToken = getMetaAccessToken();
-  const phoneNumberId = getMetaPhoneNumberId();
-  if (!accessToken || !phoneNumberId) {
-    return {
-      ok: false,
-      status: 500,
-      data: { error: "WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID not set" },
-    };
+function getGowaDeviceId() {
+  return process.env.GOWA_DEVICE_ID ?? "";
+}
+
+function toBasicAuthHeader(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.toLowerCase().startsWith("basic ")) return trimmed;
+  return `Basic ${Buffer.from(trimmed).toString("base64")}`;
+}
+
+async function sendViaGowa(to: string, message: string) {
+  const baseUrl = getGowaBaseUrl();
+  if (!baseUrl) {
+    return { ok: false, status: 500, data: { error: "GOWA_BASE_URL not set" } };
   }
 
-  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const auth = toBasicAuthHeader(getGowaBasicAuth());
+  if (auth) headers.Authorization = auth;
+  const deviceId = getGowaDeviceId();
+  if (deviceId) headers["X-Device-Id"] = deviceId;
+
+  const res = await fetch(`${baseUrl}/send/message`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: message },
-    }),
+    headers,
+    body: JSON.stringify({ phone: to, message }),
   });
 
   const text = await res.text();
@@ -56,6 +60,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Missing to/message" }, { status: 400 });
   }
 
-  const res = await sendViaMeta(to, message);
+  const res = await sendViaGowa(to, message);
   return NextResponse.json(res, { status: res.ok ? 200 : res.status });
 }

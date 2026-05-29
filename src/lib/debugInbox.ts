@@ -3,7 +3,7 @@ import crypto from "crypto";
 export type InboxEvent = {
   id: string;
   ts: number;
-  source: "meta";
+  source: "meta" | "gowa";
   signatureValid: boolean | null;
   from?: string;
   text?: string;
