@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import fs from "node:fs";
 import { NextResponse } from "next/server";
 import { inboxAdd } from "@/lib/debugInbox";
 
@@ -58,11 +59,104 @@ async function sendTextMessage(to: string, text: string) {
   const deviceId = getGowaDeviceId();
   if (deviceId) headers["X-Device-Id"] = deviceId;
 
-  await fetch(`${baseUrl}/send/message`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ phone: to, message: text }),
-  });
+  // #region debug-point C:send-message
+  (() => {
+    try {
+      const p = ".dbg/whatsapp-no-reply.env";
+      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+      let s = process.env.DEBUG_SESSION_ID || "whatsapp-no-reply";
+      try {
+        const e = fs.readFileSync(p, "utf8");
+        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+      } catch {}
+      fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: s,
+          runId: "post-fix",
+          hypothesisId: "C",
+          location: "webhook/route.ts:sendTextMessage",
+          msg: "[DEBUG] sending gowa message",
+          data: {
+            to,
+            messageLen: text.length,
+            hasAuth: Boolean(auth),
+            hasDeviceId: Boolean(deviceId),
+            baseUrlPresent: Boolean(baseUrl),
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {}
+  })();
+  // #endregion
+
+  try {
+    const res = await fetch(`${baseUrl}/send/message`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ phone: to, message: text }),
+    });
+
+    // #region debug-point C:send-result
+    (() => {
+      try {
+        const p = ".dbg/whatsapp-no-reply.env";
+        let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+        let s = process.env.DEBUG_SESSION_ID || "whatsapp-no-reply";
+        try {
+          const e = fs.readFileSync(p, "utf8");
+          u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+          s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+        } catch {}
+        fetch(u, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: s,
+            runId: "post-fix",
+            hypothesisId: "C",
+            location: "webhook/route.ts:sendTextMessage",
+            msg: "[DEBUG] gowa send response received",
+            data: { status: res.status, ok: res.ok },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+      } catch {}
+    })();
+    // #endregion
+  } catch (err) {
+    // #region debug-point C:send-error
+    (() => {
+      try {
+        const p = ".dbg/whatsapp-no-reply.env";
+        let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+        let s = process.env.DEBUG_SESSION_ID || "whatsapp-no-reply";
+        try {
+          const e = fs.readFileSync(p, "utf8");
+          u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+          s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+        } catch {}
+        fetch(u, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: s,
+            runId: "post-fix",
+            hypothesisId: "C",
+            location: "webhook/route.ts:sendTextMessage",
+            msg: "[DEBUG] gowa send threw error",
+            data: { err: String(err) },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+      } catch {}
+    })();
+    // #endregion
+    throw err;
+  }
 }
 
 type Branch = "menu" | "catalogo" | "servicio_tecnico" | "proyectos" | "puntos_venta";
@@ -1089,7 +1183,10 @@ export async function POST(request: Request) {
       toTrimmedString(isRecord(message) ? (message as Record<string, unknown>).conversation : undefined) ||
       toTrimmedString(isRecord(message) ? (message as Record<string, unknown>).body : undefined) ||
       toTrimmedString(isRecord(payload) ? (payload as Record<string, unknown>).text : undefined) ||
-      toTrimmedString(isRecord(payload) && isRecord(payload.message) ? (payload.message as Record<string, unknown>).text : undefined)) ||
+      toTrimmedString(isRecord(payload) && isRecord(payload.message) ? (payload.message as Record<string, unknown>).text : undefined) ||
+      toTrimmedString(isRecord(payload) && isRecord(payload.message) ? (payload.message as Record<string, unknown>).body : undefined) ||
+      toTrimmedString(isRecord(payload) ? (payload as Record<string, unknown>).body : undefined) ||
+      toTrimmedString(isRecord(payload) && isRecord(payload.data) ? (payload.data as Record<string, unknown>).body : undefined)) ||
     undefined;
 
   const fromMe =
@@ -1101,9 +1198,73 @@ export async function POST(request: Request) {
 
   const isInboundText = typeof text === "string" && text.trim().length > 0;
 
+  // #region debug-point B:parse-inbound
+  (() => {
+    try {
+      const p = ".dbg/whatsapp-no-reply.env";
+      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+      let s = process.env.DEBUG_SESSION_ID || "whatsapp-no-reply";
+      try {
+        const e = fs.readFileSync(p, "utf8");
+        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+      } catch {}
+      const payloadBody = toTrimmedString(isRecord(payload) ? (payload as Record<string, unknown>).body : undefined);
+      fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: s,
+          runId: "post-fix",
+          hypothesisId: "B",
+          location: "webhook/route.ts:POST(parse)",
+          msg: "[DEBUG] parsed inbound message fields",
+          data: {
+            from,
+            fromMe,
+            shouldAutoReply: shouldAutoReply(),
+            extractedText: typeof text === "string" ? text : "",
+            payloadBody,
+            isInboundText,
+            hasMessageObject: Boolean(message),
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {}
+  })();
+  // #endregion
+
   inboxAdd({ source: "gowa", signatureValid, from, text, body: shouldStoreBody() ? body : undefined });
 
   if (!fromMe && shouldAutoReply() && from && isInboundText) {
+    // #region debug-point A:auto-reply-gate
+    (() => {
+      try {
+        const p = ".dbg/whatsapp-no-reply.env";
+        let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+        let s = process.env.DEBUG_SESSION_ID || "whatsapp-no-reply";
+        try {
+          const e = fs.readFileSync(p, "utf8");
+          u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+          s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+        } catch {}
+        fetch(u, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: s,
+            runId: "post-fix",
+            hypothesisId: "A",
+            location: "webhook/route.ts:POST(gate)",
+            msg: "[DEBUG] auto-reply gate passed",
+            data: { from, fromMe, isInboundText, autoReply: shouldAutoReply() },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+      } catch {}
+    })();
+    // #endregion
     const inboundText = String(text ?? "").trim();
     const userKey = from;
     const state = (await loadUserState(userKey)) ?? initState();
