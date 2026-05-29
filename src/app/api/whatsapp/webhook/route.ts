@@ -237,6 +237,7 @@ type UserState = {
   greeted: boolean;
   activeBranch: Branch;
   userName?: string;
+  recentInboundIds?: string[];
   catalog: CatalogState;
   projects: ProjectsState;
   points: PointsState;
@@ -438,6 +439,34 @@ async function loadUserState(userPhoneKey: string): Promise<UserState | null> {
   return null;
 }
 
+async function ensureMessageBufferRow(userPhoneKey: string) {
+  const q = `message_buffer?on_conflict=user_phone`;
+  await supabaseFetch(q, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ user_phone: userPhoneKey, is_processed: false, procesando: false }),
+  });
+}
+
+async function tryAcquireProcessingLock(userPhoneKey: string) {
+  const q = `message_buffer?user_phone=eq.${encodeURIComponent(userPhoneKey)}&or=(procesando.is.null,procesando.eq.false)`;
+  const res = await supabaseFetch(q, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify({ procesando: true, last_updated_at: new Date().toISOString() }),
+  });
+  return res.ok && Array.isArray(res.data) && (res.data as unknown[]).length > 0;
+}
+
+async function releaseProcessingLock(userPhoneKey: string) {
+  const q = `message_buffer?user_phone=eq.${encodeURIComponent(userPhoneKey)}`;
+  await supabaseFetch(q, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ procesando: false, last_updated_at: new Date().toISOString() }),
+  });
+}
+
 async function saveUserState(userPhoneKey: string, state: UserState) {
   const q = `message_buffer?on_conflict=user_phone`;
   const basePayload = {
@@ -555,6 +584,7 @@ function initState(): UserState {
     v: 1,
     greeted: false,
     activeBranch: "menu",
+    recentInboundIds: [],
     catalog: { filters: {}, status: "idle" },
     projects: { offset: 0 },
     points: {},
@@ -1561,6 +1591,12 @@ export async function POST(request: Request) {
     (isRecord(message) && (message as Record<string, unknown>).fromMe === true) ||
     (isRecord(payload) && (payload as Record<string, unknown>).is_from_me === true);
 
+  const inboundId =
+    (toTrimmedString(isRecord(payload) ? (payload as Record<string, unknown>).id : undefined) ||
+      toTrimmedString(isRecord(message) ? (message as Record<string, unknown>).id : undefined) ||
+      toTrimmedString(isRecord(payload) && isRecord(payload.message) ? (payload.message as Record<string, unknown>).id : undefined)) ||
+    undefined;
+
   const isInboundText = typeof text === "string" && text.trim().length > 0;
   const autoReplyEnabled = shouldAutoReply();
   const autoReplyGate = !fromMe && autoReplyEnabled && Boolean(from) && isInboundText;
@@ -1608,7 +1644,7 @@ export async function POST(request: Request) {
     source: "gowa",
     signatureValid: null,
     from,
-    text: `[DEBUG] IN gate autoReply=${autoReplyEnabled} fromMe=${fromMe} isInboundText=${isInboundText} gate=${autoReplyGate}`,
+    text: `[DEBUG] IN gate autoReply=${autoReplyEnabled} fromMe=${fromMe} isInboundText=${isInboundText} gate=${autoReplyGate} inboundId=${inboundId ?? ""}`,
   });
 
   if (autoReplyGate) {
@@ -1645,71 +1681,94 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true }, { status: 200 });
     }
     const userKey = from;
-    const state = (await loadUserState(userKey)) ?? initState();
-
-    let reply = "";
-
-    if (!state.greeted) {
-      const saludo = await minimaxRewrite({
-        kind: "saludo",
-        input: inboundText,
-        facts: [
-          `Hola${state.userName ? ` ${state.userName}` : ""}, bienvenido(a). Soy tu asesor de InterWins.`,
-        ],
-      });
-      state.greeted = true;
-      state.activeBranch = "menu";
-      reply = withMainMenu(saludo);
-    } else if (isMenuCommand(inboundText)) {
-      if (state.catalog.status === "wait_finish_cotizacion") {
-        reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
-      } else {
-        state.activeBranch = "menu";
-        resetBranchState(state, "catalogo");
-        resetBranchState(state, "proyectos");
-        resetBranchState(state, "puntos_venta");
-        reply = buildMainMenuText();
-      }
-    } else {
-      if (state.activeBranch === "menu") {
-        const choice = parseMenuChoice(inboundText) ?? classifyFreeText(inboundText);
-        if (choice) {
-          state.activeBranch = choice;
-          resetBranchState(state, choice);
-          if (choice === "catalogo") {
-            reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
-          } else if (choice === "servicio_tecnico") {
-            reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
-          } else if (choice === "proyectos") {
-            reply = await handleProjects(state, "");
-          } else if (choice === "puntos_venta") {
-            reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
-          }
-        } else {
-          const msg = await minimaxRewrite({
-            kind: "fuera_menu",
-            input: inboundText,
-            facts: ["Te leo. Si me dices qué necesitas, te guío al tiro."],
-          });
-          reply = withMainMenu(msg);
-        }
-      } else if (state.activeBranch === "catalogo") {
-        reply = await handleCatalog(state, inboundText, userKey);
-      } else if (state.activeBranch === "proyectos") {
-        reply = await handleProjects(state, inboundText);
-      } else if (state.activeBranch === "puntos_venta") {
-        reply = await handlePoints(state, inboundText);
-      } else if (state.activeBranch === "servicio_tecnico") {
-        reply = await handleServicioTecnico(state, inboundText);
-      } else {
-        state.activeBranch = "menu";
-        reply = buildMainMenuText();
-      }
+    await ensureMessageBufferRow(userKey);
+    const acquired = await tryAcquireProcessingLock(userKey);
+    if (!acquired) {
+      inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: "[DEBUG] Skipping reply: lock not acquired" });
+      return NextResponse.json({ ok: true }, { status: 200 });
     }
 
-    await saveUserState(userKey, state);
-    if (reply.trim()) {
-      await sendTextMessage(from, reply.trim());
+    try {
+      const state = (await loadUserState(userKey)) ?? initState();
+
+      if (inboundId && (state.recentInboundIds ?? []).includes(inboundId)) {
+        inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate inboundId=${inboundId}` });
+        await saveUserState(userKey, state);
+        return NextResponse.json({ ok: true }, { status: 200 });
+      }
+
+      let reply = "";
+
+      if (!state.greeted) {
+        const saludo = await minimaxRewrite({
+          kind: "saludo",
+          input: inboundText,
+          facts: [`Hola${state.userName ? ` ${state.userName}` : ""}, bienvenido(a). Soy tu asesor de InterWins.`],
+        });
+        state.greeted = true;
+        state.activeBranch = "menu";
+        reply = withMainMenu(saludo);
+      } else if (isMenuCommand(inboundText)) {
+        if (state.catalog.status === "wait_finish_cotizacion") {
+          reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
+        } else {
+          state.activeBranch = "menu";
+          resetBranchState(state, "catalogo");
+          resetBranchState(state, "proyectos");
+          resetBranchState(state, "puntos_venta");
+          reply = buildMainMenuText();
+        }
+      } else {
+        if (state.activeBranch === "menu") {
+          const choice = parseMenuChoice(inboundText) ?? classifyFreeText(inboundText);
+          if (choice) {
+            state.activeBranch = choice;
+            resetBranchState(state, choice);
+            if (choice === "catalogo") {
+              reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+            } else if (choice === "servicio_tecnico") {
+              reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+            } else if (choice === "proyectos") {
+              reply = await handleProjects(state, "");
+            } else if (choice === "puntos_venta") {
+              reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
+            }
+          } else {
+            const msg = await minimaxRewrite({
+              kind: "fuera_menu",
+              input: inboundText,
+              facts: ["Te leo. Si me dices qué necesitas, te guío al tiro."],
+            });
+            reply = withMainMenu(msg);
+          }
+        } else {
+          if (state.activeBranch === "catalogo") {
+            reply = await handleCatalog(state, inboundText, userKey);
+          } else if (state.activeBranch === "proyectos") {
+            reply = await handleProjects(state, inboundText);
+          } else if (state.activeBranch === "puntos_venta") {
+            reply = await handlePoints(state, inboundText);
+          } else if (state.activeBranch === "servicio_tecnico") {
+            reply = await handleServicioTecnico(state, inboundText);
+          } else {
+            state.activeBranch = "menu";
+            reply = buildMainMenuText();
+          }
+        }
+      }
+
+      if (inboundId) {
+        const prev = state.recentInboundIds ?? [];
+        const next = [inboundId, ...prev.filter((x) => x !== inboundId)].slice(0, 10);
+        state.recentInboundIds = next;
+      }
+
+      await saveUserState(userKey, state);
+      if (reply.trim()) {
+        await sendTextMessage(from, reply.trim());
+      }
+    } finally {
+      await releaseProcessingLock(userKey);
     }
   }
 
