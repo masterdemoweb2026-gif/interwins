@@ -768,7 +768,148 @@ function normalizePhone(phone: string) {
   return digits.replace(/^00/, "+");
 }
 
-async function handleCatalog(state: UserState, text: string): Promise<string> {
+async function saveCotizacionToSupabase(userPhone: string, state: UserState) {
+  const quote = state.catalog.quote?.data ?? {};
+  const selectedProductId = state.catalog.selectedProductId ?? "";
+  const productDetail = selectedProductId ? await loadProductDetail(selectedProductId) : null;
+
+  const included = state.catalog.recommended?.includedIds ?? [];
+  const rejected = state.catalog.recommended?.rejectedIds ?? [];
+  const remaining = state.catalog.recommended?.remainingIds ?? [];
+  const offered = Array.from(new Set([...included, ...rejected, ...remaining])).filter(Boolean);
+
+  const row = {
+    user_phone: userPhone,
+    nombre: quote.nombre ?? null,
+    telefono: quote.telefono ?? null,
+    email: quote.email ?? null,
+    empresa: quote.empresa ?? null,
+    direccion: quote.direccion ?? null,
+    ciudad: quote.ciudad ?? null,
+    region: quote.region ?? null,
+    producto_id: selectedProductId || null,
+    producto_nombre: productDetail?.nombre ?? null,
+    recomendados_ofrecidos: offered.length ? offered : null,
+    recomendados_incluidos: included.length ? included : null,
+    recomendados_rechazados: rejected.length ? rejected : null,
+    canal: "whatsapp",
+    estado: "enviada",
+  };
+
+  const res = await supabaseFetch(`cotizaciones`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(row),
+  });
+
+  if (!res.ok) {
+    inboxAdd({
+      source: "gowa",
+      signatureValid: null,
+      from: userPhone,
+      text: `[DEBUG] cotizacion insert failed status=${res.status}`,
+      body: res.data,
+    });
+  }
+}
+
+async function loadUserProfile(userPhone: string) {
+  const q = `users?select=nombre,telefono,email,empresa,direccion,ciudad,region&user_phone=eq.${encodeURIComponent(userPhone)}&limit=1`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return null;
+  const row = (res.data as unknown[])[0];
+  if (!row) return null;
+  const data = {
+    nombre: toTrimmedString(getRecordValue(row, "nombre")) || undefined,
+    telefono: toTrimmedString(getRecordValue(row, "telefono")) || undefined,
+    email: toTrimmedString(getRecordValue(row, "email")) || undefined,
+    empresa: toTrimmedString(getRecordValue(row, "empresa")) || undefined,
+    direccion: toTrimmedString(getRecordValue(row, "direccion")) || undefined,
+    ciudad: toTrimmedString(getRecordValue(row, "ciudad")) || undefined,
+    region: toTrimmedString(getRecordValue(row, "region")) || undefined,
+  };
+  const hasAny = Object.values(data).some(Boolean);
+  return hasAny ? data : null;
+}
+
+async function upsertUserProfile(userPhone: string, data: CatalogQuote["data"]) {
+  const payload = {
+    user_phone: userPhone,
+    nombre: data.nombre ?? null,
+    telefono: data.telefono ?? null,
+    email: data.email ?? null,
+    empresa: data.empresa ?? null,
+    direccion: data.direccion ?? null,
+    ciudad: data.ciudad ?? null,
+    region: data.region ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  await supabaseFetch(`users?on_conflict=user_phone`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify(payload),
+  });
+}
+
+function getNextQuoteStep(data: CatalogQuote["data"]): CatalogQuoteStep {
+  if (!data.nombre) return "nombre";
+  if (!data.telefono) return "telefono";
+  if (!data.email) return "email";
+  if (!data.empresa) return "empresa";
+  if (!data.direccion) return "direccion";
+  if (!data.ciudad) return "ciudad";
+  if (!data.region) return "region";
+  return "final";
+}
+
+async function buildCotizacionResumen(state: UserState) {
+  const q = state.catalog.quote?.data ?? {};
+  const selectedProductId = state.catalog.selectedProductId ?? "";
+  const productDetail = selectedProductId ? await loadProductDetail(selectedProductId) : null;
+
+  const included = state.catalog.recommended?.includedIds ?? [];
+  const includedNames: string[] = [];
+  for (const id of included.slice(0, 5)) {
+    const d = await loadProductDetail(id);
+    if (d?.nombre) includedNames.push(cleanProductName(d.nombre));
+  }
+
+  const lines: string[] = [];
+  lines.push("📌 *Resumen de tu cotización*");
+  if (q.nombre) lines.push(`👤 Nombre: ${q.nombre}`);
+  if (q.telefono) lines.push(`📞 Teléfono: ${q.telefono}`);
+  if (q.email) lines.push(`📧 Correo: ${q.email}`);
+  if (q.empresa) lines.push(`🏢 Empresa: ${q.empresa}`);
+
+  const addressParts = [q.direccion, q.ciudad, q.region].filter(Boolean);
+  if (addressParts.length) lines.push(`📍 Dirección: ${addressParts.join(", ")}`);
+
+  if (productDetail?.nombre) {
+    const base = cleanProductName(productDetail.nombre);
+    lines.push(`📦 Producto: ${base}${selectedProductId ? ` (ID: ${selectedProductId})` : ""}`);
+  } else if (selectedProductId) {
+    lines.push(`📦 Producto: ID ${selectedProductId}`);
+  }
+
+  if (includedNames.length) lines.push(`➕ Recomendados incluidos: ${includedNames.join(", ")}`);
+
+  lines.push("");
+  lines.push("✅ Ya recibimos tu solicitud. En breve te vamos a contactar.");
+  return lines.join("\n");
+}
+
+async function finalizeCotizacion(state: UserState, userPhone: string) {
+  await saveCotizacionToSupabase(userPhone, state);
+  if (state.catalog.quote?.data) {
+    await upsertUserProfile(userPhone, state.catalog.quote.data);
+  }
+  const resumen = await buildCotizacionResumen(state);
+  state.catalog = { filters: {}, status: "idle" };
+  state.activeBranch = "menu";
+  return withMainMenu(resumen);
+}
+
+async function handleCatalog(state: UserState, text: string, userPhone: string): Promise<string> {
   const input = text.trim();
   const t = normalizeText(input);
 
@@ -784,16 +925,7 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
       return withMainMenu(msg);
     }
     if (t.includes("termin") || t.includes("confirm") || t === "si" || t === "sí") {
-      state.catalog = { filters: {}, status: "idle" };
-      state.activeBranch = "menu";
-      const msg = await minimaxRewrite({
-        kind: "cierre",
-        input,
-        facts: [
-          "Perfecto, recibimos tu solicitud de cotización. En breve te vamos a contactar.",
-        ],
-      });
-      return withMainMenu(msg);
+      return await finalizeCotizacion(state, userPhone);
     }
     if (t.startsWith("1") && state.catalog.recommended?.mode === "offer") {
       state.catalog.recommended.includedIds.push(...state.catalog.recommended.remainingIds);
@@ -851,14 +983,7 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
         return parts.join("\n");
       }
       if (t.includes("termin")) {
-        state.catalog = { filters: {}, status: "idle" };
-        state.activeBranch = "menu";
-        const msg = await minimaxRewrite({
-          kind: "cierre",
-          input,
-          facts: ["Perfecto, quedamos listos. En breve te vamos a contactar."],
-        });
-        return withMainMenu(msg);
+        return await finalizeCotizacion(state, userPhone);
       }
       return "Elige un número de la lista o responde Terminar.";
     }
@@ -902,14 +1027,7 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
         return "Ok. Elige otro recomendado por número o responde Terminar.";
       }
       if (t.includes("termin")) {
-        state.catalog = { filters: {}, status: "idle" };
-        state.activeBranch = "menu";
-        const msg = await minimaxRewrite({
-          kind: "cierre",
-          input,
-          facts: ["Perfecto, gracias. En breve te vamos a contactar."],
-        });
-        return withMainMenu(msg);
+        return await finalizeCotizacion(state, userPhone);
       }
       return "Responde: Incluir / Rechazar / Terminar";
     }
@@ -973,6 +1091,10 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
       setAndNext("region", input, "final");
       state.catalog.status = "wait_finish_cotizacion";
       state.catalog.quote = q;
+      if (q.data.nombre) {
+        state.userName = q.data.nombre.split(" ")[0]?.trim() || state.userName;
+      }
+      await upsertUserProfile(userPhone, q.data);
 
       const recommendedIds = await tryLoadRecommendedIds(state.catalog.selectedProductId);
       if (recommendedIds.length) {
@@ -1086,7 +1208,48 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
 
   if (state.catalog.selectedProductId) {
     if (t.includes("cotiz")) {
-      state.catalog.quote = { step: "nombre", data: {} };
+      const profile = await loadUserProfile(userPhone);
+      const prefill = profile ? { ...profile } : {};
+      const next = getNextQuoteStep(prefill);
+      state.catalog.quote = { step: next, data: prefill };
+      if (next === "final") {
+        state.catalog.status = "wait_finish_cotizacion";
+        await upsertUserProfile(userPhone, state.catalog.quote.data);
+
+        const recommendedIds = await tryLoadRecommendedIds(state.catalog.selectedProductId);
+        if (recommendedIds.length) {
+          state.catalog.recommended = {
+            mode: "offer",
+            remainingIds: recommendedIds,
+            includedIds: [],
+            rejectedIds: [],
+          };
+          const names: string[] = [];
+          for (const id of recommendedIds.slice(0, 3)) {
+            const d = await loadProductDetail(id);
+            if (d?.nombre) names.push(cleanProductName(d.nombre));
+          }
+          return [
+            "Ya tengo tus datos guardados para cotizar.",
+            names.length ? `Recomendados: ${names.join(", ")}.` : "",
+            "Responde:",
+            "1) Incluir recomendados",
+            "2) Ver productos recomendados",
+            "3) Rechazar",
+          ]
+            .filter(Boolean)
+            .join("\n");
+        }
+
+        return "Ya tengo tus datos guardados para cotizar. Responde Terminar para cerrar la cotización o Cancelar para anularla.";
+      }
+
+      if (next === "telefono") return "Perfecto. ¿Me compartes tu teléfono? (Ej: +56 9 1234 5678)";
+      if (next === "email") return "Gracias. ¿Cuál es tu correo? (Ej: nombre@empresa.cl)";
+      if (next === "empresa") return "Bacán. ¿Nombre de tu empresa?";
+      if (next === "direccion") return "¿Dirección (calle y número)?";
+      if (next === "ciudad") return "¿Ciudad?";
+      if (next === "region") return "¿Región / Provincia?";
       return "Perfecto. Para la cotización, ¿me indicas tu nombre y apellido?";
     }
     if (t.includes("volver")) {
@@ -1435,7 +1598,7 @@ export async function POST(request: Request) {
           reply = withMainMenu(msg);
         }
       } else if (state.activeBranch === "catalogo") {
-        reply = await handleCatalog(state, inboundText);
+        reply = await handleCatalog(state, inboundText, userKey);
       } else if (state.activeBranch === "proyectos") {
         reply = await handleProjects(state, inboundText);
       } else if (state.activeBranch === "puntos_venta") {
