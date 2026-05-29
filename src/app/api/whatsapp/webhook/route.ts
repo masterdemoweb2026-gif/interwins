@@ -26,7 +26,10 @@ function getGowaDeviceId() {
 }
 
 function shouldAutoReply() {
-  return (process.env.WHATSAPP_AUTO_REPLY ?? "true").toLowerCase() === "true";
+  const raw = String(process.env.WHATSAPP_AUTO_REPLY ?? "").trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === "false" || raw === "0" || raw === "no") return false;
+  return true;
 }
 
 function toBasicAuthHeader(value: string) {
