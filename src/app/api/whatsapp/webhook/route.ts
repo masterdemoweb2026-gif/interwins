@@ -490,6 +490,49 @@ async function saveUserState(userPhoneKey: string, state: UserState) {
   }
 }
 
+async function markMessageRead(messageId: string, phone: string) {
+  const baseUrl = getGowaBaseUrl();
+  if (!baseUrl) return;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const auth = toBasicAuthHeader(getGowaBasicAuth());
+  if (auth) headers.Authorization = auth;
+  const deviceId = getGowaDeviceId();
+  if (deviceId) headers["X-Device-Id"] = deviceId;
+
+  try {
+    await fetch(`${baseUrl}/message/${encodeURIComponent(messageId)}/read`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ phone }),
+    });
+  } catch {}
+}
+
+async function sendChatPresence(phone: string, action: "start" | "stop") {
+  const baseUrl = getGowaBaseUrl();
+  if (!baseUrl) return;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const auth = toBasicAuthHeader(getGowaBasicAuth());
+  if (auth) headers.Authorization = auth;
+  const deviceId = getGowaDeviceId();
+  if (deviceId) headers["X-Device-Id"] = deviceId;
+
+  try {
+    const res = await fetch(`${baseUrl}/send/chat-presence`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ phone, action }),
+    });
+    if (!res.ok) {
+      await fetch(`${baseUrl}/send/chat-presence`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ phone, state: action === "start" ? "composing" : "paused" }),
+      }).catch(() => {});
+    }
+  } catch {}
+}
+
 async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" | "empatia"; input?: string; facts: string[] }) {
   const key = getMinimaxApiKey();
   if (!key) {
@@ -505,6 +548,8 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
     "Nunca uses etiquetas como <think> ni expliques tu razonamiento.",
     "Entrega solo el mensaje final para WhatsApp, sin encabezados ni meta-explicaciones.",
     "No inventes datos: si algo no está en los hechos, no lo agregues.",
+    "No repitas el menú ni enumeres opciones 1-4. Si corresponde menú, el sistema lo agregará.",
+    "No incluyas la frase '¿En qué te puedo ayudar hoy?' porque se agrega en el menú.",
   ].join(" ");
 
   const userParts = [
@@ -569,8 +614,10 @@ function sanitizeMinimaxOutput(raw: string) {
     .filter(Boolean);
 
   const forbidden = /(soy (una )?ia|como ia|modelo( de lenguaje)?|minimax|gpt|openai|anthropic)/i;
+  const menuIntro = /en\s+qu[eé]\s+te\s+puedo\s+ayudar\s+hoy/i;
   const safeLines = lines
     .filter((l) => !forbidden.test(l))
+    .filter((l) => !menuIntro.test(l))
     .map((l) => l.replace(forbidden, "").trim())
     .filter(Boolean);
 
@@ -1688,6 +1735,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true }, { status: 200 });
     }
 
+    let startedPresence = false;
     try {
       const state = (await loadUserState(userKey)) ?? initState();
 
@@ -1696,6 +1744,13 @@ export async function POST(request: Request) {
         await saveUserState(userKey, state);
         return NextResponse.json({ ok: true }, { status: 200 });
       }
+
+      if (inboundId) {
+        await markMessageRead(inboundId, userKey);
+      }
+
+      await sendChatPresence(userKey, "start");
+      startedPresence = true;
 
       let reply = "";
 
@@ -1768,6 +1823,9 @@ export async function POST(request: Request) {
         await sendTextMessage(from, reply.trim());
       }
     } finally {
+      if (startedPresence) {
+        await sendChatPresence(userKey, "stop");
+      }
       await releaseProcessingLock(userKey);
     }
   }
