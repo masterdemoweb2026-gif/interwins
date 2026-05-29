@@ -1,0 +1,59 @@
+Inicio:
+Buenas! Te leo, dime qué necesitas y te guío al tiro. 🙂
+
+¿En qué te puedo ayudar hoy?
+
+1. 📦 Catálogo de productos
+2. 🔧 Servicio Técnico
+3. 🏗️ Proyectos
+4. 📍 Puntos de Venta
+
+Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te guío al tiro. 😊
+
+EVITAR REDUNDANCIA EN PRIMER MENSAJE
+
+RAMA Proyectos:
+Al utilizar esta rama me responde con:
+Estos son algunos proyectos:
+
+1) InterWins Revoluciona la Comunicación Nacional con su Proyecto de Comando Centralizado para SENAPRED ex ONEMI.
+2) InterWins: Impulsando la Innovación Tecnológica en el Sector Minero de Antofagasta
+3) Antofagasta Minerals - Proyecto GIO | InterWins Motorola
+4) Innovación y Compromiso: InterWins y el Éxito del Proyecto Teck QB2 en Quebrada Blanca.
+5) Compañía Minera Teck Proyecto QB2 | InterWins Motorola
+
+ERRORES: 
+Al elegir un proyecto no sale todo el proyecto si es necesario envia por contenedores separados 
+Al ingresar a un proyecto -> Interacción ver mas proyectos no me vuelve a listar proyectos si no que me dice "Por ahora no veo más proyectos para mostrar. Responde Menú para volver al inicio." lo cual esta incorrecto debiese derivarme al listado nuevamente .
+
+
+
+RAMA PUNTO DE VENTA
+Al responder la consulta que me genero "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos" me deribo a 
+No encontré puntos de venta con ese dato.
+
+¿En qué te puedo ayudar hoy?
+
+1. 📦 Catálogo de productos
+2. 🔧 Servicio Técnico
+3. 🏗️ Proyectos
+4. 📍 Puntos de Venta
+
+Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te guío al tiro. 😊
+
+En estos casos siento que es muy robot el dar el error y luego enviar como una copia estatica de ¿En que te puedo ayudar hoy? -> Lo correcto seria en caso de no encontrar "No encontré puntos de venta con ese dato." luego se envia otro mensaje si quieres prueba con otra region o ciudad cercana ya que
+cuando reviso en punto_venta veo que en direccion un registro tiene "Colón Los Ángeles" osea si habia conincidencia, mejorar el poder encontrar posibilidades y en caso de no obtener el registro se podria mostrar la mas cercana a la dirección consultada.
+
+
+
+SERVICIO TECNICO:
+
+la interacción me gusto solo que el terminar de forma inmediata con  "¿En qué te puedo ayudar hoy?
+
+1. 📦 Catálogo de productos
+2. 🔧 Servicio Técnico
+3. 🏗️ Proyectos
+4. 📍 Puntos de Venta
+
+Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te guío al tiro. 😊" no me gusta en este caso prefiero que se genere un botón de "Menú" por que así como lo menciona la respuesta "¿Te quedó alguna duda? 😊" no confundira el cliente y le dara la oportunidad de seguir preguntando algo relacionado al tema seria mas profesional y natural.
+Además el "y te guío al tiro. 😊" no me gusta mucho genera 3 frases distintas con emoticones y haz que cada vez que se utilice sea random la frase para dar dinamismo
