@@ -267,6 +267,69 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function extractLocationQuery(text: string) {
+  const raw = text.trim();
+  if (!raw) return "";
+  const rawLower = raw.toLowerCase();
+  const lastEn = rawLower.lastIndexOf(" en ");
+  if (lastEn !== -1) {
+    const tail = raw.slice(lastEn + 4).trim();
+    if (tail) return tail;
+  }
+  return raw;
+}
+
+function tokenizeLocationQuery(text: string) {
+  const stop = new Set([
+    "estoy",
+    "toy",
+    "ando",
+    "vivo",
+    "viviendo",
+    "me",
+    "encuentro",
+    "en",
+    "la",
+    "el",
+    "los",
+    "las",
+    "un",
+    "una",
+    "de",
+    "del",
+    "al",
+    "por",
+    "para",
+    "cerca",
+    "aca",
+    "aqui",
+    "acá",
+    "aquí",
+    "mi",
+    "mis",
+    "con",
+    "soy",
+    "s",
+    "stoy",
+  ]);
+
+  return normalizeText(text)
+    .split(/[^a-z0-9]+/g)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .filter((t) => t.length >= 3)
+    .filter((t) => !stop.has(t));
+}
+
+function scoreTokenMatch(tokens: string[], hay: string) {
+  if (!tokens.length) return 0;
+  let matches = 0;
+  for (const t of tokens) {
+    if (hay.includes(t)) matches += 1;
+  }
+  return matches;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -303,8 +366,6 @@ function buildMainMenuText() {
   ];
   const suffix = suffixes[crypto.randomInt(0, suffixes.length)];
   return [
-    "¿En qué te puedo ayudar hoy?",
-    "",
     "1. 📦 Catálogo de productos",
     "2. 🔧 Servicio Técnico",
     "3. 🏗️ Proyectos",
@@ -789,20 +850,25 @@ async function searchDealers(query: string) {
   const fallback = await supabaseFetch(`dealers?select=nombre_punto,region,direccion,comuna,telefono&limit=200`, { method: "GET" });
   if (!fallback.ok || !Array.isArray(fallback.data)) return [];
 
-  const tokens = q.split(/\s+/g).filter(Boolean);
-  return (fallback.data as unknown[])
-    .map((r) => ({
-      nombre_punto: toTrimmedString(getRecordValue(r, "nombre_punto")),
-      region: toTrimmedString(getRecordValue(r, "region")),
-      direccion: toTrimmedString(getRecordValue(r, "direccion")),
-      comuna: toTrimmedString(getRecordValue(r, "comuna")),
-      telefono: toTrimmedString(getRecordValue(r, "telefono")),
-    }))
-    .filter((r) => {
-      const hay = normalizeText([r.nombre_punto, r.region, r.direccion, r.comuna].filter(Boolean).join(" "));
-      return tokens.every((t) => hay.includes(t));
+  const tokens = tokenizeLocationQuery(query);
+  const scored = (fallback.data as unknown[])
+    .map((r) => {
+      const row = {
+        nombre_punto: toTrimmedString(getRecordValue(r, "nombre_punto")),
+        region: toTrimmedString(getRecordValue(r, "region")),
+        direccion: toTrimmedString(getRecordValue(r, "direccion")),
+        comuna: toTrimmedString(getRecordValue(r, "comuna")),
+        telefono: toTrimmedString(getRecordValue(r, "telefono")),
+      };
+      const hay = normalizeText([row.nombre_punto, row.region, row.direccion, row.comuna].filter(Boolean).join(" "));
+      const score = scoreTokenMatch(tokens, hay);
+      return { row, score };
     })
-    .slice(0, 5);
+    .filter((x) => x.row.nombre_punto && (x.row.direccion || x.row.comuna || x.row.region))
+    .filter((x) => (tokens.length ? x.score >= 1 : true))
+    .sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 5).map((x) => x.row);
 }
 
 async function searchPuntosVenta(query: string) {
@@ -830,19 +896,23 @@ async function searchPuntosVenta(query: string) {
   }
   const fallback = await supabaseFetch(`punto_venta?select=titulo,direccion,categoria&limit=300`, { method: "GET" });
   if (!fallback.ok || !Array.isArray(fallback.data)) return [];
-  const tokens = q.split(/\s+/g).filter(Boolean);
-  return (fallback.data as unknown[])
-    .map((r) => ({
-      titulo: toTrimmedString(getRecordValue(r, "titulo")),
-      direccion: toTrimmedString(getRecordValue(r, "direccion")),
-      categoria: toTrimmedString(getRecordValue(r, "categoria")),
-    }))
-    .filter((r) => r.titulo && r.direccion)
-    .filter((r) => {
-      const hay = normalizeText([r.titulo, r.direccion, r.categoria].filter(Boolean).join(" "));
-      return tokens.every((t) => hay.includes(t));
+  const tokens = tokenizeLocationQuery(query);
+  const scored = (fallback.data as unknown[])
+    .map((r) => {
+      const row = {
+        titulo: toTrimmedString(getRecordValue(r, "titulo")),
+        direccion: toTrimmedString(getRecordValue(r, "direccion")),
+        categoria: toTrimmedString(getRecordValue(r, "categoria")),
+      };
+      const hay = normalizeText([row.titulo, row.direccion, row.categoria].filter(Boolean).join(" "));
+      const score = scoreTokenMatch(tokens, hay);
+      return { row, score };
     })
-    .slice(0, 5);
+    .filter((x) => x.row.titulo && x.row.direccion)
+    .filter((x) => (tokens.length ? x.score >= 1 : true))
+    .sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 5).map((x) => x.row);
 }
 
 async function answerServicioTecnico(query: string) {
@@ -877,6 +947,20 @@ function isNumericChoice(text: string, max: number) {
   const n = Number(t);
   if (!Number.isFinite(n) || n < 1 || n > max) return null;
   return n;
+}
+
+function extractProjectChoiceFromText(text: string, max: number) {
+  if (max <= 0) return null;
+  const t = normalizeText(text);
+  if (!t) return null;
+  const m = t.match(/(?:^|[^0-9])(\d{1,2})(?!\d)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1 || n > max) return null;
+  if (t.includes("proyecto") || t.includes("ver") || t.includes("veamos") || t.includes("quiero") || t.includes("muestra") || t.includes("mostrar")) {
+    return n;
+  }
+  return null;
 }
 
 function validateEmail(email: string) {
@@ -1462,15 +1546,33 @@ async function handleProjects(state: UserState, text: string) {
     return `${next}${suffix}`;
   }
 
+  let list = state.projects.lastList ?? [];
+  let noMoreProjects = false;
+
   if (wantsMoreProjects) {
     state.projects.reading = undefined;
-    state.projects.offset += 5;
+    const nextOffset = state.projects.offset + 5;
+    const nextList = await listProjects(nextOffset);
+    if (nextList.length) {
+      state.projects.offset = nextOffset;
+      list = nextList;
+    } else if (state.projects.offset === 0 && !list.length) {
+      list = await listProjects(0);
+      noMoreProjects = true;
+    } else {
+      noMoreProjects = true;
+    }
   } else if (t.includes("ver mas") || t.includes("ver más")) {
     state.projects.offset += 5;
+    list = await listProjects(state.projects.offset);
+  } else {
+    if (!list.length) {
+      list = await listProjects(state.projects.offset);
+    }
   }
-  const list = await listProjects(state.projects.offset);
+
   state.projects.lastList = list;
-  const n = isNumericChoice(t, list.length);
+  const n = isNumericChoice(t, list.length) ?? extractProjectChoiceFromText(t, list.length);
   if (n) {
     const chosen = list[n - 1];
     const detail = await loadProjectContent(chosen.id);
@@ -1480,19 +1582,17 @@ async function handleProjects(state: UserState, text: string) {
     const chunkSize = 1100;
     const first = detail.plain.slice(0, chunkSize).trim();
     state.projects.reading.offset = chunkSize;
-    const suffix = detail.plain.length > chunkSize ? "\n\nResponde Ver más para seguir leyendo." : "\n\nResponde: Ver más proyectos / Menú";
+    const suffix = detail.plain.length > chunkSize ? "\n\nResponde Ver más para seguir leyendo." : "\n\nResponde: Menú";
     return [`*${detail.titulo}*`, "", first || "Descripción no disponible.", suffix].join("\n");
   }
-  if (!list.length) {
-    state.projects.offset = 0;
-    const reset = await listProjects(0);
-    state.projects.lastList = reset;
-    if (!reset.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
-    const lines = reset.map((p, i) => `${i + 1}) ${p.titulo}`).join("\n");
-    return ["Estos son algunos proyectos:", "", lines, "", "Elige un número, o responde: Ver más proyectos / Menú"].join("\n");
+  if (!list.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
+
+  if (noMoreProjects) {
+    return "Por ahora no tengo más proyectos para mostrar. Elige algún proyecto o si quieres regresamos al menú.";
   }
+
   const lines = list.map((p, i) => `${i + 1}) ${p.titulo}`).join("\n");
-  return ["Estos son algunos proyectos:", "", lines, "", "Elige un número, o responde: Ver más proyectos / Menú"].join("\n");
+  return ["Estos son algunos proyectos:", "", lines, "", "Elige algún proyecto o si quieres regresamos al menú."].join("\n");
 }
 
 async function loadProjectContent(id: number) {
@@ -1508,7 +1608,7 @@ async function loadProjectContent(id: number) {
 }
 
 async function handlePoints(state: UserState, text: string) {
-  const q = text.trim();
+  const q = extractLocationQuery(text).trim();
   if (!q) return "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
   state.points.lastQuery = q;
   const [dealers, puntosVenta] = await Promise.all([searchDealers(q), searchPuntosVenta(q)]);
@@ -1755,14 +1855,10 @@ export async function POST(request: Request) {
       let reply = "";
 
       if (!state.greeted) {
-        const saludo = await minimaxRewrite({
-          kind: "saludo",
-          input: inboundText,
-          facts: [`Hola${state.userName ? ` ${state.userName}` : ""}, bienvenido(a). Soy tu asesor de InterWins.`],
-        });
+        const saludo = "¡Buenas! Espero que estés teniendo un gran día, ¿en qué te podemos ayudar hoy?";
         state.greeted = true;
         state.activeBranch = "menu";
-        reply = withMainMenu(saludo);
+        reply = `${saludo}\n\n${buildMainMenuText()}`;
       } else if (isMenuCommand(inboundText)) {
         if (state.catalog.status === "wait_finish_cotizacion") {
           reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
