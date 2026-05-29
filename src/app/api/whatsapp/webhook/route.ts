@@ -1208,6 +1208,8 @@ export async function POST(request: Request) {
     (isRecord(payload) && (payload as Record<string, unknown>).is_from_me === true);
 
   const isInboundText = typeof text === "string" && text.trim().length > 0;
+  const autoReplyEnabled = shouldAutoReply();
+  const autoReplyGate = !fromMe && autoReplyEnabled && Boolean(from) && isInboundText;
 
   // #region debug-point B:parse-inbound
   (() => {
@@ -1248,7 +1250,14 @@ export async function POST(request: Request) {
 
   inboxAdd({ source: "gowa", signatureValid, from, text, body: shouldStoreBody() ? body : undefined });
 
-  if (!fromMe && shouldAutoReply() && from && isInboundText) {
+  inboxAdd({
+    source: "gowa",
+    signatureValid: null,
+    from,
+    text: `[DEBUG] IN gate autoReply=${autoReplyEnabled} fromMe=${fromMe} isInboundText=${isInboundText} gate=${autoReplyGate}`,
+  });
+
+  if (autoReplyGate) {
     // #region debug-point A:auto-reply-gate
     (() => {
       try {
@@ -1269,7 +1278,7 @@ export async function POST(request: Request) {
             hypothesisId: "A",
             location: "webhook/route.ts:POST(gate)",
             msg: "[DEBUG] auto-reply gate passed",
-            data: { from, fromMe, isInboundText, autoReply: shouldAutoReply() },
+            data: { from, fromMe, isInboundText, autoReply: autoReplyEnabled },
             ts: Date.now(),
           }),
         }).catch(() => {});
