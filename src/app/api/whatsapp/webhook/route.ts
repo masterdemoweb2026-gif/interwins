@@ -51,7 +51,10 @@ function verifySignature(rawBody: string, signatureHeader: string | null) {
 
 async function sendTextMessage(to: string, text: string) {
   const baseUrl = getGowaBaseUrl();
-  if (!baseUrl) return;
+  if (!baseUrl) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: to, text: "[DEBUG] OUT: missing GOWA_BASE_URL" });
+    return;
+  }
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const auth = toBasicAuthHeader(getGowaBasicAuth());
@@ -127,6 +130,13 @@ async function sendTextMessage(to: string, text: string) {
       } catch {}
     })();
     // #endregion
+
+    inboxAdd({
+      source: "gowa",
+      signatureValid: null,
+      from: to,
+      text: `[DEBUG] OUT: send/message status=${res.status} ok=${res.ok}`,
+    });
   } catch (err) {
     // #region debug-point C:send-error
     (() => {
@@ -155,6 +165,7 @@ async function sendTextMessage(to: string, text: string) {
       } catch {}
     })();
     // #endregion
+    inboxAdd({ source: "gowa", signatureValid: null, from: to, text: `[DEBUG] OUT: send/message error=${String(err)}` });
     throw err;
   }
 }
