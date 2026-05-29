@@ -1,21 +1,29 @@
 import { NextResponse } from "next/server";
 
 function getGowaBaseUrl() {
-  return (process.env.GOWA_BASE_URL ?? "").replace(/\/+$/, "");
+  const v = (process.env.GOWA_BASE_URL ?? "").trim();
+  const m = v.match(/^([`'"])([\s\S]*)\1$/);
+  return (m ? m[2] : v).trim().replace(/\/+$/, "");
 }
 
 function getGowaBasicAuth() {
-  return process.env.GOWA_BASIC_AUTH ?? "";
+  const v = (process.env.GOWA_BASIC_AUTH ?? "").trim();
+  const m = v.match(/^([`'"])([\s\S]*)\1$/);
+  return (m ? m[2] : v).trim();
 }
 
 function getGowaDeviceId() {
-  return process.env.GOWA_DEVICE_ID ?? "";
+  const v = (process.env.GOWA_DEVICE_ID ?? "").trim();
+  const m = v.match(/^([`'"])([\s\S]*)\1$/);
+  return (m ? m[2] : v).trim();
 }
 
 function toBasicAuthHeader(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
   if (trimmed.toLowerCase().startsWith("basic ")) return trimmed;
+  if (trimmed.includes(":")) return `Basic ${Buffer.from(trimmed).toString("base64")}`;
+  if (/^[A-Za-z0-9+/]+={0,2}$/.test(trimmed) && trimmed.length >= 16) return `Basic ${trimmed}`;
   return `Basic ${Buffer.from(trimmed).toString("base64")}`;
 }
 
@@ -25,6 +33,7 @@ async function sendViaGowa(to: string, message: string) {
     return { ok: false, status: 500, data: { error: "GOWA_BASE_URL not set" } };
   }
 
+  const normalizedTo = to.includes("@") ? to.split("@")[0] || to : to;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const auth = toBasicAuthHeader(getGowaBasicAuth());
   if (auth) headers.Authorization = auth;
@@ -34,7 +43,7 @@ async function sendViaGowa(to: string, message: string) {
   const res = await fetch(`${baseUrl}/send/message`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ phone: to, message }),
+    body: JSON.stringify({ phone: normalizedTo, message }),
   });
 
   const text = await res.text();

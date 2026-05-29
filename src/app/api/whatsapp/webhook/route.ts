@@ -1286,6 +1286,10 @@ export async function POST(request: Request) {
     })();
     // #endregion
     const inboundText = String(text ?? "").trim();
+    if (!from) {
+      inboxAdd({ source: "gowa", signatureValid: null, from: "", text: "[DEBUG] IN gate=true but from is empty" });
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
     const userKey = from;
     const state = (await loadUserState(userKey)) ?? initState();
 
