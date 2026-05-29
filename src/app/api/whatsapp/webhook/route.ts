@@ -183,9 +183,14 @@ type CatalogFilters = {
   frecuencia?: string;
 };
 
+type CatalogPendingOption = {
+  label: string;
+  value: string;
+};
+
 type CatalogPendingOptions = {
   attr: keyof CatalogFilters;
-  options: string[];
+  options: CatalogPendingOption[];
 };
 
 type CatalogQuoteStep = "nombre" | "telefono" | "email" | "empresa" | "direccion" | "ciudad" | "region" | "final";
@@ -330,6 +335,48 @@ function scoreTokenMatch(tokens: string[], hay: string) {
   return matches;
 }
 
+function tokenizeGeneric(text: string) {
+  return normalizeText(text)
+    .split(/[^a-z0-9]+/g)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .filter((t) => t.length >= 3);
+}
+
+function matchPendingOption(input: string, options: CatalogPendingOption[]) {
+  const raw = input.trim();
+  if (!raw) return { value: null as string | null, ambiguous: false };
+  const inNorm = normalizeText(raw);
+  const tokens = tokenizeGeneric(raw);
+  if (!tokens.length) return { value: null as string | null, ambiguous: false };
+
+  let bestScore = 0;
+  let best: CatalogPendingOption | null = null;
+  let tie = false;
+
+  for (const o of options) {
+    const labelNorm = normalizeText(o.label);
+    const valueNorm = normalizeText(o.value);
+    let score = 0;
+    if (labelNorm === inNorm || valueNorm === inNorm) score += 100;
+    if (inNorm.includes(labelNorm) || labelNorm.includes(inNorm)) score += 10;
+    if (inNorm.includes(valueNorm) || valueNorm.includes(inNorm)) score += 10;
+    score += scoreTokenMatch(tokens, `${labelNorm} ${valueNorm}`);
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = o;
+      tie = false;
+    } else if (score === bestScore && score > 0 && best && best.value !== o.value) {
+      tie = true;
+    }
+  }
+
+  if (!best || bestScore <= 0) return { value: null as string | null, ambiguous: false };
+  if (tie) return { value: null as string | null, ambiguous: true };
+  return { value: best.value, ambiguous: false };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -434,20 +481,19 @@ async function startCotizarFlow(state: UserState, userKey: string) {
       }
     }
 
-    const uniqueTipos: string[] = [];
-    const lines: string[] = [];
+    const menu: Array<{ label: string; tipo: string }> = [];
     for (const s of suggested) {
-      if (uniqueTipos.includes(s.tipo)) continue;
-      uniqueTipos.push(s.tipo);
-      lines.push(`${uniqueTipos.length}) ${s.label}`);
+      if (menu.some((m) => m.tipo === s.tipo)) continue;
+      menu.push({ label: s.label, tipo: s.tipo });
     }
 
-    if (uniqueTipos.length >= 2) {
-      state.catalog.pending = { attr: "tipo_producto", options: uniqueTipos.slice(0, 5) };
+    if (menu.length >= 2) {
+      const top = menu.slice(0, 5);
+      state.catalog.pending = { attr: "tipo_producto", options: top.map((m) => ({ label: m.label, value: m.tipo })) };
       return [
         "Perfecto. Para cotizar, ¿qué tipo de producto te interesa?",
         "",
-        ...lines,
+        ...top.map((m, i) => `${i + 1}) ${m.label}`),
         "",
         "También puedes escribir el nombre del equipo (ej: DP50).",
       ].join("\n");
@@ -1465,15 +1511,18 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const pending = state.catalog.pending;
     const n = isNumericChoice(t, pending.options.length);
     if (n) {
-      state.catalog.filters[pending.attr] = pending.options[n - 1];
+      state.catalog.filters[pending.attr] = pending.options[n - 1]!.value;
       state.catalog.pending = undefined;
     } else {
-      const match = pending.options.find((o) => normalizeText(o) === normalizeText(input) || normalizeText(input).includes(normalizeText(o)));
-      if (match) {
-        state.catalog.filters[pending.attr] = match;
+      const match = matchPendingOption(input, pending.options);
+      if (match.value) {
+        state.catalog.filters[pending.attr] = match.value;
         state.catalog.pending = undefined;
       } else {
-        return `Elige una opción (1–${pending.options.length}) o escríbela tal cual:`;
+        if (match.ambiguous) {
+          return `Me quedaron 2 opciones parecidas. ¿Me respondes con el número (1–${pending.options.length}) para elegir bien?`;
+        }
+        return `Dale. Responde con un número (1–${pending.options.length}) o escríbeme la opción (como la ves en la lista).`;
       }
     }
   }
@@ -1486,11 +1535,11 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.filters.tipo_producto = candidates[0];
     } else if (candidates.length > 1) {
       const top = candidates.slice(0, 5);
-      state.catalog.pending = { attr: "tipo_producto", options: top };
+      state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Cuál de estos tipos de producto buscas?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     } else {
       const top = tipos.slice(0, 5);
-      state.catalog.pending = { attr: "tipo_producto", options: top };
+      state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     }
   }
@@ -1499,7 +1548,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const opts = await listTecnologias(state.catalog.filters);
     if (opts.length > 1) {
       const top = opts.slice(0, 5);
-      state.catalog.pending = { attr: "tecnologia", options: top };
+      state.catalog.pending = { attr: "tecnologia", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Qué tecnología prefieres?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     }
   }
@@ -1508,7 +1557,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const opts = await listModalidades(state.catalog.filters);
     if (opts.length > 1) {
       const top = opts.slice(0, 5);
-      state.catalog.pending = { attr: "modalidad", options: top };
+      state.catalog.pending = { attr: "modalidad", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Lo buscas para venta o arriendo?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     }
   }
@@ -1517,7 +1566,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const opts = await listPortabilidades(state.catalog.filters);
     if (opts.length > 1) {
       const top = opts.slice(0, 5);
-      state.catalog.pending = { attr: "portabilidad", options: top };
+      state.catalog.pending = { attr: "portabilidad", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Portátil o móvil?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     }
   }
@@ -1526,7 +1575,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const opts = await listFrecuencias(state.catalog.filters);
     if (opts.length > 1) {
       const top = opts.slice(0, 5);
-      state.catalog.pending = { attr: "frecuencia", options: top };
+      state.catalog.pending = { attr: "frecuencia", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Qué frecuencia te sirve?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     }
   }
