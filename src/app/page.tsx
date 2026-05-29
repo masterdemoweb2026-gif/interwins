@@ -43,7 +43,8 @@ export default function Home() {
             Webhook: <span className="font-mono">{webhookUrl}</span>
           </p>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Si envías un mensaje al bot por WhatsApp, el bot responde: <span className="font-mono">hola</span>
+            Si envías un mensaje al número de WhatsApp Business (Cloud API), el bot responde:{" "}
+            <span className="font-mono">hola</span>
           </p>
         </div>
 
@@ -56,7 +57,7 @@ export default function Home() {
             <input
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              placeholder="569XXXXXXXX o 569XXXXXXXX@s.whatsapp.net"
+              placeholder="569XXXXXXXX (formato internacional, sin +)"
               className="h-11 rounded-lg border border-black/10 bg-transparent px-3 outline-none ring-0 focus:border-black/30 dark:border-white/10 dark:focus:border-white/30"
             />
           </div>
