@@ -315,6 +315,15 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function isPuntosVentaIntentNormalized(normalizedText: string) {
+  const s = (normalizedText || "").replace(/[^a-z0-9]+/g, " ").trim();
+  if (!s) return false;
+  if (/\bpuntos?\s+(de\s+)?ventas?\b/.test(s)) return true;
+  if (/\bdealers?\b/.test(s)) return true;
+  if (/\bdistribuidores?\b/.test(s)) return true;
+  return false;
+}
+
 function extractLocationQuery(text: string) {
   const raw = text.trim();
   if (!raw) return "";
@@ -494,7 +503,7 @@ function detectBranchIntent(text: string): { branch: Branch | null; wantsMenu: b
   const mentionsCatalog = t.includes("catalogo") || t.includes("catálogo");
   const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
   const mentionsProjects = t.includes("proyecto") || t.includes("proyectos");
-  const mentionsPoints = t.includes("punto de venta") || t.includes("puntos de venta") || t.includes("dealer") || t.includes("dealers");
+  const mentionsPoints = isPuntosVentaIntentNormalized(t);
 
   if (mentionsCatalog) return { branch: "catalogo", wantsMenu };
   if (mentionsServicio) return { branch: "servicio_tecnico", wantsMenu };
@@ -600,8 +609,7 @@ function parseMenuChoice(text: string): Branch | null {
   if (t === "1" || t.includes("catalogo") || t.includes("catálogo")) return "catalogo";
   if (t === "2" || t.includes("servicio") || t.includes("tecnico") || t.includes("técnico")) return "servicio_tecnico";
   if (t === "3" || t.includes("proyecto") || t.includes("proyectos")) return "proyectos";
-  if (t === "4" || t.includes("punto de venta") || t.includes("puntos de venta") || t.includes("dealer"))
-    return "puntos_venta";
+  if (t === "4" || isPuntosVentaIntentNormalized(t)) return "puntos_venta";
   return null;
 }
 
@@ -610,8 +618,21 @@ function classifyFreeText(text: string): Branch | null {
   const catalogHints = ["cotizar", "cotizacion", "precio", "radio", "repetidor", "camara", "cámara", "accesorio", "equipo"];
   const techHints = ["falla", "problema", "repar", "garantia", "garantía", "program", "configur", "servicio tecnico"];
   const projectHints = ["proyecto", "implementacion", "implementación", "caso de exito", "caso de éxito"];
-  const pointsHints = ["donde comprar", "dónde comprar", "sucursal", "tienda", "punto de venta", "puntos de venta", "dealer"];
+  const pointsHints = [
+    "donde comprar",
+    "dónde comprar",
+    "sucursal",
+    "tienda",
+    "punto de venta",
+    "puntos de venta",
+    "punto venta",
+    "puntos venta",
+    "dealer",
+    "distribuidor",
+    "distribuidores",
+  ];
 
+  if (isPuntosVentaIntentNormalized(t)) return "puntos_venta";
   if (pointsHints.some((h) => t.includes(normalizeText(h)))) return "puntos_venta";
   if (projectHints.some((h) => t.includes(normalizeText(h)))) return "proyectos";
   if (techHints.some((h) => t.includes(normalizeText(h)))) return "servicio_tecnico";
