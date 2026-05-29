@@ -1019,6 +1019,91 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
   return args.facts.filter(Boolean).join("\n");
 }
 
+async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Array<{ tema: string; info: string }> }) {
+  const input = (args.input || "").trim();
+  const knowledge = args.knowledge ?? [];
+
+  const fallback = () => {
+    if (knowledge.length) {
+      const blocks = knowledge
+        .slice(0, 2)
+        .map((k) => [`*${k.tema}*`, k.info].filter(Boolean).join("\n"))
+        .join("\n\n");
+      return blocks.trim() ? blocks : "Ya. ¿Me cuentas un poquito más para ayudarte bien?";
+    }
+    return [
+      "🔧 Te ayudo feliz. Para cachar bien:",
+      "1) ¿Qué equipo/modelo es?",
+      "2) ¿Qué está pasando exactamente y desde cuándo?",
+      "",
+      "Si el equipo se calienta mucho, huele a quemado o la batería está hinchada, mejor deja de usarlo y te derivamos.",
+    ].join("\n");
+  };
+
+  const key = getMinimaxApiKey();
+  if (!key) return fallback();
+
+  const baseUrl = getMinimaxBaseUrl();
+  const system = [
+    "Eres un asesor humano de soporte técnico para una empresa chilena de radiocomunicación.",
+    "Hablas en español chileno, tono cordial, profesional y cercano.",
+    "Entrega una respuesta útil y concreta.",
+    "Puedes dar orientación técnica general (por ejemplo: conceptos como IP, temperatura, golpes, buenas prácticas).",
+    "No afirmes características específicas de un modelo si no están en la base de conocimiento.",
+    "No inventes datos de la empresa ni procedimientos internos.",
+    "Si falta información, haz 1–2 preguntas para poder afinar la recomendación.",
+    "Nunca menciones que eres una IA.",
+    "Nunca uses etiquetas como <think> ni expliques tu razonamiento.",
+    "Entrega solo el mensaje final listo para WhatsApp, sin encabezados ni meta-explicaciones.",
+  ].join(" ");
+
+  const knowledgeLines =
+    knowledge.length > 0
+      ? knowledge.map((k) => `- ${k.tema}: ${k.info}`).join("\n")
+      : "- (Sin coincidencias exactas en la base para esta consulta)";
+
+  const user = [
+    `Mensaje del cliente: ${input}`,
+    "",
+    "Base de conocimiento (servicio_tecnico):",
+    knowledgeLines,
+    "",
+    "Responde con una recomendación/ayuda en un único mensaje.",
+  ].join("\n");
+
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "MiniMax-M2.7",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.4,
+        max_tokens: 380,
+      }),
+    });
+    if (!res.ok) return fallback();
+    const data = (await res.json()) as unknown;
+    const choices = isRecord(data) ? getRecordValue(data, "choices") : undefined;
+    const first = Array.isArray(choices) ? (choices[0] as unknown) : undefined;
+    const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
+    const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
+    if (typeof content === "string" && content.trim()) {
+      const cleaned = sanitizeMinimaxOutput(content);
+      if (cleaned) return cleaned;
+    }
+    return fallback();
+  } catch {
+    return fallback();
+  }
+}
+
 function sanitizeMinimaxOutput(raw: string) {
   const withoutThink = raw
     .replace(/<think[\s\S]*?<\/think>\s*/gi, "")
@@ -2095,25 +2180,18 @@ async function handlePoints(state: UserState, text: string) {
 
 async function handleServicioTecnico(state: UserState, text: string) {
   const q = text.trim();
-  if (!q) return "Cuéntame tu duda técnica y te ayudo al tiro.";
-  const hits = await answerServicioTecnico(q);
-  if (!hits) {
-    const msg = await minimaxRewrite({
-      kind: "empatia",
-      input: q,
-      facts: [
-        "Puedo derivarte con un especialista para que te atiendan bien.",
-        "📞 Mesa Central: +56 2 3263 5550",
-        "📞 SAM (Servicio Asistencia Motorola): +56 2 3263 5551",
-      ],
-    });
-    return `${msg}\n\nSi quieres volver al menú, responde: Menú.`;
-  }
-  const answer = hits
-    .map((h) => [`*${h.tema}*`, h.info].filter(Boolean).join("\n"))
-    .join("\n\n");
-  return [
-    answer,
+  const opening = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
+  if (!q) return opening;
+
+  const hits = (await answerServicioTecnico(q)) ?? [];
+  const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge: hits.map((h) => ({ tema: h.tema, info: h.info })) });
+
+  const servicios = [
+    "🛠️ Mantención preventiva",
+    "Optimice la durabilidad de sus equipos y mejore la comunicación mediante mantenimientos preventivos anuales que incluyen ajustes de frecuencia y sensibilidad.",
+    "",
+    "🧰 Reparación (radios y equipos)",
+    "Recupere la funcionalidad de sus radios con repuestos y accesorios originales. Nuestros especialistas utilizan herramientas de vanguardia y tecnología Motorola en la reparación.",
     "",
     "Si necesitas que te deriven:",
     "📞 Mesa Central: +56 2 3263 5550",
@@ -2121,6 +2199,8 @@ async function handleServicioTecnico(state: UserState, text: string) {
     "",
     "Si quieres volver al menú, responde: Menú.",
   ].join("\n");
+
+  return [ai, servicios];
 }
 
 export async function GET(request: Request) {
@@ -2349,7 +2429,7 @@ export async function POST(request: Request) {
               resetBranchState(state, previous);
               resetBranchState(state, intent.branch);
               if (intent.branch === "proyectos") reply = await handleProjects(state, inboundText);
-              else if (intent.branch === "servicio_tecnico") reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+              else if (intent.branch === "servicio_tecnico") reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
               else if (intent.branch === "puntos_venta") reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
               else if (intent.branch === "catalogo") reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
               else reply = buildMainMenuText();
@@ -2373,7 +2453,7 @@ export async function POST(request: Request) {
             resetBranchState(state, previous);
             resetBranchState(state, intent.branch);
             if (intent.branch === "proyectos") reply = await handleProjects(state, inboundText);
-            else if (intent.branch === "servicio_tecnico") reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+            else if (intent.branch === "servicio_tecnico") reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
             else if (intent.branch === "puntos_venta") reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
             else if (intent.branch === "catalogo") reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
             else reply = buildMainMenuText();
@@ -2392,7 +2472,7 @@ export async function POST(request: Request) {
             if (choice === "catalogo") {
               reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
             } else if (choice === "servicio_tecnico") {
-              reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+              reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
             } else if (choice === "proyectos") {
               reply = await handleProjects(state, "");
             } else if (choice === "puntos_venta") {
@@ -2427,7 +2507,7 @@ export async function POST(request: Request) {
               if (intent.branch === "proyectos") {
                 reply = await handleProjects(state, inboundText);
               } else if (intent.branch === "servicio_tecnico") {
-                reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+                reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
               } else if (intent.branch === "puntos_venta") {
                 reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
               } else if (intent.branch === "catalogo") {
