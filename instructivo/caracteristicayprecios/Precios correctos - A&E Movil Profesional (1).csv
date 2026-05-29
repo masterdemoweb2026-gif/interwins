@@ -1,0 +1,151 @@
+DEM 500,DGM4100 DGM6100,DGM4100+ DGM6100+,DGM5000/5000e 5500/5500e,DGM8000/8000e 8500/8500e,Código,Descripción,,LISTA
+,,,,,Antenas: Las siguientes antenas están destinadas a clientes que desean una antena combinada UHF o VHF y GPS,,,
+,X,X,X,X,HAE6020,Antena combinada GPS UHF 1/4 onda 470-527 MHZ,, $ 261.355 
+,,X,,X,HAF4029,"Combinación de GPS+RF, 806-941 MHZ, 1/4 de onda, montaje perforado, mini-u",, $ 229.721 
+,,X,,X,HAF4033,"Combinación de GPS+RF, 806-941 MHZ, ganancia de 5dB, montaje perforado, mini-U",, $ 332.634 
+,X,,X,,PMAE4031,"Antena combinada GPS UHF 450-470 MHZ, 1/4 de onda montaje perforado",, $ 237.596 
+,X,,X,,PMAE4033,"Antena combinada GPS UHF 450-470 MHZ, 3,5 dB , montaje perforado",, $ 294.166 
+,X,,X,,PMAE4034,"Antena combinada GPS UHF 450-470 MHZ, 5 dB, montaje perforado",, $ 295.705 
+,X,,X,,RAD4214,"Combinación de antena de 1/4 onda con conector mini U para GPS y VHF, 136-144 MHZ",, $ 235.831 
+,X,,X,,RAD4216,"Combinación de antena 1/4 de onda con conector mini U para GPS y VHF, 150,8-162 MHZ",, $ 214.968 
+,X,,X,,RAD4217,"Combinación de antena 1/4 de onda con conector mini U para GPS y VHF, 162-174 MHZ",, $ 235.831 
+,X,,X,,RAD4218,"Combinación de antena, ganancia 3 dB y conector mini U para GPS y VHF, 146-172 MHZ",, $ 236.555 
+,X,,X,X,RAD4227,Kit de antena VHF de 1/4 onda. 146-172 MHZ. Ganancia de 3 dB.,, $ 90.513 
+,,,,,"
+Las siguientes antenas son para clientes que tienen antenas móviles existentes y desean agregar  GPS",,,
+,X,X,X,X,PMAN4000,Antena de GPS montaje fijo,, $ 192.339 
+,X,X,X,X,PMAN4001,Antena GPS para montaje de ventana,, $ 83.091 
+,X,X,X,X,PMAN4002,Antena GPS para montaje magnético,, $ 79.199 
+,X,X,X,X,PMAN4010,Antena GPS activa instalación magnética,, $ 101.646 
+,,,,,Las siguientes antenas están destinadas a clientes que no planean usar GPS,,,
+X,X,,X,,HAD4006,"136-144 MHZ 1/4 onda, montaje de techo",, $ 33.241 
+X,X,,X,,HAD4007,"146-150,8 MHZ 1/4 onda, montaje de techo",, $ 50.913 
+X,X,,X,,HAD4008,"150,8-162 MHZ 1/4 onda, montaje de techo",, $ 33.241 
+X,X,,X,,HAD4009,162-174 MHZ 1/4 onda montaje de techo,, $ 33.241 
+X,,,,,HAD4022,146-172 MHZ 5/8. 3 dB de ganancia montaje de techo,, $ 89.449 
+X,X,,X,,HAE4002,"403-430 MHZ, 1/4 onda montaje de techo",, $ 50.913 
+X,X,,X,,HAE4003,"450-470 MHZ, 1/4 onda montaje de techo",, $ 50.913 
+,X,,X,,HAE4004,"470-512 MHZ, 1/4 onda montaje de techo",, $ 50.913 
+,X,,X,,HAE4013,"494-512 MHZ, 3,5 dB de ganancia montaje de techo",, $ 99.564 
+X,X,,X,,HAE6022,"403‐470 MHZ UHF 2dB ganancia, montaje perforado",, $ 112.009 
+X,X,,X,,RAE4004ARB,"450-470 MHZ, 5dB de ganancia montaje perforado",, $ 472.929 
+,X,,X,,RAE4163ARB, 410‐430 MHZ UHF antena corta con montaje perforado,, $ 80.647 
+,X,,X,,RAE4164ARB, 430‐450 MHZ UHF antena corta con montaje perforado,, $ 80.647 
+,,,,,800/900MHz Antenas Non-GPS ,,,
+,,X,,X,HAF4013,806–941 MHZ antena corta con montaje perforado mini U,, $ 101.827 
+,,X,,X,HAF4025,"806–941 MHZ, 1/4 onda con montaje perforado ",, $ 50.913 
+,,X,,X,HAF4026,"806–941 MHZ, 3dB de ganancia montaje perforado mini U",, $ 110.878 
+,,,,,Antenas de remplazo,,,
+,,X,,X,HAF4019,"Antena 806–941 MHZ, 1/4 onda",, $ 31.272 
+,,X,,X,PMAN4004,"Combo GPS+RF, solo base, montaje perforado, mini-U",, $ 203.654 
+,,,,,Cables,,,
+X,X,X,X,X,HKN4137,12 volt cable de baja potencia a batería ,, $ 25.411 
+X,X,X,X,X,HKN4191,12 volt cable de fuente de poder a batería ,, $ 39.101 
+X,X,X,X,X,HKN4192,12 volt cable 20 pies 1-45W,, $ 63.133 
+X,,,,,HKN9327,Cable de detección de encendido,, $ 29.326 
+,X,X,X,X,PMKN4163,Cable de programación USB para Mic. móvil con salida BT (PMMN4097),, $ 35.436 
+,X,X,X,X,RKN4136,Cable sensor de ignicion,, $ 50.823 
+,X,X,X,X,PMKN4010,Cable de programación de accesorios traseros para repetidores y móviles,, $ 112.009 
+,X,X,X,X,PMKN4016,"Cable de alineación, prueba y programación para repetidores y móviles",, $ 116.988 
+,X,X,X,X,PMKN4018,Cable universal con conector para accesorios móviles traseros,, $ 77.977 
+X,,,,,PMKN4147,Cable de programación frontal para móviles,, $ 56.638 
+X,,,,,PMKN4151,Cable universal con conector para accesorios móviles traseros,, $ 118.232 
+,,,,,Estación de Control,,,
+X,X,X,X,X,3060665A04,Cable de alimentación de CA (funciona con la fuente de poder GPN6145),, $ 75.578 
+X,X,X,X,X,GKN6266,Cable adaptador de antena a conector BCN,, $ 93.568 
+X,X,X,X,X,GLN7318,Bandeja de escritorio con altavoz,, $ 73.202 
+X,X,X,X,X,GLN7326,Bandeja de escritorio sin altavoz,, $ 134.411 
+X,X,X,X,X,HKN9088,Cable adaptador para estación de control (8 pies),, $ 79.199 
+X,,,,,HLN9457,Conector móvil 16 pins,, $ 9.097 
+X,X,X,X,X,HPN4007,Fuente de alimentacion y cable,, $ 505.446 
+,X,X,X,X,PMLN5072,Kit de hardware para conector trasero,, $ 9.051 
+X,,,,,PMMN4098,Micrófono de escritorio,, $ 171.069 
+,X,X,X,X,RMN5050,Micrófono de escritorio,, $ 168.331 
+X,,,,,RLN4836,PTT externo con pedal de emergencia,, $ 84.561 
+,X,X,X,X,RSN4005,Bandeja parlante para escritorio,, $ 144.187 
+,,,,,Manos Libres,,,
+X,,,,,RLN4856,PTT de pie,, $ 151.111 
+X,,,,,RLN4857,PTT de Pusbutton,, $ 51.819 
+,X,X,X,X,RLN5926,PTT Pushbotton ,, $ 53.765 
+,X,X,X,X,RMN5054,Visor de micrófono impres ,, $ 82.118 
+,,,,,Parlantes Externos,,,
+X,,,,,HSN8145,"Parlante externo 7,5 W ",, $ 53.765 
+X,,,,,RSN4001,Parlante externo 13 W,, $ 75.261 
+,X,X,X,X,RSN4002,Bocina externa 13 W,, $ 94.178 
+,X,X,X,X,RSN4003,Bocina externa 7. 5 W,, $ 66.482 
+,X,X,X,X,RSN4004,Bocina externa 5 W,, $ 75.759 
+,,,,,Micrófonos,,,
+,X,X,X,X,3075336B07,Cable de reemplazo de micrófono compacto,, $ 76.506 
+,X,X,X,X,3075336B10,Tarea pesada/ cable de reemplazo del micrófono del teclado,, $ 47.904 
+X,,,,,GMMN4065,Microfono visor,, $ 80.149 
+X,,,,,HLN9073,Clip para colgar micrófono,, $ 1.946 
+X,,,,,HLN9414,Clip para colgar universal,, $ 22.243 
+,X,X,X,X,HMN4098,Teléfono de estilo telefónico impres,, $ 367.776 
+,X,X,X,X,PMKN4033,Cable de extensión de micrófono para rmn5052-10ft,, $ 64.603 
+,X,X,X,X,PMKN4034,Cable de extensión de micrófono para rmn5052-20ft,, $ 65.690 
+X,,,,,PMMN4089,Microfono keypad,, $ 132.262 
+X,,,,,PMMN4090,Microfono compacto,, $ 54.738 
+X,,,,,PMMN4091,Microfono Heavy Duty,, $ 101.691 
+,X,X,X,,PMMN4097,Micrófono móvil con puerta de enlace bluetooth,, $ 366.576 
+,,,X,X,RLN6490,Auriculares para trabajo pesado detrás del cuello con bluetooth XBT,, $ 1.196.261 
+,,,X,X,RLN6491,Auriculares para trabajo pesado tipo vincha con bluetooth XBT,, $ 1.196.261 
+,X,X,X,X,RMN5052,Micrófono compacto,, $ 74.288 
+,X,X,X,X,RMN5053,Microfono trabajo pesado impres,, $ 120.246 
+,X,X,,,RMN5065,Micrófono impres con teclado,, $ 200.395 
+,,,X,X,RMN5127,Micrófono impres con teclado de navegación (pantalla alfanumérica),, $ 220.444 
+,,,X,X,PMLN7131,Kit de actualización para cabezal remoto con cable 3 metros.,, $ 1.212.395 
+,,,X,X,PMKN4174,Extensión de cable recto 5 metros para cabezal de control móvil,, $ 337.250 
+,,,,,Montaje,,,
+X,,,,,FTN6083,Montaje en tablero,, $ 75.261 
+,X,X,X,X,HLN9073,Clip para colgar micrófono,, $ 1.946 
+,X,X,X,X,HLN9414,Clip para colgar universal,, $ 22.243 
+,X,X,X,X,HKN9557,Adaptador PL259/mini-UHF ,, $ 56.955 
+,X,X,,,RLN6079,Soporte de montaje con llave,, $ 192.339 
+,,,X,X,RLN6465,In-dash mounting kit-din,, $ 51.321 
+X,,,X,X,RLN6466,Kit de unión de bajo perfil,, $ 22.492 
+,,,X,X,RLN6467,Kit de union de alto perfil,, $ 29.326 
+,,,X,X,RLN6468,Kit de union con bloqueo,, $ 188.877 
+,,,,,Kit adaptador de montaje remoto,,,
+,X,X,,,PMKN4073,Kit de cable montaje remoto movil 5 metros para usar con PMLN5404,, $ 111.195 
+,X,X,,,PMKN4074,Kit de cable montaje remoto movil 3 metros para usar con PMLN5404,, $ 94.088 
+,,,X,X,PMLN6404,Kit de montaje remoto móvil ,, $ 188.176 
+,,,X,X,PMKN4143,Cable de montaje remoto móvil de 3 metros para usar con PMLN6404,, $ 84.109 
+,,,X,X,PMKN4144,Cable de montaje remoto móvil de 5 metros para usar con PMLN6404,, $ 95.151 
+,,,X,X,PMKN4070,Adaptador sin PC MAP móvil IMPRES,, $ 51.819 
+,,,X,X,PMKN4072,Adaptador sin PC MMP móvil IMPRES,, $ 51.819 
+,,,X,X,PMLN6404,Kit adaptador montaje remoto movil ,, $ 188.176 
+,,,,,"Nota: Firmware version R02.06.11 o después DEBEN programarse en el movil para un buen funcionamiento del control del montaje remoto. Para instalación en el maletero, se puede necesitar un cable de poder de 20' HKN4192. Cables no incluidos, ver opciones abajo.",,,
+,,,,,Accesorios inalámbricos,,,
+,X,X,X,X,25012022002,Fuente de alimentacion para cargadores de dos unidades. EURO,, $ 43.559 
+,X,X,X,X,AARLN4885,Auricular tipo earbud para recepción,, $ 53.493 
+,X,X,X,X,HLN5391,"Clip colgante, requerido para el cargador vehicular",, $ 44.645 
+,,,X,X,NNTN8125,"Auricular inalámbrico para operaciones críticas, con cable CABLE 12""",, $ 413.009 
+,,,X,X,NNTN8127,"Cápsula Push to Talk inalámbrico (No compatible con Privacy Plus, Connect Plus, or LTR/PassPort)",, $ 223.453 
+,,,X,X,NNTN8294,"Auricular inalámbrico con cable de 11.4"", mic en línea, para audio inteligente. Debe solicitarse NNTN8127",, $ 68.428 
+,,,X,X,NNTN8295,"Auricular inalámbrico 45.7"", mic en línea, para audio inteligente. Debe solicitarse con NNTN8127",, $ 73.225 
+,,,X,X,NNTN8299,Goma de auricular de remplazo,, $ 5.386 
+,,,X,X,NNTN8361,"Kit de gomas de repuesto para auriculares inalámbricos (20 pequeños, 20 medianos, 20 grandes y 10 clips)",, $ 51.321 
+,,,X,X,RLN5037,Tubos para oidos para auriculares pack 10,, $ 271.538 
+,,,X,X,NTN2572,"Remplazo cable auricular inalámbrico 12""",, $ 266.379 
+,,,X,X,NTN2575,"Remplazo cable auricular inalámbrico 9,5""",, $ 246.647 
+,,,X,X,NTN8988,Almohadillas adhesivas (90 unid) para adhesión segura a la oreja,, $ 29.937 
+,,,X,X,PMLN6246,Clip giratorio para operaciones críticas y operaciones mejoradas,, $ 6.721 
+,X,X,X,,PMLN7120,Cargador de unidad dual de repuesto,, $ 87.978 
+,X,X,X,,PMLN6716,Cargador de viaje vehicular,, $ 117.734 
+,X,X,X,,PMLN6743,Clip giratorio de repuesto para rsm inalámbrico de largo alcance,, $ 4.277 
+,,,X,X,PMLN7052,Kit de vigilancia inalámbrica de 1 cable de operaciones críticas con tubo translúcido,, $ 97.754 
+,,,X,X,PMLN7203,Auricular giratorio con ajuste flexible con pluma,, $ 76.981 
+,X,X,X,,PMMN4097,Reemplazo de micrófono móvil con Bluetooth ,, $ 366.576 
+,X,X,X,,PMNN4461,Batería de repuesto Li-ion 1800,, $ 106.918 
+,X,X,X,X,RLN4941,Auricular de recepción solamente con tubo translucido,, $ 110.244 
+,,,X,X,RLN6500,Kit de accesorios Bluetooth ,, $ 146.631 
+,X,X,X,,RLN6544,Micrófono inalámbrico de largo alcance con batería y clip,, $ 713.240 
+,,,X,X,RLN6550,"Auricular inalámbrico, kit de accesorios Bluetooth multi (paquete de 3 PMLN6397)",, $ 117.304 
+,X,X,X,X,RLN6551,Micrófono parlante remoto de largo alcance con Bluetooth y cargador vehicular,, $ 855.345 
+,X,X,X,X,RLN6552,Micrófono parlante remoto de largo alcance con Bluetooth sin cargador vehicular,, $ 672.057 
+,,,X,X,RLN6556,"Kit accesorios Bluetooth con auricular flexible, módulo Bluetooth y base de carga con fuente de alimentación",, $ 182.723 
+,X,X,X,X,PMLN7560,Auricular receptor con tubo comfort,, $ 78.203 
+,X,X,X,X,RLN6511,Tapones para los oídos personalizados EP7-SM Sonic Defenders. Pequeño,, $ 48.764 
+,X,X,X,X,RLN6512,Tapones para los oídos personalizados EP7-SM Sonic Defenders. Mediano,, $ 48.764 
+,X,X,X,X,RLN6513,Tapones para los oídos personalizados EP7-SM Sonic Defenders. Grande,, $ 48.764 
+,,,,,PMLN8203AS,"U_MOTOTRBO R7,GOB1 SERVICE KIT",, $ 93.884 

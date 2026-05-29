@@ -34,3 +34,34 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Variables de entorno (Vercel)
+
+Este proyecto recibe mensajes entrantes por webhook y responde vía GOWA. Además, consulta Supabase y usa MiniMax M2.7 solo para redacción humanizada (saludos/cierres/excepciones).
+
+### WhatsApp / GOWA
+
+- `WHATSAPP_VERIFY_TOKEN` (string) Token de verificación del webhook (GET hub.challenge)
+- `GOWA_WEBHOOK_SECRET` (string, opcional) Se usa para validar `x-hub-signature-256` (HMAC SHA256)
+- `GOWA_BASE_URL` (string) Base URL de GOWA, ej: `http://<host>:3000`
+- `GOWA_BASIC_AUTH` (string, opcional) Credenciales para Basic Auth (se aceptan en texto plano o ya en formato `Basic ...`)
+- `GOWA_DEVICE_ID` (string, opcional) Device ID para GOWA (`X-Device-Id`)
+- `WHATSAPP_AUTO_REPLY` (boolean string, opcional) `true` para responder automáticamente (default `true`)
+- `DEBUG_STORE_WEBHOOK_BODY` (boolean string, opcional) `true` para guardar el body completo en debug inbox
+
+### Supabase
+
+- `SUPABASE_URL` (string) URL del proyecto, ej: `https://xxxx.supabase.co`
+- `SUPABASE_SERVICE_ROLE_KEY` (string recomendado) Key server-side para leer/escribir estado y consultar tablas con RLS
+- `SUPABASE_ANON_KEY` (string, fallback) Se usa si no está `SUPABASE_SERVICE_ROLE_KEY`
+
+El estado conversacional por usuario se persiste en la tabla `message_buffer` (columna `full_message`) usando como key `user_phone`.
+
+### MiniMax (redacción humanizada)
+
+- `MINIMAX_API_KEY` (string) API Key para MiniMax
+- `MINIMAX_BASE_URL` (string, opcional) Default: `https://api.minimax.io/v1`
+
+### App
+
+- `NEXT_PUBLIC_APP_URL` (string, opcional) Solo para mostrar la URL del webhook en la página de inicio

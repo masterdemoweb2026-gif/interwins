@@ -1,0 +1,53 @@
+EM200,DEM300,EM400,DEM400,Código,Descripción,LISTA
+Antenas Móviles,,,,,,
+X,X,X,X,HAD4006,"VHF 136-144 MHz, 1/4 Onda Roof Mount, Mini-U", $  33.241 
+X,X,X,X,HAD4007,"VHF 144-150.8 MHz, 1/4 Onda Roof Mount, Mini-U", $  50.913 
+X,X,X,X,HAD4008,"VHF 150.8-162 MHz, 1/4 Onda Roof Mount, Mini-U", $  33.241 
+X,X,X,X,HAD4009,"VHF 162-174 MHz, 1/4 Onda Roof Mount, Mini-U", $  33.241 
+,X,,X,HAE4002,"UHF 403-430 MHz, 1/4 Onda Roof Mount, Mini-U", $  50.913 
+,X,,X,HAD4022,"VHF, 132-174 MHz, 3.0 dB de ganancia, Montaje perforado, Mini-U", $  89.449 
+X,X,X,X,HAE4003,"UHF 450-470 MHz, 1/4 Onda Roof Mount, Mini-U", $  50.913 
+,X,,X,HAE6022,"UHF, 403-527 MHz, 2dB Ganancia, Montaje perforado, Mini-U", $  112.009 
+X,,X,,RAE4004AMB,"UHF 5dB de Ganancia, Montaje magnético 440-470 MHz", $  328.109 
+Micrófonos,,,,,,
+,X,,X,GMMN4065,Micrófono de Visor (Omni-Dirección), $  80.149 
+X,X,X,X,HLN9073,Micrófono estilo teléfono con clip para colgar (requiere instalación), $  1.946 
+X,X,X,X,HLN9414,Micrófono para colgar con clip (Universal – no requiere instalación), $  22.243 
+,X,,X,PMMN4089,Micrófono con teclado (Alfanumérico), $  132.262 
+,X,,X,PMMN4090,Micrófono compacto con clip , $  54.738 
+,X,,X,PMMN4091,Micrófono Heavy Duty , $  101.691 
+Estación de Control,,,,,,
+X,,X,,RMN5029,Micrófono con teclado mejorado & y clip para colgar , $  111.376 
+,X,,X,GKN6266,Cable de suministro de energía DC (con GPN6145), $  93.568 
+,X,,X,GLN7318,Bandeja de escritorio sin parlante , $  73.202 
+,X,,X,GLN7326,Bandeja de escritorio con parlante , $  134.411 
+,X,,X,HKN9088,Adaptador antena móvil Mini-U 8 Ft. Cable, $  79.199 
+,X,,X,HLN9457,Kit de Hardware para usar con el conector de accesorios expandido, $  9.097 
+X,X,X,X,HPN4007,Fuente de Poder y Cable (1-60 Watt), $  505.446 
+,X,,X,PMMN4098,Micrófono de escritorio, $  171.069 
+X,,X,,RMN5068,"Bandeja de escritorio, negro", $  171.861 
+General,,,,,,
+X,X,X,X,HSN8145,Parlante externo 7.5W, $  53.765 
+X,X,X,X,RSN4001,Parlante externo 13 W, $  75.261 
+Manos Libres,,,,,,
+X,X,X,X,GMMN4065,Micrófono de vicera (reemplaza al AARMN4027), $  80.149 
+,X,,X,RLN4836,Pedal de emergencia para micrófono de visera GMMN4065, $  84.561 
+X,X,X,,RLN4856,Interruptor de pie con PTT Remoto , $  151.111 
+X,X,X,X,RLN4857,Interruptor con PTT Remoto, $  51.819 
+Cables y conectores,,,,,,
+X,X,X,X,HKN4137,"Cable de energía móvil 10 FT, 14 AWG, 15A", $  25.411 
+X,X,X,X,HKN4191,"Cable de energía móvil 10 FT, 12 AWG, 20A", $  39.101 
+,X,,X,HKN4192,"Cable de energía móvil 20 FT, 10 AWG, 20A", $  63.133 
+X,X,X,X,HKN9327,Cable del interruptor de encendido, $  29.326 
+,X,,X,HLN9457,Kit conector de 16 Pin MAP , $  9.097 
+,X,,X,PMKN4147,Cable de programación frontal, $  56.638 
+,X,,X,PMKN4151,Conector de accesorios trasero móvil cable universal, $  118.232 
+,X,,X,PMLN5620,"Extensor de conectores, 20 piezas", $  23.081 
+Montaje,,,,,,
+,X,,X,FTN6083,Kit de Montaje DIN, $  75.261 
+X,,X,,GLN7317,"Soporte de montaje de alto perfil (VHF, UHF, 200 MHz & 700 MHz)", $  30.299 
+X,,X,,GLN7324,"Soporte de montaje de bajo perfil (VHF, UHF, 200 MHz & 700 MHz)", $  22.854 
+X,,X,,RLN4779,"Soporte de montaje de bloqueo de teclas (VHF, UHF, 200 MHz & 700 MHz)", $  94.088 
+,X,,X,RLN6466,Kit de muñon de bajo perfil , $  22.492 
+,X,,X,RLN6467,Kit de muñon de alto perfil , $  29.326 
+,X,,X,RLN6468,Kit de llave de bloqueo de muñón, $  188.877 

@@ -1,0 +1,58 @@
+RAMA CATÁLOGO — Flujo completo
+
+[PASO 1 — Identificación del producto]
+Pregunta al usuario qué tipo de producto busca.
+Si el usuario no lo sabe, aplica un filtro progresivo consultando uno a uno los atributos relevantes 
+(tipo de equipo, marca, uso, entorno, etc.) según los campos disponibles en la tabla de productos de Supabase.
+Guarda el estado del filtro en el perfil del usuario para no repetir preguntas ya respondidas.
+
+[PASO 2 — Presentación de resultados]
+Muestra máximo 5 productos que coincidan con los filtros.
+Usa formato lista. Al mostrar el nombre, elimina prefijos genéricos.
+Ejemplo: en lugar de "EQUIPO DE RADIO ANÁLOGO MOTOROLA DP50" → muestra solo "MOTOROLA DP50".
+
+[PASO 3 — Ficha del producto seleccionado]
+Cuando el usuario elija un producto, muestra en orden:
+1. Nombre completo del producto
+2. Imagen del producto
+3. Descripción corta
+4. Si aplica: enlace a ficha técnica para descarga o visualización
+
+Botones disponibles tras mostrar la ficha:
+- [Cotizar]
+- [Volver a la lista] → solo si hubo más de un resultado
+- [Nueva búsqueda] → si solo había un resultado
+
+[PASO 4 — Formulario de cotización (send & wait response)]
+Solicita los siguientes campos uno a uno o en bloque según capacidades de GOWA:
+- Nombre y Apellidos
+- Teléfono
+- Correo electrónico
+- Nombre de la empresa
+- Dirección (calle)
+- Ciudad
+- Región / Provincia
+
+Una vez capturados todos los datos, cambia el estado del usuario a: wait_finish_cotizacion.
+
+[PASO 5 — Productos recomendados]
+Consulta en Supabase la tabla de catalogo_productos puedes filtrar por columna "producto" y luego saber → campo "recomendados" del producto cotizado.
+Si existen recomendados, menciónalos por nombre en texto plano y muestra 3 botones:
+- [Incluir recomendados]
+- [Ver productos recomendados]
+- [Rechazar]
+
+Si el usuario elige [Ver productos recomendados]:
+  → Muestra la lista de productos recomendados.
+  → Por cada producto que el usuario seleccione: mostrar título + imagen + descripción.
+  → Botones disponibles: [Incluir] / [Rechazar] / [Terminar]
+  → Si incluye o rechaza, retira ese producto de la lista y muestra los restantes.
+  → Si termina o no hay más recomendados:
+
+[PASO 6 — Cierre de cotización]
+Envía un mensaje amable confirmando que la cotización fue recibida y que pronto se pondrán en contacto.
+Muestra el menú principal nuevamente:
+1. 📦 Catálogo
+2. 🔧 Servicio Técnico
+3. 🏗️ Proyectos
+4. 📍 Puntos de Venta

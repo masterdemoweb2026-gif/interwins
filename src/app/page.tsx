@@ -37,12 +37,17 @@ export default function Home() {
   }
 
   useEffect(() => {
-    refreshMetaStatus();
-    refreshInbox();
+    const bootId = window.setTimeout(() => {
+      void refreshMetaStatus();
+      void refreshInbox();
+    }, 0);
     const id = window.setInterval(() => {
-      refreshInbox();
+      void refreshInbox();
     }, 3000);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearTimeout(bootId);
+      window.clearInterval(id);
+    };
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -74,7 +79,7 @@ export default function Home() {
             Webhook: <span className="font-mono">{webhookUrl}</span>
           </p>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Si envías un mensaje al WhatsApp conectado por GOWA, el bot responde: <span className="font-mono">hola</span>
+            Si envías un mensaje al WhatsApp conectado por GOWA, el bot responde con el menú de atención.
           </p>
         </div>
 

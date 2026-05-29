@@ -1,0 +1,368 @@
+create table public.inter_products_staging (
+  "ID" text null,
+  "Tipo" text null,
+  "SKU" text null,
+  "GTIN, UPC, EAN o ISBN" text null,
+  "Nombre" text null,
+  "Publicado" text null,
+  "¿Está destacado?" text null,
+  "Visibilidad en el catálogo" text null,
+  "Descripción corta" text null,
+  "Descripción" text null,
+  "¿Existencias?" text null,
+  "Inventario" text null,
+  "¿Permitir reservas de productos agotados?" text null,
+  "¿Vendido individualmente?" text null,
+  "Precio normal" text null,
+  "Categorías" text null,
+  "Etiquetas" text null,
+  "Clase de envío" text null,
+  "Imágenes" text null,
+  "Posición" text null,
+  "Marcas" text null,
+  "Nombre del atributo 1" text null,
+  "Valor(es) del atributo 1" text null,
+  "Atributo visible 1" text null,
+  "Atributo global 1" text null,
+  "Nombre del atributo 2" text null,
+  "Valor(es) del atributo 2" text null,
+  "Atributo visible 2" text null,
+  "Atributo global 2" text null,
+  "Nombre del atributo 3" text null,
+  "Valor(es) del atributo 3" text null,
+  "Atributo visible 3" text null,
+  "Atributo global 3" text null,
+  "Nombre del atributo 4" text null,
+  "Valor(es) del atributo 4" text null,
+  "Atributo visible 4" text null,
+  "Atributo global 4" text null,
+  "Nombre del atributo 5" text null,
+  "Valor(es) del atributo 5" text null,
+  "Atributo visible 5" text null,
+  "Atributo global 5" text null,
+  "Nombre del atributo 6" text null,
+  "Valor(es) del atributo 6" text null,
+  "Atributo visible 6" text null,
+  "Atributo global 6" text null,
+  "Nombre del atributo 7" text null,
+  "Valor(es) del atributo 7" text null,
+  "Atributo visible 7" text null,
+  "Atributo global 7" text null,
+  "Nombre del atributo 8" text null,
+  "Valor(es) del atributo 8" text null,
+  "Atributo visible 8" text null,
+  "Atributo global 8" text null
+) TABLESPACE pg_default;
+
+
+create table public.inter_products_staging (
+  "ID" text null,
+  "Tipo" text null,
+  "SKU" text null,
+  "GTIN, UPC, EAN o ISBN" text null,
+  "Nombre" text null,
+  "Publicado" text null,
+  "¿Está destacado?" text null,
+  "Visibilidad en el catálogo" text null,
+  "Descripción corta" text null,
+  "Descripción" text null,
+  "¿Existencias?" text null,
+  "Inventario" text null,
+  "¿Permitir reservas de productos agotados?" text null,
+  "¿Vendido individualmente?" text null,
+  "Precio normal" text null,
+  "Categorías" text null,
+  "Etiquetas" text null,
+  "Clase de envío" text null,
+  "Imágenes" text null,
+  "Posición" text null,
+  "Marcas" text null,
+  "Nombre del atributo 1" text null,
+  "Valor(es) del atributo 1" text null,
+  "Atributo visible 1" text null,
+  "Atributo global 1" text null,
+  "Nombre del atributo 2" text null,
+  "Valor(es) del atributo 2" text null,
+  "Atributo visible 2" text null,
+  "Atributo global 2" text null,
+  "Nombre del atributo 3" text null,
+  "Valor(es) del atributo 3" text null,
+  "Atributo visible 3" text null,
+  "Atributo global 3" text null,
+  "Nombre del atributo 4" text null,
+  "Valor(es) del atributo 4" text null,
+  "Atributo visible 4" text null,
+  "Atributo global 4" text null,
+  "Nombre del atributo 5" text null,
+  "Valor(es) del atributo 5" text null,
+  "Atributo visible 5" text null,
+  "Atributo global 5" text null,
+  "Nombre del atributo 6" text null,
+  "Valor(es) del atributo 6" text null,
+  "Atributo visible 6" text null,
+  "Atributo global 6" text null,
+  "Nombre del atributo 7" text null,
+  "Valor(es) del atributo 7" text null,
+  "Atributo visible 7" text null,
+  "Atributo global 7" text null,
+  "Nombre del atributo 8" text null,
+  "Valor(es) del atributo 8" text null,
+  "Atributo visible 8" text null,
+  "Atributo global 8" text null
+) TABLESPACE pg_default;
+
+
+create table public.message_buffer (
+  user_phone text not null,
+  full_message text null,
+  last_updated_at timestamp with time zone null default now(),
+  is_processed boolean null default false,
+  procesando boolean null,
+  constraint message_buffer_pkey primary key (user_phone)
+) TABLESPACE pg_default;
+
+create view public.inter_products as
+select
+  row_number() over () as row_id,
+  "ID" as product_id,
+  "Nombre" as nombre,
+  COALESCE(
+    case
+      when "Nombre del atributo 1" = 'Tipo Producto'::text then "Valor(es) del atributo 1"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 2" = 'Tipo Producto'::text then "Valor(es) del atributo 2"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 3" = 'Tipo Producto'::text then "Valor(es) del atributo 3"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 4" = 'Tipo Producto'::text then "Valor(es) del atributo 4"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 5" = 'Tipo Producto'::text then "Valor(es) del atributo 5"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 6" = 'Tipo Producto'::text then "Valor(es) del atributo 6"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 7" = 'Tipo Producto'::text then "Valor(es) del atributo 7"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 8" = 'Tipo Producto'::text then "Valor(es) del atributo 8"
+      else null::text
+    end
+  ) as tipo_producto,
+  COALESCE(
+    case
+      when "Nombre del atributo 1" = 'Modalidad'::text then "Valor(es) del atributo 1"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 2" = 'Modalidad'::text then "Valor(es) del atributo 2"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 3" = 'Modalidad'::text then "Valor(es) del atributo 3"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 4" = 'Modalidad'::text then "Valor(es) del atributo 4"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 5" = 'Modalidad'::text then "Valor(es) del atributo 5"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 6" = 'Modalidad'::text then "Valor(es) del atributo 6"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 7" = 'Modalidad'::text then "Valor(es) del atributo 7"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 8" = 'Modalidad'::text then "Valor(es) del atributo 8"
+      else null::text
+    end
+  ) as modalidad,
+  COALESCE(
+    case
+      when "Nombre del atributo 1" = 'Portabilidad'::text then "Valor(es) del atributo 1"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 2" = 'Portabilidad'::text then "Valor(es) del atributo 2"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 3" = 'Portabilidad'::text then "Valor(es) del atributo 3"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 4" = 'Portabilidad'::text then "Valor(es) del atributo 4"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 5" = 'Portabilidad'::text then "Valor(es) del atributo 5"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 6" = 'Portabilidad'::text then "Valor(es) del atributo 6"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 7" = 'Portabilidad'::text then "Valor(es) del atributo 7"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 8" = 'Portabilidad'::text then "Valor(es) del atributo 8"
+      else null::text
+    end
+  ) as portabilidad,
+  COALESCE(
+    case
+      when "Nombre del atributo 1" = 'Frecuencia'::text then "Valor(es) del atributo 1"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 2" = 'Frecuencia'::text then "Valor(es) del atributo 2"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 3" = 'Frecuencia'::text then "Valor(es) del atributo 3"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 4" = 'Frecuencia'::text then "Valor(es) del atributo 4"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 5" = 'Frecuencia'::text then "Valor(es) del atributo 5"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 6" = 'Frecuencia'::text then "Valor(es) del atributo 6"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 7" = 'Frecuencia'::text then "Valor(es) del atributo 7"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 8" = 'Frecuencia'::text then "Valor(es) del atributo 8"
+      else null::text
+    end
+  ) as frecuencia,
+  COALESCE(
+    case
+      when "Nombre del atributo 1" = 'Tecnología'::text then "Valor(es) del atributo 1"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 2" = 'Tecnología'::text then "Valor(es) del atributo 2"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 3" = 'Tecnología'::text then "Valor(es) del atributo 3"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 4" = 'Tecnología'::text then "Valor(es) del atributo 4"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 5" = 'Tecnología'::text then "Valor(es) del atributo 5"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 6" = 'Tecnología'::text then "Valor(es) del atributo 6"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 7" = 'Tecnología'::text then "Valor(es) del atributo 7"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 8" = 'Tecnología'::text then "Valor(es) del atributo 8"
+      else null::text
+    end
+  ) as tecnologia,
+  COALESCE(
+    case
+      when "Nombre del atributo 1" = 'Canales'::text then "Valor(es) del atributo 1"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 2" = 'Canales'::text then "Valor(es) del atributo 2"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 3" = 'Canales'::text then "Valor(es) del atributo 3"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 4" = 'Canales'::text then "Valor(es) del atributo 4"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 5" = 'Canales'::text then "Valor(es) del atributo 5"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 6" = 'Canales'::text then "Valor(es) del atributo 6"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 7" = 'Canales'::text then "Valor(es) del atributo 7"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 8" = 'Canales'::text then "Valor(es) del atributo 8"
+      else null::text
+    end
+  ) as canales,
+  COALESCE(
+    case
+      when "Nombre del atributo 1" = 'Consumo'::text then "Valor(es) del atributo 1"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 2" = 'Consumo'::text then "Valor(es) del atributo 2"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 3" = 'Consumo'::text then "Valor(es) del atributo 3"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 4" = 'Consumo'::text then "Valor(es) del atributo 4"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 5" = 'Consumo'::text then "Valor(es) del atributo 5"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 6" = 'Consumo'::text then "Valor(es) del atributo 6"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 7" = 'Consumo'::text then "Valor(es) del atributo 7"
+      else null::text
+    end,
+    case
+      when "Nombre del atributo 8" = 'Consumo'::text then "Valor(es) del atributo 8"
+      else null::text
+    end
+  ) as consumo
+from
+  inter_products_staging;

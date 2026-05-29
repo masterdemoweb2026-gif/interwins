@@ -1,0 +1,240 @@
+Fuente: Productos Inter.csv
+Productos (agrupados por SKU/ID): 1242
+
+================================================================================
+TIPO PRODUCTO: Equipos Radio
+Productos (SKU/ID): 38
+
+Ruta sugerida (filtros en orden):
+  Tipo Producto -> Modalidad -> Portabilidad -> Tecnolog�a -> Frecuencia -> Marca -> Canales -> Consumo -> Pantalla -> Versi�n
+
+Filtros detectados (valores y #Productos que los soportan):
+- Modalidad (2 valores):
+    - Venta (28)
+    - Arriendo (12)
+- Portabilidad (3 valores):
+    - Port�tiles (25)
+    - M�viles (10)
+    - Repetidores (2)
+- Tecnolog�a (2 valores):
+    - Digitales (35)
+    - An�logos (9)
+- Frecuencia (3 valores):
+    - VHF (35)
+    - UHF (32)
+    - 4G / LTE (2)
+- Marca (1 valores):
+    - Motorola (15)
+- Canales (7 valores):
+    - 1000 (13)
+    - 64 (6)
+    - 128 (5)
+    - 16 (5)
+    - 32 (5)
+    - 96 (2)
+    - 99 (2)
+- Consumo (7 valores):
+    - 5W (20)
+    - 4W (10)
+    - 25W (9)
+    - 45W (9)
+    - 1W (2)
+    - 10W (1)
+    - 50W (1)
+- Pantalla (2 valores):
+    - Si (10)
+    - No (5)
+- Versi�n (2 valores):
+    - Capable (3)
+    - Enabled (3)
+
+Restricciones / dependencias (para evitar combinaciones sin productos):
+- Tecnolog�a -> Consumo (valores disponibles por selecci�n):
+    - An�logos: 45W, 4W, 5W
+- Portabilidad -> Frecuencia (valores disponibles por selecci�n):
+    - Repetidores: UHF, VHF
+- Tecnolog�a -> Frecuencia (valores disponibles por selecci�n):
+    - An�logos: UHF, VHF
+- Modalidad -> Portabilidad (valores disponibles por selecci�n):
+    - Arriendo: M�viles, Port�tiles
+
+================================================================================
+TIPO PRODUCTO: Accesorios
+Productos (SKU/ID): 569
+
+Ruta sugerida (filtros en orden):
+  Tipo Producto -> Modalidad -> Tipo Accesorio -> Portabilidad -> Frecuencia -> Marca -> Compatibilidad
+
+Filtros detectados (valores y #Productos que los soportan):
+- Modalidad (1 valores):
+    - Venta (569)
+- Tipo Accesorio (24 valores):
+    - Antenas (138)
+    - Auriculares (87)
+    - Micr�fono (45)
+    - Audio (38)
+    - Repuesto (36)
+    - Cargador (33)
+    - Cable (31)
+    - Bater�as (27)
+    - Estuche (27)
+    - Transporte (25)
+    - Clip (24)
+    - Auricular (10)
+    - Montaje (10)
+    - Funda (9)
+    - Adaptador (8)
+    - Parlante (6)
+    - Fuente de Poder (4)
+    - Bater�a (3)
+    - Kit de Vigilancia (3)
+    - PTT (3)
+    - Cinturon (1)
+    - Correa (1)
+    - Cubierta (1)
+    - Kit (1)
+- Portabilidad (2 valores):
+    - Port�tiles (440)
+    - M�viles (129)
+- Frecuencia (2 valores):
+    - VHF (526)
+    - UHF (464)
+- Marca (1 valores):
+    - Motorola (201)
+- Compatibilidad (65 valores):
+    - DGP6100+ (115)
+    - DGP4100 (95)
+    - DGP5000 (94)
+    - DGP8000 (94)
+    - DGP8000e (94)
+    - DGP5000e (90)
+    - DGM5000e (73)
+    - DEP570e (51)
+    - DEP500e (50)
+    - DGM5000 (49)
+    - DGM5500 (49)
+    - DGM5500e (49)
+    - DGM8000e (46)
+    - DGM4100 (43)
+    - DGM6100 (43)
+    - DEP450 (40)
+    - DGM8000 (40)
+    - DGM8500 (40)
+    - DEP550e (37)
+    - VX261 (32)
+    - EP450 (28)
+    - DGMDGM8500e (25)
+    - SL8050 (25)
+    - DEP250 (24)
+    - R7 (23)
+    - SL8550e (23)
+    - SL500e (22)
+    - DEP500 (20)
+    - EM400 (19)
+    - A8 (18)
+    - EP350NKP (18)
+    - VX264 (16)
+    - DEM300 (15)
+    - DEM400 (15)
+    - DGM8500e (15)
+    - EVX261 (15)
+    - DEM500 (12)
+    - VX80 (12)
+    - EM200 (11)
+    - EP350MX (11)
+    - R2 (11)
+    - EM200D (8)
+    - EM300 (8)
+    - VZ30 (8)
+    - DMG8000e (7)
+    - R7 NON-DISPLAY-CAPABLE (7)
+    - VX2100 (6)
+    - VX2200 (6)
+    - DEP 500e / 570e (5)
+    - SL500 (4)
+    - VX1700 (4)
+    - A8X (3)
+    - DGP5050e (3)
+    - DGP5550e (3)
+    - DGP8050e (3)
+    - DGP8550e (3)
+    - R7 DISPLAY-CAPABLE (3)
+    - R7 DISPLAY-ENABLED (3)
+    - R7 NON-DISPLAY-ENABLED (3)
+    - DGP 5000 / 5000e/DGP 8000 / 8000e/DGP 5000/8000e UL TIA-4950 (2)
+    - DEP 500e / 570e/DEP500 UL TIA-4950 (1)
+    - DEP450/DEP250 (1)
+    - EP150 (1)
+    - EP350LKP (1)
+    - EP450/DEP450 (1)
+
+Restricciones / dependencias (para evitar combinaciones sin productos):
+- Tipo Accesorio -> Portabilidad (valores disponibles por selecci�n):
+    - Auricular: Port�tiles
+    - Bater�a: Port�tiles
+    - Bater�as: Port�tiles
+    - Cinturon: Port�tiles
+    - Correa: Port�tiles
+    - Cubierta: Port�tiles
+    - Estuche: Port�tiles
+    - Funda: Port�tiles
+    - Kit: Port�tiles
+    - Kit de Vigilancia: Port�tiles
+    - PTT: M�viles
+    - Transporte: Port�tiles
+
+================================================================================
+TIPO PRODUCTO: C�maras Corporales
+Productos (SKU/ID): 2
+
+Campos potencialmente duplicados (mismo nombre con acentos/case distinto):
+- BATER�A, BATER�A
+
+Ruta sugerida (filtros en orden):
+  Tipo Producto -> Modalidad -> ALMACENAMIENTO -> RESOLUCI�N -> CONECTIVIDAD -> �NGULO VISI�N -> ADICIONALES -> BATER�A -> BATER�A -> ESTABILIZADOR -> GRABACI�N -> PROTECCI�N -> RESOLUCI�N VIDEO -> SEGURIDAD
+
+Filtros detectados (valores y #Productos que los soportan):
+- Modalidad (1 valores):
+    - Arriendo/Venta (2)
+- ALMACENAMIENTO (1 valores):
+    - 16 GB de capacidad de almacenamiento. (1)
+- RESOLUCI�N (1 valores):
+    - Grabaci�n en alta definici�n HD en 720p. (1)
+- CONECTIVIDAD (2 valores):
+    - Bluetooth� y Wi-Fi�. (1)
+    - Funciones de transmisi�n en vivo mediante Wi-Fi�. (1)
+- �NGULO VISI�N (2 valores):
+    - Campo de visi�n de 130�. (1)
+    - Campo de visi�n de 140�. (1)
+- ADICIONALES (1 valores):
+    - Incluye VideoManager\, Software avanzado de gesti�n de contenidos multimedia\, dispositivos y usuarios. (1)
+- BATER�A (1 valores):
+    - Bateria integrada no extraible. Con autonom�a de grabaci�n de hasta 3 horas de grabaci�n continua. (1)
+- BATER�A (1 valores):
+    - Bater�a no extra�ble de larga duraci�n\, con autonom�a de hasta 12 horas de grabaci�n continua. (1)
+- ESTABILIZADOR (1 valores):
+    - Imagen estabilizada (1)
+- GRABACI�N (1 valores):
+    - Pre y post grabaci�n para captura de los momentos que importan.
+
+Grabaci�n asistida por pares. (1)
+- PROTECCI�N (1 valores):
+    - Clasificaci�n IP54. (1)
+- RESOLUCI�N VIDEO (1 valores):
+    - Grabaci�n Full HD en 1080p. (1)
+- SEGURIDAD (1 valores):
+    - Cifrado de archivos seguro (AES256). (1)
+{
+  "model": "llama-3.1-8b-instant",
+  "temperature": 0,
+  "messages": [
+    {
+      "role": "system",
+      "content": "Extrae SOLO la cantidad indicada por el usuario (cuántas unidades compró). Devuelve SOLO JSON válido con estas llaves exactas: {\"quantity\":number|null,\"unit\":string|null,\"confidence\":number,\"needs_clarification\":boolean}.\n\nReglas:\n- quantity debe ser un número entero > 0 (1,2,3...). Si el mensaje no indica una cantidad clara, quantity=null.\n- Acepta números en dígitos (\"2\", \"10\") y en palabras comunes en español (\"uno\",\"una\",\"dos\",\"tres\",\"cuatro\",\"cinco\",\"seis\",\"siete\",\"ocho\",\"nueve\",\"diez\",\"once\",\"doce\").\n- Si el usuario habla de gramos/ml o tamaños (\"91g\", \"200 gramos\", \"1 kilo\") NO es cantidad de unidades: en ese caso quantity=null.\n- Si detectas rangos o aproximados (\"2 o 3\", \"como 5\"), quantity=null y needs_clarification=true.\n- Si hay más de un número, elige el que corresponda a unidades compradas (pistas: \"compré\", \"compre\", \"lleve\", \"llevé\", \"unidades\", \"paquetes\", \"bolsas\", \"cajas\"). Si no es inequívoco, quantity=null y needs_clarification=true.\n- unit puede ser \"unidades\",\"paquetes\",\"bolsas\",\"cajas\" o null si no se menciona.\n- confidence (0..1) según claridad. needs_clarification=true cuando quantity=null o haya ambigüedad.\n- No incluyas texto extra, ni markdown."
+    },
+    {
+      "role": "user",
+      "content": "{{ $('1. Receptor Webhook GOWA').item.json.body.payload.body }}"
+    }
+  ]
+}

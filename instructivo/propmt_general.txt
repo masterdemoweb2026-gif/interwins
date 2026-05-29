@@ -1,0 +1,42 @@
+Finalidad:
+
+
+Se necesita un sistema web para poder interactuar a traves de la api whatsapp GOWA.
+La idea es poder llevar nuestra experiencia de la pagina wordpress al whatsapp y de alguna forma ser una captadora y ayuda para nuestros clientes tales como: cotizacion, servicio tecnico, información sobre proyectos, puntos de venta.
+Para esto tenemos disponible Supabase con los siguientes datos:
+
+La idea es que el usuario llega a nosotros para iniciar la conversación y asi no caer en spam nosotros le respondemos de forma humanizada, si es primera vez y no ha interactuado la idea es que le demos
+ a elegir opciones tales como Ver Catalogo, Servicio Tecnico, Poryectos, Puntos de venta. En caso de que solo hable y no escoja nada responder sus dudas teniendo en cuenta el banco de información que tendreemos en supabase de catalogo, proyecto, servicio tecnico y puntos de venta.
+de esta forma el usuario elegira por que "rama" interactuar.
+
+Tablas:  #tablascontexto
+Funciones: #funcionescontexto
+Productos subidos a supabase: #Prodcutossubidos
+
+Rama Catalogo
+La idea de esta rama es poder ayudar al cliente a seleccionar el producto ideal según los productos actuales el analisis nos dice #contextoanalisis, entonces al momento de entrar al catalogo 
+necesitamos saber que producto busca en caso de que el usuario no sepa podemos partir creando un tipo de filtro en el estado del usuario de tal forma que se le va consultando cual es la seleccion
+ en los distintos filtros que correspondan al tipo de producto, con tal de darle a elegir en no mas de 5 productos ya sea por un list procurando mostrar el nombre del producto y evitar gastar caracteres 
+ de nombre generico en caso de mostrar list procurar mostrar ej EQUIPO DE RADIO ANALOGO MOTORLA DP50 -> solo mostrar MOTOROLA DP50.
+Una vez se logre que el usuario escoja algun producto debemos mostrar El nombre -> Imagen -> descripción corta (en este caso algunos 
+productos tienen en la misma descripción corta además de info -> ficha tecnica para dejar disponible su descarga o visualización).
+En este punto luego de desplegar la información debemos dejar diposnible botón de Cotizar - Volver a lista (en caso de que exista mas 
+de una selección de producto) si no Volver a cotizar (empezara de 0).
+En caso de Querer cotizar  tenemos que interactuar con un send and wait response el cual sera llenar un formulario los campos que necesitamos rescatar 
+son -> Nombre y Apellidos, Teléfono, Dirección de correo Electronico, Nombre de la empresa, Dirección Calle, Ciudad, Región/provincia. 
+Luego de capturar esos datos no es necesario seguir con un wait response digamos que queda como un estado de wait_finish_cotizacion se le hace consulta al usuario si quiere incluir en la cotización
+los recomendados esto se puede encontrar en [Xtabla], se busca la producto y se revisa si su campo recomendados que productos tiene, se le hace la recomendación al usuario de incluir estos productos recomendados mencionandolos por texto plano y se deja disponible: 3 botones "inlcuir, Ver productos, Rechazar.
+si el usuario presiona en ver productos se le muestra por list los productos para que pueda seleccionar, se le entrega la info del producto seleccionado (titulo, imagen, descripción) por cada interacción con el producto 
+se deja disponible boton de Inlcuir rechazar Terminar. El incluir digamos que por estado interno lo incluye a la cotización y en caso de existir mas recomendados deja disponible a selección los demás 
+productos sin el producto ya seleccionado o rechazado. En caso de Terminar responder con un mensaje amable y que pronto se pondran en contacto. y ahi se puede dejar disponible el menu principal "Catalogo, Servicio Tecnico, Poryectos, Puntos de venta"
+
+Rama puntos de Venta:
+Hay dealers para esto en wordpress tenemos un postype Dealers estos dealers cuenta con un modulo de Direcciones (Región, Dirección, Comuna, Teléfono). El cual podrias crearme la tabla sql y la inyecto a supabase para luego subir la info
+Puntos de venta necesito que crees el sql para inyectar la info (nombre_punto, direccion_punto).
+
+Rama Proyectos:
+Entregar información de los distintos puntos proyectos, estos los tenemos en wordpress en Entradas categoria Proyectos -> Titulo, Wpbackery Page builder esta el content. Si quieres la subo a supabase solo dame la estructura sql.
+
+Rama Servicio Técnico
+Debemos tener información base para que en caso de estar en esta rama el sistema responda las dudas en base a la información que tenemos ##contextoinformativo. Para eso si quieres puedo subir la info a supabase.
+En caso de ser necesario poder derivarlo a los numeros de Mesa Central: +562 3263 55 50 / SAM: +562 3263 55 51. 

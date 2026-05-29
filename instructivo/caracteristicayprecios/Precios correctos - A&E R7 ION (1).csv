@@ -1,0 +1,112 @@
+ION,R7,Código,Descripción,LISTA
+X,X,AN000350A01,Antena Stubby corta (400-450 MHz), $ 13.984 
+X,X,AN000351A01,Antena Stubby corta (440-490 MHz), $ 13.984 
+X,X,AN000348A01,Antena Stubby banda ancha (400-527 MHz), $ 17.107 
+X,,AN000415A01,Antena látigo 8/900 (806-941 MHz), $ 26.928 
+,X,PMAE4079,"Antena de látigo delgada (400-527 MHz), banda ancha combinada UHF/GPS", $ 15.116 
+,X,PMAD4116,Antena helicoidal combinada VHF/GPS (144-165 MHz), $ 14.097 
+,X,PMAD4117,Antena helicoidal combinada VHF/GPS (136-155 MHz), $ 14.459 
+,X,PMAD4118,Antena helicoidal combinada VHF/GPS (152-174 MHz), $ 14.097 
+,X,PMAD4147,"Antena de látigo delgada (400-527 MHz), banda ancha combinada VHF/GPS", $ 24.687 
+,X,PMAE4069,UHF/GPS antena Stubby (403-450 MHz) , $ 15.500 
+,X,PMAE4070,UHF/GPS antena Stubby (440-490 MHz) , $ 15.500 
+,X,PMAE4071,Antena Stubby combinada UHF/GPS (470-527 MHz), $ 15.500 
+,X,PMAD4119,Antena Stubby combinada UHF/GPS (136-148 MHz), $ 16.519 
+,X,PMAD4120,Antena Stubby combinada UHF/GPS (146-160 MHz), $ 16.519 
+,X,PMAD4121,Antena VHF Stubby (160-174MHZ) , $ 16.519 
+,X,PMAF4009,Antena Stubby 800 MHz (806-870MHZ) , $ 20.139 
+,X,PMAF4010,Antena Stubby 800/900 MHz (896-941MHZ), $ 20.139 
+,X,PMAF4011,Antena de látigo flexible de 800 MHz (806-870MHZ) , $ 16.111 
+,X,PMAF4012,Antena flexible de látigo de 900 MHz (896-941MHZ), $ 16.111 
+X,X,32012144001,ID antena gris (pack de 10), $ 9.029 
+X,X,32012144002,ID antena amarilla (pack de 10), $ 9.029 
+X,X,32012144003,ID antena verde (pack de 10), $ 9.029 
+X,X,32012144004,ID antena azul (pack de 10), $ 9.029 
+X,X,32012144005,ID antena morada (pack de 10), $ 9.029 
+,,,Baterías,
+,X,PMNN4807,Batería compacta IMPRES de iones de litio de 2200 mAh IP68, $ 158.397 
+,X,PMNN4809,Batería compacta IMPRES de iones de litio de 2850 mAh IP68, $ 239.383 
+,X,PMNN4810,Batería IMPRES de iones de litio de 3200 mAh IP68 TIA4950, $ 244.384 
+X,,PMNN4803,Batería IMPRES de iones de litio de 2820 mAh IP68, $ 256.966 
+X,,PMNN4804,Batería IMPRES de iones de litio de 2900 mAh IP68 TIA4950, $ 337.160 
+X,,PMNN4805,Batería IMPRES de iones de litio de 4400 mAh IP68 TIA4950, $ 376.352 
+,,,Cargadores,
+X,X,EPNN7991,Fuente de alimentación para cargador individual de carga rápida, $ 23.465 
+,X,PMPN4577,"Cargador IMPRES individual, enchufe EURO", $ 95.943 
+X,,PMPN4525,"Cargador IMPRES 2 individual, enchufe EURO", $ 88.951 
+,,,Cargadores Vehiculares,
+,X,NNTN7616,Cargador vehicular de velocidad rápida de una sola unidad IMPRES, $ 602.158 
+,X,NNTN8525,"Cargador de viaje rápido con adaptador de voltaje regulado, basepersonalizada, soporte y cable en espiral", $ 130.995 
+X,,PMPN4613,Base de carga IMPRES 2 con kit de montaje, $ 353.000 
+X,,PS000514A01,Adaptador para encendedor de repuesto, $ 67.160 
+X,,HW003289A01,Correa de repuesto, $ 10.137 
+,,,Cargador Múltiple,
+,X,PMPN4289,"Cargador rápido de unidades múltiples IMPRES 2 con 1 pantalla, enchufe EURO", $ 893.473 
+X,,PMPN4499,"Cargador rápido de unidades múltiples IMPRES 2 con 1 pantalla, enchufe EURO", $ 1.064.475 
+,,,Accesorios de Audio de Vigilancia,
+X,X,PMLN8341,"Kit de vigilancia IMPRES™ de 1 cable con tubo translúcido, audio fuerte, negro", $ 76.936 
+X,X,PMLN8342,"Kit de vigilancia IMPRES™ de 2 cables con tubo translúcido, audio alto, negro", $ 140.272 
+X,X,PMLN8343,"Kit de vigilancia IMPRES™ de 3 cables con tubo translúcido, audio fuerte, negro", $ 220.444 
+X,X,PMLN8295,"Gancho para la oreja giratorio de 2 cables IMPRES™ con punta extraíble, audio alto, negro", $ 130.248 
+X,X,PMLN8337,"Auricular único de 1 cable con gancho removible, audio fuerte, negro", $ 46.388 
+,,,Kits de repuestos para accesorios de vigilancia,
+X,X,PMLN8092,"Tubo acústico con auricular de goma, kit de repuesto", $ 16.428 
+X,X,PMLN8068,"Gancho para la oreja, pequeña. Pack 5", $ 29.145 
+X,X,PMLN8069,"Gancho para la oreja, medio. Pack 5", $ 29.145 
+X,X,PMLN8070,"Gancho para la oreja, grande. Pack 5", $ 29.145 
+X,X,PMLN8363,"Funda de goma para auriculares, pequeña. Pack 25", $ 39.826 
+X,X,PMLN8364,"Funda de goma para auriculares, medio. Pack 25", $ 39.826 
+X,X,PMLN8365,"Funda de goma para auriculares, grande. Pack 25", $ 39.826 
+,,,"Accesorios para Micrófonos con Altavoz Remoto (conector estándar de 3,5mm.)",
+X,X,PMLN8120,"Auricular de recepción con tubo translúcido, audio fuerte (para PMMN4128, PMMN4131, PMMN4140)", $ 98.206 
+X,X,PMLN7560,Auricular solo de recepción con tubo translúcido y punta de goma (para PMMN4127), $ 78.203 
+X,,PMLN8792,Auricular Bluetooth con PTT para operaciones críticas inalámbricas, $ 181.025 
+,,,Headsets. Auriculares de Diadema,
+X,X,PMLN8085,Auricular para trabajo pesado con micrófono de brazo con cancelación de ruido (detrás de la cabeza), $ 905.127 
+X,X,PMLN8086,Auricular para trabajo pesado con micrófono de brazo con cancelación de ruido (sobre la cabeza), $ 905.127 
+,,,Headsets 3M Peltor,
+X,X,PMLN8265,Protectores auditivos serie CH-3 con conector Nexus (sobre la cabeza), $ 537.645 
+X,X,PMLN8266,Protectores auditivos serie CH-3 con conector Nexus (con banda para el cuello), $ 537.645 
+X,X,PMLN8267,Auricular con casco duro de la serie CH-3 conectado con conector Nexus, $ 537.645 
+X,X,PMLN8297,Adaptador PTT Nexus para auriculares indicados anteriormente, $ 735.416 
+,,,Micrófonos Remotos,
+X,X,PMMN4128,"RM780 Micrófono parlante remoto IMPRES. Windporting, grande, funciona cuando está mojado, IP68", $ 224.449 
+X,X,PMMN4140,"RM760 Micrófono parlante remoto IMPRES Windporting, básico grande, IP68", $ 170.345 
+X,X,PMMN4131,"RM730 Micrófono parlante remoto IMPRES Windporting, pequeño, IP68", $ 158.397 
+X,X,PMMN4127,WM500 Micrófono parlante remoto inalámbrico, $ 313.423 
+,,,Kits de repuestos para micrófonos remotos,
+X,X,PMKN4232,"Cable de repuesto para RSM PMMN4128, PMNN4131, PMMN4140", $ 72.410 
+X,X,PMLN8122,"Repuesto cubierta antipolvo. Pack 10. PMMN4128, PMMN4140", $ 10.862 
+X,X,PMLN8253,Repuesto de cubierta antipolvo. Pack 10. PMNN4131, $ 24.076 
+,,,Estuches de Cuero,
+,X,PMLN8299,Estuche rígido de cuero con presilla fija para cinturón de 3 pulgadas. Giratorio (display), $ 97.595 
+,X,PMLN8300,"Estuche rígido de cuero con presilla giratoria para cinturón de 2,5 pulgadas. Giratorio (display)", $ 94.269 
+,X,PMLN8301,Estuche rígido de cuero con presilla fija para cinturón de 3 pulgadas. Fijo (display), $ 88.250 
+,X,PMLN8302,Estuche de cuero rígido con presilla para cinturón giratoria de 3 pulgadas (no display), $ 97.595 
+,X,PMLN8303,"Estuche rígido de cuero con presilla giratoria para cinturón de 2,5 pulgadas (no display)", $ 94.269 
+,X,PMLN8304,Estuche de cuero rígido con presilla para cinturón fija de 3 pulgadas (no display), $ 80.715 
+,,,Soluciones de Transporte,
+,X,HLN9985,Funda impermeable. Incluye correa, $ 48.877 
+,X,HLN6602,"Pechera Universal con soporte de radio, lápiz y velcro de seguridad", $ 53.765 
+,X,NTN5243,Tirante para colgar al hombro (para estuches D), $ 31.770 
+,X,RLN6486,Correa de radio de bombero, $ 77.977 
+,X,RLN6487,"Correa de radio de bombero, XL", $ 83.543 
+,X,RLN6488,Correa antivuelco para correas de radio de cuero, $ 29.733 
+,X,PMLN6074,Correa de muñeca de nylon, $ 11.721 
+X,,PMLN8126,"Carcaza de plástico con clip para cinturón de 2,5""", $ 16.428 
+X,,PMLN8127,Carcaza de plástico con clip giratorio para cinturón, $ 59.874 
+,X,PMHN4429,"Funda antipolvo, GCAI Mini", $ 12.129 
+,,,Clips,
+X,X,PMLN4651,Clip de cinturón de 2 pulgadas con acción de resorte, $ 15.636 
+X,X,PMLN7008,"Clip de cinturón de 2,5 pulgadas con acción de resorte", $ 17.605 
+,X,PMLN5610,"Trabilla de cuero para cinturón giratoria de repuesto de 2,5 pulgadas", $ 28.964 
+X,,PMLN5407,"Repuesto de presilla giratoria de cuero duro 2,5 pulgadas", $ 29.326 
+X,,PMLN5409,Repuesto de presilla giratoria de cuero duro 3 pulgadas, $ 29.326 
+,X,PMLN5611,Correa giratoria de cuero de repuesto de 3 pulgadas, $ 29.077 
+,,,Cable de Programación,
+,X,PMKN4265,Cable de Programación Equipos R7, $ 138.032 
+X,,PMKN4230,Cable de datos y programación con certificado UL, $ 271.538 
+,,,Protectores de Pantalla,
+,X,AY000808A01,"Protector de pantalla transparente, paquete individual", $ 13.577 
+,X,AY000808A02,"Protector de pantalla transparente, pack 10", $ 95.038 
+,X,AY000808A03,"Protector de pantalla transparente, pack 50", $ 443.512 

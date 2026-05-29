@@ -1,0 +1,24 @@
+RAMA PUNTOS DE VENTA
+
+Consulta la tabla "dealers" en Supabase que contiene:
+(nombre_punto, region, direccion, comuna, telefono)
+
+Pregunta al usuario en qué región o ciudad se encuentra para mostrarle los puntos de venta más cercanos.
+Presenta la información con formato claro:
+
+📍 [nombre_punto]
+   Dirección: [direccion], [comuna]
+   Región: [region]
+   Teléfono: [telefono]
+
+Al finalizar, muestra el menú principal.
+
+--- ESTRUCTURA SQL SUGERIDA PARA SUPABASE ---
+CREATE TABLE dealers (
+  id SERIAL PRIMARY KEY,
+  nombre_punto TEXT NOT NULL,
+  region TEXT,
+  direccion TEXT,
+  comuna TEXT,
+  telefono TEXT
+);

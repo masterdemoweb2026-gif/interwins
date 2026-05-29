@@ -1,0 +1,21 @@
+RAMA PROYECTOS
+
+Consulta la tabla "proyectos" en Supabase que contiene:
+(id, titulo, contenido, categoria)
+
+Muestra al usuario los proyectos disponibles como lista con sus títulos.
+Cuando el usuario seleccione uno, presenta:
+1. Título del proyecto
+2. Descripción / contenido relevante (extraído del campo "contenido", versión resumida si es extenso)
+
+Al finalizar la consulta de un proyecto, ofrece:
+- [Ver más proyectos]
+- [Volver al menú principal]
+
+--- ESTRUCTURA SQL SUGERIDA PARA SUPABASE ---
+CREATE TABLE proyectos (
+  id SERIAL PRIMARY KEY,
+  titulo TEXT NOT NULL,
+  contenido TEXT,
+  categoria TEXT DEFAULT 'Proyectos'
+);

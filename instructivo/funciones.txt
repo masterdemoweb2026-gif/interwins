@@ -1,0 +1,402 @@
+Funciones disponibles: get_accesorios_filtrados, get_camaras_filtradas, get_compatibilidades_accesorio, get_frecuencias, get_modalidades, get_portabilidades, get_productos_filtrados, get_tecnologias,get_tipos_accesorio 
+
+get_accesorios_filtrados:
+  with attrs as (
+    select
+      "ID"::text as product_id,
+      "Nombre"::text as nombre,
+      coalesce(
+        case when "Nombre del atributo 1"='Tipo Producto' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Tipo Producto' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Tipo Producto' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Tipo Producto' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Tipo Producto' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Tipo Producto' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Tipo Producto' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Tipo Producto' then "Valor(es) del atributo 8" end
+      )::text as tipo_producto,
+      coalesce(
+        case when "Nombre del atributo 1"='Tipo Accesorio' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Tipo Accesorio' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Tipo Accesorio' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Tipo Accesorio' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Tipo Accesorio' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Tipo Accesorio' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Tipo Accesorio' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Tipo Accesorio' then "Valor(es) del atributo 8" end
+      )::text as tipo_accesorio,
+      coalesce(
+        case when "Nombre del atributo 1"='Compatibilidad' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Compatibilidad' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Compatibilidad' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Compatibilidad' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Compatibilidad' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Compatibilidad' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Compatibilidad' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Compatibilidad' then "Valor(es) del atributo 8" end
+      )::text as compatibilidad,
+      coalesce(
+        case when "Nombre del atributo 1"='Modalidad' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Modalidad' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Modalidad' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Modalidad' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Modalidad' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Modalidad' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Modalidad' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Modalidad' then "Valor(es) del atributo 8" end
+      )::text as modalidad,
+      coalesce(
+        case when "Nombre del atributo 1"='Portabilidad' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Portabilidad' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Portabilidad' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Portabilidad' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Portabilidad' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Portabilidad' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Portabilidad' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Portabilidad' then "Valor(es) del atributo 8" end
+      )::text as portabilidad,
+      coalesce(
+        case when "Nombre del atributo 1"='Frecuencia' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Frecuencia' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Frecuencia' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Frecuencia' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Frecuencia' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Frecuencia' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Frecuencia' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Frecuencia' then "Valor(es) del atributo 8" end
+      )::text as frecuencia,
+      coalesce(
+        case when "Nombre del atributo 1"='Marca' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Marca' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Marca' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Marca' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Marca' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Marca' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Marca' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Marca' then "Valor(es) del atributo 8" end
+      )::text as marca
+    from public.inter_products_staging
+  )
+  select
+    product_id,
+    nombre,
+    tipo_producto,
+    modalidad,
+    portabilidad,
+    frecuencia,
+    marca,
+    tipo_accesorio,
+    compatibilidad
+  from attrs
+  where
+    tipo_producto = 'Accesorios'
+    and (p_tipo_accesorio is null or tipo_accesorio ilike ('%' || p_tipo_accesorio || '%'))
+    and (p_compatibilidad is null or compatibilidad ilike ('%' || p_compatibilidad || '%'))
+  order by nombre;
+
+get_camaras_filtradas:
+  with attrs as (
+    select
+      "ID"::text as product_id,
+      "Nombre"::text as nombre,
+      coalesce(
+        case when "Nombre del atributo 1"='Tipo Producto' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Tipo Producto' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Tipo Producto' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Tipo Producto' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Tipo Producto' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Tipo Producto' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Tipo Producto' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Tipo Producto' then "Valor(es) del atributo 8" end
+      )::text as tipo_producto,
+      case
+        when "Categorías" ilike '%Arriend%' and ("Categorías" ilike '%Venta%' or "Categorías" ilike '%Ventas%') then 'Arriendo/Venta'
+        when "Categorías" ilike '%Arriend%' then 'Arriendo'
+        when "Categorías" ilike '%Venta%' or "Categorías" ilike '%Ventas%' then 'Venta'
+        else null
+      end as modalidad,
+      coalesce(
+        case when "Nombre del atributo 1" in ('ALMACENAMIENTO') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('ALMACENAMIENTO') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('ALMACENAMIENTO') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('ALMACENAMIENTO') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('ALMACENAMIENTO') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('ALMACENAMIENTO') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('ALMACENAMIENTO') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('ALMACENAMIENTO') then "Valor(es) del atributo 8" end
+      )::text as almacenamiento,
+      coalesce(
+        case when "Nombre del atributo 1" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('RESOLUCIÓN','RESOLUCION') then "Valor(es) del atributo 8" end
+      )::text as resolucion,
+      coalesce(
+        case when "Nombre del atributo 1" in ('CONECTIVIDAD') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('CONECTIVIDAD') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('CONECTIVIDAD') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('CONECTIVIDAD') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('CONECTIVIDAD') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('CONECTIVIDAD') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('CONECTIVIDAD') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('CONECTIVIDAD') then "Valor(es) del atributo 8" end
+      )::text as conectividad,
+      coalesce(
+        case when "Nombre del atributo 1" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('ÁNGULO VISIÓN','ANGULO VISIÓN','ANGULO VISION') then "Valor(es) del atributo 8" end
+      )::text as angulo_vision,
+      coalesce(
+        case when "Nombre del atributo 1" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('PROTECCIÓN','PROTECCION') then "Valor(es) del atributo 8" end
+      )::text as proteccion,
+      coalesce(
+        case when "Nombre del atributo 1" in ('SEGURIDAD') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('SEGURIDAD') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('SEGURIDAD') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('SEGURIDAD') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('SEGURIDAD') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('SEGURIDAD') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('SEGURIDAD') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('SEGURIDAD') then "Valor(es) del atributo 8" end
+      )::text as seguridad,
+      coalesce(
+        case when "Nombre del atributo 1" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('RESOLUCIÓN VIDEO','RESOLUCION VIDEO') then "Valor(es) del atributo 8" end
+      )::text as resolucion_video,
+      coalesce(
+        case when "Nombre del atributo 1" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('GRABACIÓN','GRABACION') then "Valor(es) del atributo 8" end
+      )::text as grabacion,
+      coalesce(
+        case when "Nombre del atributo 1" in ('ESTABILIZADOR') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('ESTABILIZADOR') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('ESTABILIZADOR') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('ESTABILIZADOR') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('ESTABILIZADOR') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('ESTABILIZADOR') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('ESTABILIZADOR') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('ESTABILIZADOR') then "Valor(es) del atributo 8" end
+      )::text as estabilizador,
+      coalesce(
+        case when "Nombre del atributo 1" in ('ADICIONALES') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('ADICIONALES') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('ADICIONALES') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('ADICIONALES') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('ADICIONALES') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('ADICIONALES') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('ADICIONALES') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('ADICIONALES') then "Valor(es) del atributo 8" end
+      )::text as adicionales,
+      coalesce(
+        case when "Nombre del atributo 1" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8" in ('BATERÍA','BATERIA','BATERíA') then "Valor(es) del atributo 8" end
+      )::text as bateria
+    from public.inter_products_staging
+  )
+  select
+    product_id,
+    nombre,
+    tipo_producto,
+    modalidad,
+    almacenamiento,
+    resolucion,
+    conectividad,
+    angulo_vision,
+    proteccion,
+    seguridad,
+    resolucion_video,
+    grabacion,
+    estabilizador,
+    adicionales,
+    bateria
+  from attrs
+  where
+    tipo_producto = 'Cámaras Corporales'
+    and (p_modalidad is null or modalidad ilike ('%' || p_modalidad || '%'))
+    and (p_almacenamiento is null or almacenamiento ilike ('%' || p_almacenamiento || '%'))
+    and (p_resolucion is null or resolucion ilike ('%' || p_resolucion || '%'))
+    and (p_conectividad is null or conectividad ilike ('%' || p_conectividad || '%'))
+    and (p_proteccion is null or proteccion ilike ('%' || p_proteccion || '%'))
+  order by nombre;
+
+get_compatibilidades_accesorio:
+  with base as (
+    select
+      coalesce(
+        case when "Nombre del atributo 1"='Compatibilidad' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Compatibilidad' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Compatibilidad' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Compatibilidad' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Compatibilidad' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Compatibilidad' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Compatibilidad' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Compatibilidad' then "Valor(es) del atributo 8" end
+      ) as compatibilidad
+    from public.inter_products_staging
+    where
+      coalesce(
+        case when "Nombre del atributo 1"='Tipo Producto' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Tipo Producto' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Tipo Producto' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Tipo Producto' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Tipo Producto' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Tipo Producto' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Tipo Producto' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Tipo Producto' then "Valor(es) del atributo 8" end
+      ) = 'Accesorios'
+      and coalesce(
+        case when "Nombre del atributo 1"='Tipo Accesorio' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Tipo Accesorio' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Tipo Accesorio' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Tipo Accesorio' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Tipo Accesorio' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Tipo Accesorio' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Tipo Accesorio' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Tipo Accesorio' then "Valor(es) del atributo 8" end
+      ) ilike ('%' || p_tipo_accesorio || '%')
+  ),
+  split as (
+    select trim(x) as compatibilidad
+    from base, lateral regexp_split_to_table(base.compatibilidad, ',') as x
+  )
+  select distinct compatibilidad
+  from split
+  where compatibilidad is not null and compatibilidad <> ''
+  order by compatibilidad;
+
+get_frecuencias:
+  with base as (
+    select ip.frecuencia
+    from public.inter_products ip
+    where ip.tipo_producto = p_tipo_producto
+      and (p_modalidad is null or ip.modalidad = p_modalidad)
+      and (p_portabilidad is null or ip.portabilidad = p_portabilidad)
+      and (p_tecnologia is null or ip.tecnologia ilike ('%' || p_tecnologia || '%'))
+      and ip.frecuencia is not null
+  ),
+  split as (
+    select trim(x) as frecuencia
+    from base,
+    lateral regexp_split_to_table(base.frecuencia, ',') as x
+  )
+  select distinct frecuencia
+  from split
+  where frecuencia <> ''
+  order by frecuencia;
+
+get_modalidades:
+  select distinct ip.modalidad
+  from public.inter_products ip
+  where ip.tipo_producto = p_tipo_producto
+    and (p_portabilidad is null or ip.portabilidad = p_portabilidad)
+    and (p_tecnologia is null or ip.tecnologia ilike ('%' || p_tecnologia || '%'))
+    and ip.modalidad is not null
+  order by ip.modalidad;
+
+
+get_portabilidades:
+  select distinct ip.portabilidad
+  from public.inter_products ip
+  where ip.tipo_producto = p_tipo_producto
+    and (p_modalidad is null or ip.modalidad = p_modalidad)
+    and (p_tecnologia is null or ip.tecnologia ilike ('%' || p_tecnologia || '%'))
+    and ip.portabilidad is not null
+  order by ip.portabilidad;
+
+
+get_productos_filtrados:
+select *
+from public.inter_products
+where tipo_producto = trim(p_tipo_producto)
+  and (p_modalidad is null or modalidad = trim(p_modalidad))
+  and (p_portabilidad is null or portabilidad = trim(p_portabilidad))
+  and (p_frecuencia is null or frecuencia ilike ('%' || trim(p_frecuencia) || '%'))
+  and (p_tecnologia is null or tecnologia ilike ('%' || trim(p_tecnologia) || '%'))
+  and (p_canales is null or canales = trim(p_canales))
+  and (p_consumo is null or consumo ilike ('%' || trim(p_consumo) || '%'));
+
+get_tecnologias:
+  with raw as (
+    select ip.tecnologia
+    from public.inter_products ip
+    where ip.tipo_producto = p_tipo_producto
+      and ip.tecnologia is not null
+  ),
+  split as (
+    select trim(x) as tecnologia
+    from raw,
+    lateral regexp_split_to_table(raw.tecnologia, ',') as x
+  )
+  select distinct tecnologia
+  from split
+  where tecnologia <> ''
+  order by tecnologia;
+
+get_tipos_accesorio:
+  with base as (
+    select
+      coalesce(
+        case when "Nombre del atributo 1"='Tipo Accesorio' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Tipo Accesorio' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Tipo Accesorio' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Tipo Accesorio' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Tipo Accesorio' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Tipo Accesorio' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Tipo Accesorio' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Tipo Accesorio' then "Valor(es) del atributo 8" end
+      ) as tipo_accesorio
+    from public.inter_products_staging
+    where
+      coalesce(
+        case when "Nombre del atributo 1"='Tipo Producto' then "Valor(es) del atributo 1" end,
+        case when "Nombre del atributo 2"='Tipo Producto' then "Valor(es) del atributo 2" end,
+        case when "Nombre del atributo 3"='Tipo Producto' then "Valor(es) del atributo 3" end,
+        case when "Nombre del atributo 4"='Tipo Producto' then "Valor(es) del atributo 4" end,
+        case when "Nombre del atributo 5"='Tipo Producto' then "Valor(es) del atributo 5" end,
+        case when "Nombre del atributo 6"='Tipo Producto' then "Valor(es) del atributo 6" end,
+        case when "Nombre del atributo 7"='Tipo Producto' then "Valor(es) del atributo 7" end,
+        case when "Nombre del atributo 8"='Tipo Producto' then "Valor(es) del atributo 8" end
+      ) = 'Accesorios'
+  ),
+  split as (
+    select trim(x) as tipo_accesorio
+    from base, lateral regexp_split_to_table(base.tipo_accesorio, ',') as x
+  )
+  select distinct tipo_accesorio
+  from split
+  where tipo_accesorio is not null and tipo_accesorio <> ''
+  order by tipo_accesorio;

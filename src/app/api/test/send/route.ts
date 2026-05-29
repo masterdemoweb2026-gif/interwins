@@ -47,15 +47,16 @@ async function sendViaGowa(to: string, message: string) {
 }
 
 export async function POST(request: Request) {
-  let body: any;
+  let body: unknown;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const to = String(body?.to ?? "").trim();
-  const message = String(body?.message ?? "").trim();
+  const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const to = typeof record.to === "string" ? record.to.trim() : "";
+  const message = typeof record.message === "string" ? record.message.trim() : "";
   if (!to || !message) {
     return NextResponse.json({ ok: false, error: "Missing to/message" }, { status: 400 });
   }
