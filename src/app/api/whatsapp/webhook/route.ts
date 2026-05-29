@@ -1948,7 +1948,7 @@ export async function POST(request: Request) {
               resetBranchState(state, previous);
               resetBranchState(state, intent.branch);
               if (intent.branch === "proyectos") {
-                reply = await handleProjects(state, "");
+                reply = await handleProjects(state, inboundText);
               } else if (intent.branch === "servicio_tecnico") {
                 reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
               } else if (intent.branch === "puntos_venta") {
@@ -1960,7 +1960,7 @@ export async function POST(request: Request) {
               }
             }
           } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "proyectos") {
-            reply = await handleProjects(state, "");
+            reply = await handleProjects(state, inboundText);
           } else {
           if (state.activeBranch === "catalogo") {
             reply = await handleCatalog(state, inboundText, userKey);
