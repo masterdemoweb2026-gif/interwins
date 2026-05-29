@@ -985,7 +985,24 @@ function extractProjectChoiceFromText(text: string, max: number) {
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n < 1 || n > max) return null;
-  if (t.includes("proyecto") || t.includes("ver") || t.includes("veamos") || t.includes("quiero") || t.includes("muestra") || t.includes("mostrar")) {
+  const hasKeyword =
+    t.includes("proyecto") ||
+    t.includes("proyectos") ||
+    t.includes("ver") ||
+    t.includes("veamos") ||
+    t.includes("quiero") ||
+    t.includes("muestra") ||
+    t.includes("mostrar") ||
+    t.includes("muestre") ||
+    t.includes("muestreme") ||
+    t.includes("elige") ||
+    t.includes("elijo") ||
+    t.includes("escoge") ||
+    t.includes("escojo") ||
+    t.includes("escoger") ||
+    t.includes("selecciona") ||
+    t.includes("seleccionar");
+  if (hasKeyword) {
     return n;
   }
   return null;
@@ -1549,36 +1566,24 @@ async function tryLoadRecommendedIds(productId?: string) {
   return [];
 }
 
-async function handleProjects(state: UserState, text: string) {
-  const t = normalizeText(text);
-  const wantsMoreText = t === "ver mas" || t === "ver más" || t.includes("seguir leyendo");
-  const wantsMoreProjects = t.includes("ver mas proyectos") || t.includes("ver más proyectos");
-
-  if (state.projects.reading && wantsMoreText) {
-    const detail = await loadProjectContent(state.projects.reading.id);
-    if (!detail) {
-      state.projects.reading = undefined;
-      return "No pude cargar el contenido del proyecto. Responde Menú para volver al inicio.";
-    }
-
-    const chunkSize = 1100;
-    const start = state.projects.reading.offset;
-    const next = detail.plain.slice(start, start + chunkSize).trim();
-    if (!next) {
-      state.projects.reading = undefined;
-      return ["Eso sería todo por ese proyecto.", "", "Responde: Ver más proyectos / Menú"].join("\n");
-    }
-
-    state.projects.reading.offset += chunkSize;
-    const suffix = state.projects.reading.offset < detail.plain.length ? "\n\nResponde Ver más para seguir leyendo." : "\n\nResponde: Ver más proyectos / Menú";
-    return `${next}${suffix}`;
+function chunkText(text: string, chunkSize: number) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const out: string[] = [];
+  for (let i = 0; i < clean.length; i += chunkSize) {
+    out.push(clean.slice(i, i + chunkSize).trim());
   }
+  return out.filter(Boolean);
+}
+
+async function handleProjects(state: UserState, text: string): Promise<string | string[]> {
+  const t = normalizeText(text);
+  const wantsMoreProjects = t.includes("ver mas proyectos") || t.includes("ver más proyectos");
 
   let list = state.projects.lastList ?? [];
   let noMoreProjects = false;
 
   if (wantsMoreProjects) {
-    state.projects.reading = undefined;
     const nextOffset = state.projects.offset + 5;
     const nextList = await listProjects(nextOffset);
     if (nextList.length) {
@@ -1604,14 +1609,11 @@ async function handleProjects(state: UserState, text: string) {
   if (n) {
     const chosen = list[n - 1];
     const detail = await loadProjectContent(chosen.id);
-    if (!detail) return "No pude cargar ese proyecto. Responde Ver más proyectos o Menú.";
-    state.projects.reading = { id: chosen.id, offset: 0 };
+    if (!detail) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
 
-    const chunkSize = 1100;
-    const first = detail.plain.slice(0, chunkSize).trim();
-    state.projects.reading.offset = chunkSize;
-    const suffix = detail.plain.length > chunkSize ? "\n\nResponde Ver más para seguir leyendo." : "\n\nResponde: Menú";
-    return [`*${detail.titulo}*`, "", first || "Descripción no disponible.", suffix].join("\n");
+    const chunks = chunkText(detail.plain, 1100);
+    const messages = [`*${detail.titulo}*`, ...(chunks.length ? chunks : ["Descripción no disponible."]), "Si quieres ver otro proyecto, elige un número o escribe Menú."].filter(Boolean);
+    return messages;
   }
   if (!list.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
 
@@ -1895,7 +1897,7 @@ export async function POST(request: Request) {
       await sendChatPresence(userKey, "start");
       startedPresence = true;
 
-      let reply = "";
+      let reply: string | string[] = "";
 
       if (!state.greeted) {
         const saludo = "¡Buenas! Espero que estés teniendo un gran día, ¿en qué te podemos ayudar hoy?";
@@ -1983,8 +1985,12 @@ export async function POST(request: Request) {
       }
 
       await saveUserState(userKey, state);
-      if (reply.trim()) {
-        await sendTextMessage(from, reply.trim());
+      const messages = Array.isArray(reply) ? reply : [reply];
+      for (const m of messages) {
+        const msg = String(m ?? "").trim();
+        if (msg) {
+          await sendTextMessage(from, msg);
+        }
       }
     } finally {
       if (startedPresence) {
