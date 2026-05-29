@@ -655,6 +655,134 @@ function stripNectarShortcodes(text: string) {
   return text.replace(/\[nectar_btn[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
 }
 
+function removeNectarShortcodesRaw(text: string) {
+  return text.replace(/\[nectar_btn[^\]]*\]/gi, "");
+}
+
+function decodeHtmlEntities(text: string) {
+  return text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const cp = Number.parseInt(String(hex), 16);
+      if (!Number.isFinite(cp)) return "";
+      try {
+        return String.fromCodePoint(cp);
+      } catch {
+        return "";
+      }
+    })
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const cp = Number.parseInt(String(dec), 10);
+      if (!Number.isFinite(cp)) return "";
+      try {
+        return String.fromCodePoint(cp);
+      } catch {
+        return "";
+      }
+    });
+}
+
+function htmlToParagraphText(html: string) {
+  const raw = removeNectarShortcodesRaw(html || "");
+  if (!raw.trim()) return "";
+
+  let s = raw;
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, " ");
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, " ");
+
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/(p|div|h[1-6]|section|article|header|footer|blockquote)>/gi, "\n\n");
+  s = s.replace(/<(p|div|h[1-6]|section|article|header|footer|blockquote)[^>]*>/gi, "\n\n");
+  s = s.replace(/<\/li>/gi, "\n");
+  s = s.replace(/<li[^>]*>/gi, "• ");
+
+  s = s.replace(/<[^>]+>/g, " ");
+  s = decodeHtmlEntities(s);
+  s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  const lines = s
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .filter((l) => l !== "");
+
+  const joined = lines.join("\n");
+  return joined.replace(/\n{2,}/g, "\n\n").trim();
+}
+
+function normalizeParagraphs(text: string) {
+  const t = (text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!t) return [];
+  return t
+    .split(/\n{2,}/g)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function splitLongText(text: string, maxLen: number) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const sentences = clean.split(/(?<=[.!?])\s+/g);
+  const out: string[] = [];
+  let cur = "";
+
+  const flush = () => {
+    const v = cur.trim();
+    if (v) out.push(v);
+    cur = "";
+  };
+
+  for (const s of sentences) {
+    const seg = s.trim();
+    if (!seg) continue;
+    if (!cur) {
+      if (seg.length <= maxLen) {
+        cur = seg;
+        continue;
+      }
+      let rest = seg;
+      while (rest.length > maxLen) {
+        const cut = rest.lastIndexOf(" ", maxLen);
+        const idx = cut > 0 ? cut : maxLen;
+        out.push(rest.slice(0, idx).trim());
+        rest = rest.slice(idx).trim();
+      }
+      if (rest) cur = rest;
+      continue;
+    }
+
+    const cand = `${cur} ${seg}`.trim();
+    if (cand.length <= maxLen) {
+      cur = cand;
+      continue;
+    }
+    flush();
+    if (seg.length <= maxLen) cur = seg;
+    else out.push(...splitLongText(seg, maxLen));
+  }
+
+  flush();
+  return out.filter(Boolean);
+}
+
+function summarizeProject(text: string, maxLen: number) {
+  const paragraphs = normalizeParagraphs(text);
+  if (!paragraphs.length) return "";
+  const base = paragraphs.slice(0, 2).join("\n\n").trim();
+  if (base.length <= maxLen) return base;
+
+  const sents = base.split(/(?<=[.!?])\s+/g).filter(Boolean);
+  const short = sents.slice(0, 4).join(" ").trim();
+  if (short.length <= maxLen) return short;
+
+  const cut = short.lastIndexOf(" ", maxLen);
+  return (cut > 0 ? short.slice(0, cut) : short.slice(0, maxLen)).trim();
+}
+
 function extractFichaTecnicaUrl(text: string) {
   const m1 = text.match(/url="([^"]+)"/i);
   if (m1?.[1]) return m1[1];
@@ -1775,21 +1903,62 @@ async function tryLoadRecommendedIds(productId?: string) {
 }
 
 function chunkText(text: string, chunkSize: number) {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean) return [];
+  const paragraphs = normalizeParagraphs(text);
+  if (!paragraphs.length) return [];
+
   const out: string[] = [];
-  for (let i = 0; i < clean.length; i += chunkSize) {
-    out.push(clean.slice(i, i + chunkSize).trim());
+  let current = "";
+
+  const flush = () => {
+    const v = current.trim();
+    if (v) out.push(v);
+    current = "";
+  };
+
+  for (const p of paragraphs) {
+    if (!p) continue;
+    if (!current) {
+      if (p.length <= chunkSize) {
+        current = p;
+        continue;
+      }
+      flush();
+      out.push(...splitLongText(p, chunkSize));
+      continue;
+    }
+
+    const candidate = `${current}\n\n${p}`.trim();
+    if (candidate.length <= chunkSize) {
+      current = candidate;
+      continue;
+    }
+
+    flush();
+    if (p.length <= chunkSize) {
+      current = p;
+    } else {
+      out.push(...splitLongText(p, chunkSize));
+    }
   }
+
+  flush();
   return out.filter(Boolean);
 }
 
 async function handleProjects(state: UserState, text: string): Promise<string | string[]> {
   const t = normalizeText(text);
+  const wantsDetail = t.includes("detalle") || t.includes("completo") || t.includes("texto completo") || t.includes("ver completo");
   const wantsMoreProjects = t.includes("ver mas proyectos") || t.includes("ver más proyectos");
 
   let list = state.projects.lastList ?? [];
   let noMoreProjects = false;
+
+  if (wantsDetail && state.projects.reading?.id) {
+    const detail = await loadProjectContent(state.projects.reading.id);
+    if (!detail) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
+    const chunks = chunkText(detail.plain, 1100);
+    return [`*${detail.titulo}*`, ...(chunks.length ? chunks : ["Descripción no disponible."]), "Si quieres ver otro proyecto, elige un número o escribe Menú."].filter(Boolean);
+  }
 
   if (wantsMoreProjects) {
     const nextOffset = state.projects.offset + 5;
@@ -1819,9 +1988,14 @@ async function handleProjects(state: UserState, text: string): Promise<string | 
     const detail = await loadProjectContent(chosen.id);
     if (!detail) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
 
-    const chunks = chunkText(detail.plain, 1100);
-    const messages = [`*${detail.titulo}*`, ...(chunks.length ? chunks : ["Descripción no disponible."]), "Si quieres ver otro proyecto, elige un número o escribe Menú."].filter(Boolean);
-    return messages;
+    state.projects.reading = { id: chosen.id, offset: 0 };
+
+    const resumen = summarizeProject(detail.plain, 900);
+    const messages: string[] = [`*${detail.titulo}*`];
+    if (resumen) messages.push(resumen);
+    messages.push("Si quieres que te envíe el detalle completo, dime: Detalle.");
+    messages.push("Para ver otro proyecto, indícame el número (ej: 2) o escribe: proyecto 2.");
+    return messages.filter(Boolean);
   }
   if (!list.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
 
@@ -1841,7 +2015,7 @@ async function loadProjectContent(id: number) {
   if (!row) return null;
   const titulo = toTrimmedString(getRecordValue(row, "titulo"));
   const contenido = toTrimmedString(getRecordValue(row, "contenido"));
-  const plain = stripNectarShortcodes(contenido.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  const plain = htmlToParagraphText(contenido);
   return { id, titulo, plain };
 }
 
