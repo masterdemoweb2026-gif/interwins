@@ -299,8 +299,13 @@ function buildMainMenuText() {
     "3. 🏗️ Proyectos",
     "4. 📍 Puntos de Venta",
     "",
-    "Respóndeme con el número (1–4) o escribiendo la opción y te guío al tiro. 😊",
+    "Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te guío al tiro. 😊",
   ].join("\n");
+}
+
+function withMainMenu(message: string) {
+  const m = message.trim();
+  return m ? `${m}\n\n${buildMainMenuText()}` : buildMainMenuText();
 }
 
 function parseMenuChoice(text: string): Branch | null {
@@ -771,23 +776,24 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
     if (t.includes("cancel")) {
       state.catalog = { filters: {}, status: "idle" };
       state.activeBranch = "menu";
-      return await minimaxRewrite({
+      const msg = await minimaxRewrite({
         kind: "empatia",
         input,
-        facts: ["Ok, dejé la cotización cancelada.", buildMainMenuText()],
+        facts: ["Ok, dejé la cotización cancelada."],
       });
+      return withMainMenu(msg);
     }
     if (t.includes("termin") || t.includes("confirm") || t === "si" || t === "sí") {
       state.catalog = { filters: {}, status: "idle" };
       state.activeBranch = "menu";
-      return await minimaxRewrite({
+      const msg = await minimaxRewrite({
         kind: "cierre",
         input,
         facts: [
           "Perfecto, recibimos tu solicitud de cotización. En breve te vamos a contactar.",
-          buildMainMenuText(),
         ],
       });
+      return withMainMenu(msg);
     }
     if (t.startsWith("1") && state.catalog.recommended?.mode === "offer") {
       state.catalog.recommended.includedIds.push(...state.catalog.recommended.remainingIds);
@@ -847,11 +853,12 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
       if (t.includes("termin")) {
         state.catalog = { filters: {}, status: "idle" };
         state.activeBranch = "menu";
-        return await minimaxRewrite({
+        const msg = await minimaxRewrite({
           kind: "cierre",
           input,
-          facts: ["Perfecto, quedamos listos. En breve te vamos a contactar.", buildMainMenuText()],
+          facts: ["Perfecto, quedamos listos. En breve te vamos a contactar."],
         });
+        return withMainMenu(msg);
       }
       return "Elige un número de la lista o responde Terminar.";
     }
@@ -897,11 +904,12 @@ async function handleCatalog(state: UserState, text: string): Promise<string> {
       if (t.includes("termin")) {
         state.catalog = { filters: {}, status: "idle" };
         state.activeBranch = "menu";
-        return await minimaxRewrite({
+        const msg = await minimaxRewrite({
           kind: "cierre",
           input,
-          facts: ["Perfecto, gracias. En breve te vamos a contactar.", buildMainMenuText()],
+          facts: ["Perfecto, gracias. En breve te vamos a contactar."],
         });
+        return withMainMenu(msg);
       }
       return "Responde: Incluir / Rechazar / Terminar";
     }
@@ -1212,16 +1220,16 @@ async function handleServicioTecnico(state: UserState, text: string) {
   const hits = await answerServicioTecnico(q);
   if (!hits) {
     state.activeBranch = "menu";
-    return await minimaxRewrite({
+    const msg = await minimaxRewrite({
       kind: "empatia",
       input: q,
       facts: [
         "Puedo derivarte con un especialista para que te atiendan bien.",
         "📞 Mesa Central: +56 2 3263 5550",
         "📞 SAM (Servicio Asistencia Motorola): +56 2 3263 5551",
-        buildMainMenuText(),
       ],
     });
+    return withMainMenu(msg);
   }
   const answer = hits
     .map((h) => [`*${h.tema}*`, h.info].filter(Boolean).join("\n"))
@@ -1388,12 +1396,11 @@ export async function POST(request: Request) {
         input: inboundText,
         facts: [
           `Hola${state.userName ? ` ${state.userName}` : ""}, bienvenido(a). Soy tu asesor de InterWins.`,
-          buildMainMenuText(),
         ],
       });
       state.greeted = true;
       state.activeBranch = "menu";
-      reply = saludo;
+      reply = withMainMenu(saludo);
     } else if (isMenuCommand(inboundText)) {
       if (state.catalog.status === "wait_finish_cotizacion") {
         reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
@@ -1420,11 +1427,12 @@ export async function POST(request: Request) {
             reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
           }
         } else {
-          reply = await minimaxRewrite({
+          const msg = await minimaxRewrite({
             kind: "fuera_menu",
             input: inboundText,
-            facts: ["Te leo. Si me dices qué necesitas, te guío al tiro.", buildMainMenuText()],
+            facts: ["Te leo. Si me dices qué necesitas, te guío al tiro."],
           });
+          reply = withMainMenu(msg);
         }
       } else if (state.activeBranch === "catalogo") {
         reply = await handleCatalog(state, inboundText);
