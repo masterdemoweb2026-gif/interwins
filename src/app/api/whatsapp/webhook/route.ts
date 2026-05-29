@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
+import { inboxAdd } from "@/lib/debugInbox";
 
 function getVerifyToken() {
   return process.env.WHATSAPP_VERIFY_TOKEN ?? "";
@@ -70,7 +71,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
-  if (!verifySignature(rawBody, signature)) {
+  const signatureValid = signature ? verifySignature(rawBody, signature) : null;
+  if (signatureValid === false) {
+    inboxAdd({ source: "meta", signatureValid: false, body: safeJson(rawBody) });
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
@@ -78,6 +81,7 @@ export async function POST(request: Request) {
   try {
     body = JSON.parse(rawBody);
   } catch {
+    inboxAdd({ source: "meta", signatureValid, body: rawBody });
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 
@@ -89,9 +93,23 @@ export async function POST(request: Request) {
   const text = message?.text?.body as string | undefined;
   const isInboundText = typeof text === "string" && text.trim().length > 0;
 
+  inboxAdd({ source: "meta", signatureValid, from, text, body: shouldStoreBody() ? body : undefined });
+
   if (shouldAutoReply() && from && isInboundText) {
     await sendTextMessage(from, "hola");
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });
+}
+
+function safeJson(raw: string) {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
+  }
+}
+
+function shouldStoreBody() {
+  return (process.env.DEBUG_STORE_WEBHOOK_BODY ?? "").toLowerCase() === "true";
 }

@@ -1,17 +1,48 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function Home() {
   const [to, setTo] = useState("");
   const [message, setMessage] = useState("test");
   const [isSending, setIsSending] = useState(false);
   const [result, setResult] = useState<string>("");
+  const [metaStatus, setMetaStatus] = useState<string>("");
+  const [inbox, setInbox] = useState<string>("");
 
   const webhookUrl = useMemo(() => {
     const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "");
     if (!base) return "/api/whatsapp/webhook";
     return `${base}/api/whatsapp/webhook`;
+  }, []);
+
+  async function refreshMetaStatus() {
+    try {
+      const res = await fetch("/api/debug/meta", { cache: "no-store" });
+      const data = (await res.json()) as unknown;
+      setMetaStatus(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setMetaStatus(String(err));
+    }
+  }
+
+  async function refreshInbox() {
+    try {
+      const res = await fetch("/api/debug/inbox", { cache: "no-store" });
+      const data = (await res.json()) as unknown;
+      setInbox(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setInbox(String(err));
+    }
+  }
+
+  useEffect(() => {
+    refreshMetaStatus();
+    refreshInbox();
+    const id = window.setInterval(() => {
+      refreshInbox();
+    }, 3000);
+    return () => window.clearInterval(id);
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -46,6 +77,24 @@ export default function Home() {
             Si envías un mensaje al número de WhatsApp Business (Cloud API), el bot responde:{" "}
             <span className="font-mono">hola</span>
           </p>
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-zinc-950">
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm font-medium">Conectividad (Meta)</div>
+            <button
+              type="button"
+              onClick={refreshMetaStatus}
+              className="h-9 rounded-lg border border-black/10 px-3 text-sm dark:border-white/10"
+            >
+              Refrescar
+            </button>
+          </div>
+          {metaStatus ? (
+            <pre className="overflow-auto rounded-lg border border-black/10 bg-white p-3 text-xs text-zinc-800 dark:border-white/10 dark:bg-black/20 dark:text-zinc-200">
+              {metaStatus}
+            </pre>
+          ) : null}
         </div>
 
         <form
@@ -85,6 +134,24 @@ export default function Home() {
             {result}
           </pre>
         ) : null}
+
+        <div className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-zinc-950">
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm font-medium">Mensajes entrantes (debug)</div>
+            <button
+              type="button"
+              onClick={refreshInbox}
+              className="h-9 rounded-lg border border-black/10 px-3 text-sm dark:border-white/10"
+            >
+              Refrescar
+            </button>
+          </div>
+          {inbox ? (
+            <pre className="overflow-auto rounded-lg border border-black/10 bg-white p-3 text-xs text-zinc-800 dark:border-white/10 dark:bg-black/20 dark:text-zinc-200">
+              {inbox}
+            </pre>
+          ) : null}
+        </div>
       </main>
     </div>
   );
