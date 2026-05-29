@@ -386,6 +386,34 @@ function detectBranchIntent(text: string): { branch: Branch | null; wantsMenu: b
   return { branch: null, wantsMenu };
 }
 
+function detectQuoteIntent(text: string) {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    t.includes("cotiz") ||
+    t.includes("cotizacion") ||
+    t.includes("cotización") ||
+    t.includes("presupuest") ||
+    t.includes("precio") ||
+    t.includes("valor") ||
+    t.includes("cuanto cuesta") ||
+    t.includes("cuánto cuesta")
+  );
+}
+
+async function startCotizarFlow(state: UserState, userKey: string) {
+  const previous = state.activeBranch;
+  state.activeBranch = "catalogo";
+  resetBranchState(state, previous);
+  resetBranchState(state, "catalogo");
+
+  if (state.catalog.selectedProductId) {
+    return await handleCatalog(state, "cotizar", userKey);
+  }
+
+  return "Perfecto. Para cotizar, ¿qué producto buscas? Puedes decir el nombre (ej: DP50) o el tipo (ej: Repetidores).";
+}
+
 function buildMainMenuText() {
   const suffixes = [
     "Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te ayudo al tiro.",
@@ -1916,6 +1944,9 @@ export async function POST(request: Request) {
         }
       } else {
         if (state.activeBranch === "menu") {
+          if (detectQuoteIntent(inboundText)) {
+            reply = await startCotizarFlow(state, userKey);
+          } else {
           const choice = parseMenuChoice(inboundText) ?? classifyFreeText(inboundText);
           if (choice) {
             state.activeBranch = choice;
@@ -1937,7 +1968,15 @@ export async function POST(request: Request) {
             });
             reply = withMainMenu(msg);
           }
+          }
         } else {
+          if (detectQuoteIntent(inboundText) && state.activeBranch !== "catalogo") {
+            if (state.catalog.status === "wait_finish_cotizacion") {
+              reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
+            } else {
+              reply = await startCotizarFlow(state, userKey);
+            }
+          } else {
           const intent = detectBranchIntent(inboundText);
           if (intent.branch && intent.branch !== state.activeBranch) {
             if (state.catalog.status === "wait_finish_cotizacion") {
@@ -1973,6 +2012,7 @@ export async function POST(request: Request) {
           } else {
             state.activeBranch = "menu";
             reply = buildMainMenuText();
+          }
           }
           }
         }
