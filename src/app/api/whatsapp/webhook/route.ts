@@ -358,6 +358,34 @@ function isMenuCommand(text: string) {
   );
 }
 
+function detectBranchIntent(text: string): { branch: Branch | null; wantsMenu: boolean } {
+  const t = normalizeText(text);
+  if (!t) return { branch: null, wantsMenu: false };
+
+  const wantsMenu =
+    t.includes("volver al menu") ||
+    t.includes("volver al menú") ||
+    t.includes("ir al menu") ||
+    t.includes("ir al menú") ||
+    t.includes("regresar al menu") ||
+    t.includes("regresar al menú") ||
+    t.includes("menu principal") ||
+    t.includes("menú principal") ||
+    t === "menu" ||
+    t === "menú";
+
+  const mentionsCatalog = t.includes("catalogo") || t.includes("catálogo");
+  const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
+  const mentionsProjects = t.includes("proyecto") || t.includes("proyectos");
+  const mentionsPoints = t.includes("punto de venta") || t.includes("puntos de venta") || t.includes("dealer") || t.includes("dealers");
+
+  if (mentionsCatalog) return { branch: "catalogo", wantsMenu };
+  if (mentionsServicio) return { branch: "servicio_tecnico", wantsMenu };
+  if (mentionsProjects) return { branch: "proyectos", wantsMenu };
+  if (mentionsPoints) return { branch: "puntos_venta", wantsMenu };
+  return { branch: null, wantsMenu };
+}
+
 function buildMainMenuText() {
   const suffixes = [
     "Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te ayudo al tiro.",
@@ -1624,7 +1652,14 @@ async function handlePoints(state: UserState, text: string) {
 
   const blocks: string[] = [];
 
-  const dealerBlocks = dealers.slice(0, 3).map((d) => {
+  const dealerRows = dealers.slice(0, 3);
+  const dealerKeys = new Set(
+    dealerRows
+      .map((d) => normalizeText([d.nombre_punto, d.direccion, d.comuna, d.region].filter(Boolean).join(" ")))
+      .filter(Boolean)
+  );
+
+  const dealerBlocks = dealerRows.map((d) => {
     const parts = [
       `📍 ${d.nombre_punto}`,
       d.direccion || d.comuna ? `   Dirección: ${[d.direccion, d.comuna].filter(Boolean).join(", ")}` : "",
@@ -1637,6 +1672,14 @@ async function handlePoints(state: UserState, text: string) {
 
   const remaining = Math.max(0, 5 - blocks.length);
   const pvBlocks = puntosVenta
+    .filter((p) => {
+      const key = normalizeText([p.titulo, p.direccion, p.categoria].filter(Boolean).join(" "));
+      if (!key) return true;
+      for (const dKey of dealerKeys) {
+        if (dKey.includes(key) || key.includes(dKey)) return false;
+      }
+      return true;
+    })
     .slice(0, remaining)
     .map((p) => [`📍 ${p.titulo}`, p.categoria ? `   Zona: ${p.categoria}` : "", `   Dirección: ${p.direccion}`].filter(Boolean).join("\n"));
   blocks.push(...pvBlocks);
@@ -1893,6 +1936,30 @@ export async function POST(request: Request) {
             reply = withMainMenu(msg);
           }
         } else {
+          const intent = detectBranchIntent(inboundText);
+          if (intent.branch && intent.branch !== state.activeBranch) {
+            if (state.catalog.status === "wait_finish_cotizacion") {
+              reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
+            } else {
+              const previous = state.activeBranch;
+              state.activeBranch = intent.branch;
+              resetBranchState(state, previous);
+              resetBranchState(state, intent.branch);
+              if (intent.branch === "proyectos") {
+                reply = await handleProjects(state, "");
+              } else if (intent.branch === "servicio_tecnico") {
+                reply = "Ya. Cuéntame tu duda técnica y te ayudo.";
+              } else if (intent.branch === "puntos_venta") {
+                reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
+              } else if (intent.branch === "catalogo") {
+                reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+              } else {
+                reply = buildMainMenuText();
+              }
+            }
+          } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "proyectos") {
+            reply = await handleProjects(state, "");
+          } else {
           if (state.activeBranch === "catalogo") {
             reply = await handleCatalog(state, inboundText, userKey);
           } else if (state.activeBranch === "proyectos") {
@@ -1904,6 +1971,7 @@ export async function POST(request: Request) {
           } else {
             state.activeBranch = "menu";
             reply = buildMainMenuText();
+          }
           }
         }
       }
