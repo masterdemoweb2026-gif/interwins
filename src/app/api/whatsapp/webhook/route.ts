@@ -411,7 +411,50 @@ async function startCotizarFlow(state: UserState, userKey: string) {
     return await handleCatalog(state, "cotizar", userKey);
   }
 
-  return "Perfecto. Para cotizar, ¿qué producto buscas? Puedes decir el nombre (ej: DP50) o el tipo (ej: Repetidores).";
+  if (!state.catalog.filters.tipo_producto && !state.catalog.pending) {
+    const tipos = await listDistinctTipoProducto();
+    const wanted = [
+      { label: "Equipos de radio", keywords: ["equipos", "equipo", "radio", "radios", "handy", "portatil", "portátil", "movil", "móvil"] },
+      { label: "Accesorios de radio", keywords: ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"] },
+      { label: "Cámaras corporales", keywords: ["camara", "cámara", "camaras", "cámaras", "corporal", "bodycam", "body"] },
+    ];
+
+    const suggested: Array<{ label: string; tipo: string }> = [];
+    for (const w of wanted) {
+      const scored = tipos
+        .map((tp) => {
+          const hay = normalizeText(tp);
+          const score = scoreTokenMatch(w.keywords.map((k) => normalizeText(k)), hay);
+          return { tp, score };
+        })
+        .sort((a, b) => b.score - a.score);
+      const best = scored[0];
+      if (best && best.score >= 1) {
+        suggested.push({ label: w.label, tipo: best.tp });
+      }
+    }
+
+    const uniqueTipos: string[] = [];
+    const lines: string[] = [];
+    for (const s of suggested) {
+      if (uniqueTipos.includes(s.tipo)) continue;
+      uniqueTipos.push(s.tipo);
+      lines.push(`${uniqueTipos.length}) ${s.label}`);
+    }
+
+    if (uniqueTipos.length >= 2) {
+      state.catalog.pending = { attr: "tipo_producto", options: uniqueTipos.slice(0, 5) };
+      return [
+        "Perfecto. Para cotizar, ¿qué tipo de producto te interesa?",
+        "",
+        ...lines,
+        "",
+        "También puedes escribir el nombre del equipo (ej: DP50).",
+      ].join("\n");
+    }
+  }
+
+  return "Perfecto. Para cotizar, ¿qué producto buscas? Puedes decir el nombre (ej: DP50) o elegir un tipo: Equipos de radio, Accesorios de radio o Cámaras corporales.";
 }
 
 function buildMainMenuText() {
