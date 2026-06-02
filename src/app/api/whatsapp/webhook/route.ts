@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { NextResponse } from "next/server";
 import { inboxAdd } from "@/lib/debugInbox";
 
@@ -211,7 +212,9 @@ async function sendImageMessage(to: string, imageUrl: string, caption?: string) 
   }
 }
 
-type Branch = "menu" | "catalogo" | "servicio_tecnico" | "proyectos" | "puntos_venta";
+type Branch = "menu" | "catalogo" | "servicio_tecnico" | "proyectos" | "puntos_venta" | "cambium";
+
+type Country = "CL" | "UY";
 
 type CatalogFilters = {
   tipo_producto?: string;
@@ -276,15 +279,62 @@ type PointsState = {
   lastQuery?: string;
 };
 
+type ContactFormKind = "uy_proyectos" | "uy_servicio_tecnico";
+
+type ContactFormStep = "nombre" | "empresa" | "telefono" | "correo" | "direccion" | "mensaje" | "final";
+
+type ContactFormState = {
+  kind: ContactFormKind;
+  step: ContactFormStep;
+  data: Partial<{
+    nombre: string;
+    empresa: string;
+    telefono: string;
+    correo: string;
+    direccion: string;
+    mensaje: string;
+  }>;
+};
+
+type CambiumCategory = "conectividad" | "radioenlaces";
+
+type CambiumQuoteStep = "nombre" | "empresa" | "telefono" | "solucion" | "email" | "direccion" | "final";
+
+type CambiumQuote = {
+  step: CambiumQuoteStep;
+  data: Partial<{
+    nombre: string;
+    empresa: string;
+    telefono: string;
+    solucion: string;
+    email: string;
+    direccion: string;
+    categoria: string;
+    producto: string;
+  }>;
+};
+
+type CambiumProduct = { name: string; imageUrl?: string; detail?: string };
+
+type CambiumState = {
+  category?: CambiumCategory;
+  lastList?: CambiumProduct[];
+  selected?: CambiumProduct;
+  quote?: CambiumQuote;
+};
+
 type UserState = {
   v: 1;
   greeted: boolean;
+  country?: Country;
   activeBranch: Branch;
   userName?: string;
   recentInboundIds?: string[];
   catalog: CatalogState;
   projects: ProjectsState;
   points: PointsState;
+  contactForm?: ContactFormState;
+  cambium?: CambiumState;
   postCotizacion?: {
     awaitingAction?: boolean;
     awaitingReuseConfirm?: boolean;
@@ -313,6 +363,40 @@ function normalizeText(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function detectCountryFromPhone(phone: string): Country {
+  const digits = String(phone || "").replace(/[^\d]/g, "");
+  if (digits.startsWith("598")) return "UY";
+  if (digits.startsWith("56")) return "CL";
+  return "CL";
+}
+
+function getAvailableBranches(country: Country): Branch[] {
+  if (country === "UY") return ["catalogo", "servicio_tecnico", "proyectos", "cambium"];
+  return ["catalogo", "servicio_tecnico", "proyectos", "puntos_venta"];
+}
+
+function isBranchAvailable(country: Country, branch: Branch) {
+  if (branch === "menu") return true;
+  return getAvailableBranches(country).includes(branch);
+}
+
+const localTextCache = new Map<string, string>();
+
+function readLocalTextFile(relPath: string) {
+  const key = relPath.replace(/\\/g, "/");
+  const cached = localTextCache.get(key);
+  if (cached != null) return cached;
+  try {
+    const abs = path.join(process.cwd(), relPath);
+    const text = fs.readFileSync(abs, "utf8");
+    localTextCache.set(key, text);
+    return text;
+  } catch {
+    localTextCache.set(key, "");
+    return "";
+  }
 }
 
 function isPuntosVentaIntentNormalized(normalizedText: string) {
@@ -438,7 +522,16 @@ function extractChoiceNumberFromText(text: string, max: number) {
   return n;
 }
 
-function buildProductFichaMessages(detail: Awaited<ReturnType<typeof loadProductDetail>>) {
+type ProductDetail = {
+  productId: string;
+  nombre: string;
+  shortFinal?: string;
+  imageUrl?: string;
+  fichaUrl?: string;
+  precio?: string;
+};
+
+function buildProductFichaMessages(detail: ProductDetail | null) {
   if (!detail) return [];
   const title = cleanProductName(detail.nombre || "");
   const header = title ? `*${title}*` : "*Producto*";
@@ -484,7 +577,7 @@ function isMenuCommand(text: string) {
   );
 }
 
-function detectBranchIntent(text: string): { branch: Branch | null; wantsMenu: boolean } {
+function detectBranchIntent(text: string, country: Country): { branch: Branch | null; wantsMenu: boolean } {
   const t = normalizeText(text);
   if (!t) return { branch: null, wantsMenu: false };
 
@@ -500,14 +593,16 @@ function detectBranchIntent(text: string): { branch: Branch | null; wantsMenu: b
     t === "menu" ||
     t === "menú";
 
-  const mentionsCatalog = t.includes("catalogo") || t.includes("catálogo");
+  const mentionsCatalog = t.includes("catalogo") || t.includes("catálogo") || t.includes("cotizar") || t.includes("cotizacion") || t.includes("cotización");
   const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
   const mentionsProjects = t.includes("proyecto") || t.includes("proyectos");
-  const mentionsPoints = isPuntosVentaIntentNormalized(t);
+  const mentionsCambium = t.includes("cambium") || t.includes("cnmaestro") || t.includes("epmp") || t.includes("radioenlace") || t.includes("radioenlaces");
+  const mentionsPoints = country !== "UY" && isPuntosVentaIntentNormalized(t);
 
   if (mentionsCatalog) return { branch: "catalogo", wantsMenu };
   if (mentionsServicio) return { branch: "servicio_tecnico", wantsMenu };
   if (mentionsProjects) return { branch: "proyectos", wantsMenu };
+  if (mentionsCambium) return { branch: "cambium", wantsMenu };
   if (mentionsPoints) return { branch: "puntos_venta", wantsMenu };
   return { branch: null, wantsMenu };
 }
@@ -528,17 +623,18 @@ function detectQuoteIntent(text: string) {
 }
 
 async function startCotizarFlow(state: UserState, userKey: string) {
+  const country = state.country ?? "CL";
   const previous = state.activeBranch;
   state.activeBranch = "catalogo";
   resetBranchState(state, previous);
   resetBranchState(state, "catalogo");
 
   if (state.catalog.selectedProductId) {
-    return await handleCatalog(state, "cotizar", userKey);
+    return country === "UY" ? await handleCatalogUY(state, "cotizar", userKey) : await handleCatalog(state, "cotizar", userKey);
   }
 
   if (!state.catalog.filters.tipo_producto && !state.catalog.pending) {
-    const tipos = await listDistinctTipoProducto();
+    const tipos = country === "UY" ? await listDistinctTipoProductoUY() : await listDistinctTipoProducto();
     const wanted = [
       { label: "Equipos de radio", keywords: ["equipos", "equipo", "radio", "radios", "handy", "portatil", "portátil", "movil", "móvil"] },
       { label: "Accesorios de radio", keywords: ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"] },
@@ -582,13 +678,31 @@ async function startCotizarFlow(state: UserState, userKey: string) {
   return "Perfecto. Para cotizar, ¿qué producto buscas? Puedes decir el nombre (ej: DP50) o elegir un tipo: Equipos de radio, Accesorios de radio o Cámaras corporales.";
 }
 
-function buildMainMenuText() {
-  const suffixes = [
+function buildMainMenuText(country: Country) {
+  const suffixesCL = [
     "Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te ayudo al tiro.",
     "Puedes responder con 1, 2, 3 o 4, o escribir la opción (por ejemplo: Proyectos) y te guío.",
     "Respóndeme con 1–4, o escribe la opción con tus palabras y te oriento.",
   ];
-  const suffix = suffixes[crypto.randomInt(0, suffixes.length)];
+  const suffixesUY = [
+    "Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Cotizar) y te ayudo al tiro.",
+    "Puedes responder con 1, 2, 3 o 4, o escribir la opción (por ejemplo: Cambium) y te guío.",
+    "Respóndeme con 1–4, o escribe la opción con tus palabras y te oriento.",
+  ];
+  const suffixList = country === "UY" ? suffixesUY : suffixesCL;
+  const suffix = suffixList[crypto.randomInt(0, suffixList.length)];
+
+  if (country === "UY") {
+    return [
+      "1. 📦 Cotizar productos",
+      "2. 🔧 Servicio Técnico",
+      "3. 🏗️ Proyectos",
+      "4. 🌐 Cambium Networks",
+      "",
+      suffix,
+    ].join("\n");
+  }
+
   return [
     "1. 📦 Catálogo de productos",
     "2. 🔧 Servicio Técnico",
@@ -599,25 +713,29 @@ function buildMainMenuText() {
   ].join("\n");
 }
 
-function withMainMenu(message: string) {
+function withMainMenu(message: string, country: Country) {
   const m = message.trim();
-  return m ? `${m}\n\n${buildMainMenuText()}` : buildMainMenuText();
+  return m ? `${m}\n\n${buildMainMenuText(country)}` : buildMainMenuText(country);
 }
 
-function parseMenuChoice(text: string): Branch | null {
+function parseMenuChoice(text: string, country: Country): Branch | null {
   const t = normalizeText(text);
-  if (t === "1" || t.includes("catalogo") || t.includes("catálogo")) return "catalogo";
+  if (t === "1" || t.includes("catalogo") || t.includes("catálogo") || t.includes("cotizar") || t.includes("cotizacion") || t.includes("cotización"))
+    return "catalogo";
   if (t === "2" || t.includes("servicio") || t.includes("tecnico") || t.includes("técnico")) return "servicio_tecnico";
   if (t === "3" || t.includes("proyecto") || t.includes("proyectos")) return "proyectos";
-  if (t === "4" || isPuntosVentaIntentNormalized(t)) return "puntos_venta";
+  if (t === "4") return country === "UY" ? "cambium" : "puntos_venta";
+  if (country !== "UY" && isPuntosVentaIntentNormalized(t)) return "puntos_venta";
+  if (t.includes("cambium") || t.includes("cnmaestro")) return "cambium";
   return null;
 }
 
-function classifyFreeText(text: string): Branch | null {
+function classifyFreeText(text: string, country: Country): Branch | null {
   const t = normalizeText(text);
-  const catalogHints = ["cotizar", "cotizacion", "precio", "radio", "repetidor", "camara", "cámara", "accesorio", "equipo"];
-  const techHints = ["falla", "problema", "repar", "garantia", "garantía", "program", "configur", "servicio tecnico"];
-  const projectHints = ["proyecto", "implementacion", "implementación", "caso de exito", "caso de éxito"];
+  const catalogHints = ["cotizar", "cotizacion", "precio", "valor", "radio", "repetidor", "camara", "cámara", "accesorio", "equipo"];
+  const techHints = ["falla", "problema", "repar", "garantia", "garantía", "program", "configur", "servicio tecnico", "servicio técnico"];
+  const projectHints = ["proyecto", "implementacion", "implementación", "caso de exito", "caso de éxito", "certificacion", "certificación"];
+  const cambiumHints = ["cambium", "cnmaestro", "epmp", "ptp", "pmp", "radioenlace", "radioenlaces", "wifi", "sd wan", "sd-wan", "nse"];
   const pointsHints = [
     "donde comprar",
     "dónde comprar",
@@ -632,8 +750,12 @@ function classifyFreeText(text: string): Branch | null {
     "distribuidores",
   ];
 
-  if (isPuntosVentaIntentNormalized(t)) return "puntos_venta";
-  if (pointsHints.some((h) => t.includes(normalizeText(h)))) return "puntos_venta";
+  if (country !== "UY") {
+    if (isPuntosVentaIntentNormalized(t)) return "puntos_venta";
+    if (pointsHints.some((h) => t.includes(normalizeText(h)))) return "puntos_venta";
+  }
+
+  if (cambiumHints.some((h) => t.includes(normalizeText(h)))) return "cambium";
   if (projectHints.some((h) => t.includes(normalizeText(h)))) return "proyectos";
   if (techHints.some((h) => t.includes(normalizeText(h)))) return "servicio_tecnico";
   if (catalogHints.some((h) => t.includes(normalizeText(h)))) return "catalogo";
@@ -802,6 +924,117 @@ function summarizeProject(text: string, maxLen: number) {
 
   const cut = short.lastIndexOf(" ", maxLen);
   return (cut > 0 ? short.slice(0, cut) : short.slice(0, maxLen)).trim();
+}
+
+type UyProject = { id: number; titulo: string; contenido: string };
+
+function loadUyProjectsData() {
+  const raw = readLocalTextFile(path.join("instructivo", "uruguay", "proyectos.txt"));
+  const lines = (raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const projects: UyProject[] = [];
+  let bankStart = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i] ?? "";
+    if (normalizeText(l).startsWith("banco informativo")) {
+      bankStart = i;
+      break;
+    }
+  }
+
+  const bodyLines = bankStart === -1 ? lines : lines.slice(0, bankStart);
+  const bankLines = bankStart === -1 ? [] : lines.slice(bankStart);
+  const bankText = bankLines.join("\n").trim();
+
+  let current: UyProject | null = null;
+  for (const rawLine of bodyLines) {
+    const line = String(rawLine ?? "").trimEnd();
+    const m = line.match(/^\s*(\d+)\s*-\s*(.+)\s*$/);
+    if (m) {
+      if (current) projects.push({ ...current, contenido: current.contenido.trim() });
+      current = { id: Number(m[1]), titulo: String(m[2]).trim(), contenido: "" };
+      continue;
+    }
+    if (!current) continue;
+    const cleaned = line.replace(/^\s*contrenido\s*:\s*/i, "").replace(/^\s*contenido\s*:\s*/i, "").trim();
+    if (!cleaned) continue;
+    current.contenido = current.contenido ? `${current.contenido}\n${cleaned}` : cleaned;
+  }
+  if (current) projects.push({ ...current, contenido: current.contenido.trim() });
+
+  const safe = projects.filter((p) => Number.isFinite(p.id) && p.titulo);
+  safe.sort((a, b) => a.id - b.id);
+  return { projects: safe, bankText };
+}
+
+function loadUyServicioTecnicoText() {
+  return readLocalTextFile(path.join("instructivo", "uruguay", "servicio_tecnico.txt")).trim();
+}
+
+function loadCambiumData() {
+  const raw = readLocalTextFile(path.join("instructivo", "uruguay", "cambium_networks"));
+  const text = (raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const intro = lines[0] || "Cambium Networks ofrece soluciones inalámbricas de alto rendimiento.";
+
+  const normalized = lines.map((l) => normalizeText(l));
+  const idxCon = normalized.findIndex((l) => l.startsWith("1.-conectividad empresarial"));
+  const idxRad = normalized.findIndex((l) => l.startsWith("2.-radioenlaces"));
+  const idxBank = normalized.findIndex((l) => l.startsWith("informacion para el banco") || l.startsWith("información para el banco"));
+
+  const conSection = idxCon >= 0 ? lines.slice(idxCon, idxRad > idxCon ? idxRad : idxBank > idxCon ? idxBank : lines.length) : [];
+  const radSection = idxRad >= 0 ? lines.slice(idxRad, idxBank > idxRad ? idxBank : lines.length) : [];
+  const bankSection = idxBank >= 0 ? lines.slice(idxBank) : [];
+
+  const pickProducts = (section: string[]) => {
+    const out: CambiumProduct[] = [];
+    for (const l of section) {
+      const m = l.match(/^\s*-\s*(.+?)\s*-\s*imagen\s*:\s*(https?:\/\/\S+)\s*$/i);
+      if (m) {
+        out.push({ name: String(m[1]).trim(), imageUrl: String(m[2]).trim() });
+        continue;
+      }
+      const m2 = l.match(/^\s*-\s*(.+?)\s*-\s*imagen\s*:\s*(https?:\/\/\S+)\s*$/i);
+      if (m2) out.push({ name: String(m2[1]).trim(), imageUrl: String(m2[2]).trim() });
+    }
+    const seen = new Set<string>();
+    return out.filter((p) => {
+      const k = normalizeText(p.name);
+      if (!k) return false;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
+
+  const conProducts = pickProducts(conSection);
+  const radProducts = pickProducts(radSection);
+  const bankText = bankSection.join("\n").trim();
+
+  const conDetail =
+    conSection
+      .find((l) => normalizeText(l).startsWith("1.-conectividad empresarial"))
+      ?.split(":")
+      .slice(1)
+      .join(":")
+      .trim() || "";
+
+  const radDetail =
+    radSection
+      .find((l) => normalizeText(l).startsWith("2.-radioenlaces"))
+      ?.split(":")
+      .slice(1)
+      .join(":")
+      .trim() || "";
+
+  return {
+    intro,
+    bankText,
+    categories: [
+      { key: "conectividad" as const, title: "Conectividad empresarial", detail: conDetail, products: conProducts },
+      { key: "radioenlaces" as const, title: "Radioenlaces", detail: radDetail, products: radProducts },
+    ],
+  };
 }
 
 function extractFichaTecnicaUrl(text: string) {
@@ -1045,7 +1278,7 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
 
   const baseUrl = getMinimaxBaseUrl();
   const system = [
-    "Eres un asesor humano de soporte técnico para una empresa chilena de radiocomunicación.",
+    "Eres un asesor humano de soporte técnico para una empresa de radiocomunicación.",
     "Hablas en español chileno, tono cordial, profesional y cercano.",
     "Entrega una respuesta útil y concreta.",
     "Puedes dar orientación técnica general (por ejemplo: conceptos como IP, temperatura, golpes, buenas prácticas).",
@@ -1104,6 +1337,72 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
   }
 }
 
+async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium"; input: string; knowledgeText: string }) {
+  const input = (args.input || "").trim();
+  const knowledgeText = (args.knowledgeText || "").trim();
+  if (!input) return "";
+
+  const key = getMinimaxApiKey();
+  if (!key || !knowledgeText) return "";
+
+  const baseUrl = getMinimaxBaseUrl();
+  const systemBase = [
+    "Eres un asesor humano para una empresa de telecomunicaciones y radiocomunicación.",
+    "Hablas en español, tono cordial, profesional y cercano.",
+    "Sé breve, claro y sin redundancias.",
+    "No inventes datos: si no está en la base, dilo y pide un dato.",
+    "Nunca menciones que eres una IA.",
+    "Nunca uses etiquetas como <think> ni expliques tu razonamiento.",
+    "Entrega solo el mensaje final listo para WhatsApp, sin encabezados ni meta-explicaciones.",
+  ];
+  const systemExtra =
+    args.role === "proyectos"
+      ? ["Enfócate en explicar proyectos, capacidades, certificaciones y enfoque de trabajo."]
+      : ["Enfócate en explicar Cambium Networks, sus soluciones y orientar la elección de categoría/producto."];
+  const system = [...systemBase, ...systemExtra].join(" ");
+
+  const user = [
+    `Mensaje del cliente: ${input}`,
+    "",
+    "Base de conocimiento:",
+    knowledgeText.length > 5000 ? `${knowledgeText.slice(0, 5000).trim()}...` : knowledgeText,
+    "",
+    "Responde con una orientación útil y concreta en un único mensaje.",
+  ].join("\n");
+
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "MiniMax-M2.7",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.4,
+        max_tokens: 350,
+      }),
+    });
+    if (!res.ok) return "";
+    const data = (await res.json()) as unknown;
+    const choices = isRecord(data) ? getRecordValue(data, "choices") : undefined;
+    const first = Array.isArray(choices) ? (choices[0] as unknown) : undefined;
+    const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
+    const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
+    if (typeof content === "string" && content.trim()) {
+      const cleaned = sanitizeMinimaxOutput(content);
+      return cleaned || "";
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
 function sanitizeMinimaxOutput(raw: string) {
   const withoutThink = raw
     .replace(/<think[\s\S]*?<\/think>\s*/gi, "")
@@ -1145,6 +1444,7 @@ function initState(): UserState {
     catalog: { filters: {}, status: "idle" },
     projects: { offset: 0 },
     points: {},
+    cambium: {},
   };
 }
 
@@ -1155,6 +1455,7 @@ function resetBranchState(state: UserState, branch: Branch) {
   }
   if (branch === "proyectos") state.projects = { offset: 0 };
   if (branch === "puntos_venta") state.points = {};
+  if (branch === "cambium") state.cambium = {};
 }
 
 async function listDistinctTipoProducto(): Promise<string[]> {
@@ -1268,6 +1569,97 @@ async function loadProductDetail(productId: string) {
   const shortFinal = shortText.length >= 590 ? `${shortText.slice(0, 590).trim()}...` : shortText;
 
   return { productId, nombre, shortFinal, imageUrl, fichaUrl, precio };
+}
+
+function getUyProductsTable() {
+  return (process.env.UY_PRODUCTS_TABLE ?? "inter_products_uy").trim() || "inter_products_uy";
+}
+
+async function listDistinctUyColumn(column: keyof CatalogFilters, filters: CatalogFilters) {
+  const table = getUyProductsTable();
+  const params: string[] = [`select=${encodeURIComponent(String(column))}`, `${String(column)}=not.is.null`, `limit=1000`];
+  if (filters.tipo_producto && column !== "tipo_producto") params.push(`tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`);
+  if (filters.tecnologia && column !== "tecnologia") params.push(`tecnologia=eq.${encodeURIComponent(filters.tecnologia)}`);
+  if (filters.modalidad && column !== "modalidad") params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
+  if (filters.portabilidad && column !== "portabilidad") params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
+  if (filters.frecuencia && column !== "frecuencia") params.push(`frecuencia=eq.${encodeURIComponent(filters.frecuencia)}`);
+  const q = `${table}?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  const values = (res.data as unknown[])
+    .map((r) => toTrimmedString(getRecordValue(r, String(column))))
+    .filter(Boolean);
+  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+async function listDistinctTipoProductoUY(): Promise<string[]> {
+  return await listDistinctUyColumn("tipo_producto", {});
+}
+
+async function listTecnologiasUY(filters: CatalogFilters): Promise<string[]> {
+  if (!filters.tipo_producto) return [];
+  return await listDistinctUyColumn("tecnologia", filters);
+}
+
+async function listModalidadesUY(filters: CatalogFilters): Promise<string[]> {
+  if (!filters.tipo_producto) return [];
+  return await listDistinctUyColumn("modalidad", filters);
+}
+
+async function listPortabilidadesUY(filters: CatalogFilters): Promise<string[]> {
+  if (!filters.tipo_producto) return [];
+  return await listDistinctUyColumn("portabilidad", filters);
+}
+
+async function listFrecuenciasUY(filters: CatalogFilters): Promise<string[]> {
+  if (!filters.tipo_producto) return [];
+  return await listDistinctUyColumn("frecuencia", filters);
+}
+
+async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
+  if (!filters.tipo_producto) return [];
+  const table = getUyProductsTable();
+  const params: string[] = [
+    `select=product_id,nombre`,
+    `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
+    `limit=5`,
+    `order=nombre.asc`,
+  ];
+  if (filters.modalidad) params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
+  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
+  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
+  if (filters.tecnologia) params.push(`tecnologia=ilike.*${encodeURIComponent(filters.tecnologia)}*`);
+  const q = `${table}?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[])
+    .map((r) => ({ product_id: toTrimmedString(getRecordValue(r, "product_id")), nombre: toTrimmedString(getRecordValue(r, "nombre")) }))
+    .filter((r) => r.product_id && r.nombre);
+}
+
+async function loadProductDetailUY(productId: string) {
+  const table = getUyProductsTable();
+  const q = `${table}?select=product_id,nombre,descripcion_corta,descripcion,image_url,precio&limit=1&product_id=eq.${encodeURIComponent(productId)}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return null;
+  const row = (res.data as unknown[])[0];
+  if (!row) return null;
+  const nombre = toTrimmedString(getRecordValue(row, "nombre"));
+  const descCorta = toTrimmedString(getRecordValue(row, "descripcion_corta"));
+  const desc = toTrimmedString(getRecordValue(row, "descripcion"));
+  const imageUrl = toTrimmedString(getRecordValue(row, "image_url"));
+  const precio = toTrimmedString(getRecordValue(row, "precio"));
+  const fichaUrl = extractFichaTecnicaUrl(`${descCorta}\n${desc}`);
+  const descPlano = stripNectarShortcodes(`${descCorta}\n${desc}`);
+  const shortText = descCorta.trim() ? stripNectarShortcodes(descCorta).slice(0, 600).trim() : descPlano.slice(0, 600).trim();
+  const shortFinal = shortText.length >= 590 ? `${shortText.slice(0, 590).trim()}...` : shortText;
+  return { productId, nombre, shortFinal, imageUrl, fichaUrl, precio };
+}
+
+async function loadProductDetailByCountry(country: Country, productId: string): Promise<ProductDetail | null> {
+  if (!productId) return null;
+  if (country === "UY") return (await loadProductDetailUY(productId)) as ProductDetail | null;
+  return (await loadProductDetail(productId)) as ProductDetail | null;
 }
 
 async function listProjects(offset: number) {
@@ -1448,8 +1840,9 @@ function normalizePhone(phone: string) {
 
 async function saveCotizacionToSupabase(userPhone: string, state: UserState) {
   const quote = state.catalog.quote?.data ?? {};
+  const country = state.country ?? "CL";
   const selectedProductId = state.catalog.selectedProductId ?? "";
-  const productDetail = selectedProductId ? await loadProductDetail(selectedProductId) : null;
+  const productDetail = selectedProductId ? await loadProductDetailByCountry(country, selectedProductId) : null;
 
   const included = state.catalog.recommended?.includedIds ?? [];
   const rejected = state.catalog.recommended?.rejectedIds ?? [];
@@ -1458,6 +1851,8 @@ async function saveCotizacionToSupabase(userPhone: string, state: UserState) {
 
   const row = {
     user_phone: userPhone,
+    country,
+    origen: country === "UY" ? "uy_catalogo" : "cl_catalogo",
     nombre: quote.nombre ?? null,
     telefono: quote.telefono ?? null,
     email: quote.email ?? null,
@@ -1486,6 +1881,28 @@ async function saveCotizacionToSupabase(userPhone: string, state: UserState) {
       signatureValid: null,
       from: userPhone,
       text: `[DEBUG] cotizacion insert failed status=${res.status}`,
+      body: res.data,
+    });
+  }
+}
+
+function getUyLeadsTable() {
+  return (process.env.UY_LEADS_TABLE ?? "uy_leads").trim() || "uy_leads";
+}
+
+async function saveUyLead(payload: Record<string, unknown>) {
+  const table = getUyLeadsTable();
+  const res = await supabaseFetch(table, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    inboxAdd({
+      source: "gowa",
+      signatureValid: null,
+      from: String(payload.user_phone ?? ""),
+      text: `[DEBUG] uy_lead insert failed status=${res.status}`,
       body: res.data,
     });
   }
@@ -1542,14 +1959,17 @@ function getNextQuoteStep(data: CatalogQuote["data"]): CatalogQuoteStep {
 
 async function buildCotizacionResumen(state: UserState) {
   const q = state.catalog.quote?.data ?? {};
+  const country = state.country ?? "CL";
   const selectedProductId = state.catalog.selectedProductId ?? "";
-  const productDetail = selectedProductId ? await loadProductDetail(selectedProductId) : null;
+  const productDetail = selectedProductId ? await loadProductDetailByCountry(country, selectedProductId) : null;
 
   const included = state.catalog.recommended?.includedIds ?? [];
   const includedNames: string[] = [];
-  for (const id of included.slice(0, 5)) {
-    const d = await loadProductDetail(id);
-    if (d?.nombre) includedNames.push(cleanProductName(d.nombre));
+  if (country !== "UY") {
+    for (const id of included.slice(0, 5)) {
+      const d = await loadProductDetailByCountry(country, id);
+      if (d?.nombre) includedNames.push(cleanProductName(d.nombre));
+    }
   }
 
   const lines: string[] = [];
@@ -1576,13 +1996,14 @@ async function buildCotizacionResumen(state: UserState) {
   return lines.join("\n");
 }
 
-function buildAfterCotizacionMessage() {
+function buildAfterCotizacionMessage(country: Country) {
+  const tail = country === "UY" ? "Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Cambium" : "Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta";
   return [
     "Uno de nuestros vendedores se pondrá en contacto contigo.",
     "",
     "¿Quieres cotizar otro producto o volver al menú?",
     "",
-    "Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta",
+    tail,
   ].join("\n");
 }
 
@@ -1596,7 +2017,7 @@ async function finalizeCotizacion(state: UserState, userPhone: string): Promise<
   state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
   state.activeBranch = "menu";
   state.postCotizacion = { awaitingAction: true };
-  return [resumen, buildAfterCotizacionMessage()];
+  return [resumen, buildAfterCotizacionMessage(state.country ?? "CL")];
 }
 
 async function handleCatalog(state: UserState, text: string, userPhone: string): Promise<Reply> {
@@ -1612,7 +2033,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         input,
         facts: ["Ok, dejé la cotización cancelada."],
       });
-      return withMainMenu(msg);
+      return withMainMenu(msg, state.country ?? "CL");
     }
     if (t.includes("termin") || t.includes("confirm") || t === "si" || t === "sí") {
       return await finalizeCotizacion(state, userPhone);
@@ -1990,6 +2411,248 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   ].join("\n");
 }
 
+async function handleCatalogUY(state: UserState, text: string, userPhone: string): Promise<Reply> {
+  const input = text.trim();
+  const t = normalizeText(input);
+
+  if (state.catalog.status === "wait_finish_cotizacion") {
+    if (t.includes("cancel")) {
+      state.catalog = { filters: {}, status: "idle" };
+      state.activeBranch = "menu";
+      const msg = await minimaxRewrite({
+        kind: "empatia",
+        input,
+        facts: ["Ok, dejé la cotización cancelada."],
+      });
+      return withMainMenu(msg, state.country ?? "UY");
+    }
+    if (t.includes("termin") || t.includes("confirm") || t === "si" || t === "sí") {
+      return await finalizeCotizacion(state, userPhone);
+    }
+    return "Para cerrar la cotización responde: Terminar / Cancelar.";
+  }
+
+  if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
+    state.catalog = { filters: {}, status: "idle" };
+    return "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos, Accesorios, Cámaras)";
+  }
+
+  if (state.catalog.quote) {
+    const q = state.catalog.quote;
+    if (t.includes("cancel")) {
+      state.catalog.quote = undefined;
+      state.catalog.status = "idle";
+      return "Ok, dejé la cotización cancelada. ¿Quieres seguir viendo productos o vuelvo al menú?";
+    }
+
+    const setAndNext = (key: keyof CatalogQuote["data"], value: string, next: CatalogQuoteStep) => {
+      q.data[key] = value;
+      q.step = next;
+    };
+
+    if (q.step === "nombre") {
+      if (input.length < 3) return "¿Nombre y apellidos?";
+      setAndNext("nombre", input, "telefono");
+      state.catalog.quote = q;
+      return "Perfecto. ¿Teléfono de contacto?";
+    }
+    if (q.step === "telefono") {
+      const p = normalizePhone(input);
+      if (p.replace(/[^\d]/g, "").length < 7) return "¿Me lo repites? (Ej: +598 9 123 4567)";
+      setAndNext("telefono", p, "email");
+      state.catalog.quote = q;
+      return "Gracias. ¿Correo?";
+    }
+    if (q.step === "email") {
+      if (!validateEmail(input)) return "¿Correo válido? (Ej: nombre@empresa.com)";
+      setAndNext("email", input.trim(), "empresa");
+      state.catalog.quote = q;
+      return "¿Empresa?";
+    }
+    if (q.step === "empresa") {
+      if (input.length < 2) return "¿Empresa?";
+      setAndNext("empresa", input, "direccion");
+      state.catalog.quote = q;
+      return "¿Dirección?";
+    }
+    if (q.step === "direccion") {
+      if (input.length < 3) return "¿Dirección?";
+      setAndNext("direccion", input, "ciudad");
+      state.catalog.quote = q;
+      return "¿Ciudad / Localidad?";
+    }
+    if (q.step === "ciudad") {
+      if (input.length < 2) return "¿Ciudad / Localidad?";
+      setAndNext("ciudad", input, "region");
+      state.catalog.quote = q;
+      return "¿Departamento / Región?";
+    }
+    if (q.step === "region") {
+      if (input.length < 2) return "¿Departamento / Región?";
+      setAndNext("region", input, "final");
+      state.catalog.status = "wait_finish_cotizacion";
+      state.catalog.quote = q;
+      if (q.data.nombre) state.userName = q.data.nombre.split(" ")[0]?.trim() || state.userName;
+      await upsertUserProfile(userPhone, q.data);
+      return await finalizeCotizacion(state, userPhone);
+    }
+  }
+
+  if (state.catalog.pending) {
+    const pending = state.catalog.pending;
+    const n = isNumericChoice(t, pending.options.length);
+    if (n) {
+      state.catalog.filters[pending.attr] = pending.options[n - 1]!.value;
+      state.catalog.pending = undefined;
+    } else {
+      const match = matchPendingOption(input, pending.options);
+      if (match.value) {
+        state.catalog.filters[pending.attr] = match.value;
+        state.catalog.pending = undefined;
+      } else {
+        if (match.ambiguous) {
+          return `Me quedaron 2 opciones parecidas. ¿Me respondes con el número (1–${pending.options.length}) para elegir bien?`;
+        }
+        return `Dale. Responde con un número (1–${pending.options.length}) o escríbeme la opción (como la ves en la lista).`;
+      }
+    }
+  }
+
+  if (!state.catalog.filters.tipo_producto) {
+    const tipos = await listDistinctTipoProductoUY();
+    if (!tipos.length) return "¿Qué tipo de producto buscas? (Ej: Equipos, Accesorios, Cámaras)";
+    const candidates = tipos.filter((tp) => normalizeText(tp).includes(t) || t.includes(normalizeText(tp)));
+    if (candidates.length === 1) {
+      state.catalog.filters.tipo_producto = candidates[0];
+    } else if (candidates.length > 1) {
+      const top = candidates.slice(0, 5);
+      state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
+      return ["¿Cuál de estos tipos de producto buscas?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+    } else {
+      const top = tipos.slice(0, 5);
+      state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
+      return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+    }
+  }
+
+  if (!state.catalog.filters.tecnologia) {
+    const opts = await listTecnologiasUY(state.catalog.filters);
+    if (opts.length > 1) {
+      const top = opts.slice(0, 5);
+      state.catalog.pending = { attr: "tecnologia", options: top.map((o) => ({ label: o, value: o })) };
+      return ["¿Qué tecnología prefieres?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+    }
+  }
+
+  if (!state.catalog.filters.modalidad) {
+    const opts = await listModalidadesUY(state.catalog.filters);
+    if (opts.length > 1) {
+      const top = opts.slice(0, 5);
+      state.catalog.pending = { attr: "modalidad", options: top.map((o) => ({ label: o, value: o })) };
+      return ["¿Lo buscas para venta o arriendo?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+    }
+  }
+
+  if (!state.catalog.filters.portabilidad) {
+    const opts = await listPortabilidadesUY(state.catalog.filters);
+    if (opts.length > 1) {
+      const top = opts.slice(0, 5);
+      state.catalog.pending = { attr: "portabilidad", options: top.map((o) => ({ label: o, value: o })) };
+      return ["¿Portátil o móvil?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+    }
+  }
+
+  if (!state.catalog.filters.frecuencia) {
+    const opts = await listFrecuenciasUY(state.catalog.filters);
+    if (opts.length > 1) {
+      const top = opts.slice(0, 5);
+      state.catalog.pending = { attr: "frecuencia", options: top.map((o) => ({ label: o, value: o })) };
+      return ["¿Qué frecuencia te sirve?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+    }
+  }
+
+  if (state.catalog.selectedProductId) {
+    if (t.includes("cotiz")) {
+      const profile = state.catalog.forceAskAll ? null : await loadUserProfile(userPhone);
+      const prefill = profile ? { ...profile } : {};
+      state.catalog.forceAskAll = undefined;
+      const next = getNextQuoteStep(prefill);
+      state.catalog.quote = { step: next, data: prefill };
+      if (next === "final") {
+        state.catalog.status = "wait_finish_cotizacion";
+        await upsertUserProfile(userPhone, state.catalog.quote.data);
+        return await finalizeCotizacion(state, userPhone);
+      }
+      return next === "nombre"
+        ? "¿Nombre y apellidos?"
+        : next === "telefono"
+          ? "¿Teléfono de contacto?"
+          : next === "email"
+            ? "¿Correo?"
+            : next === "empresa"
+              ? "¿Empresa?"
+              : next === "direccion"
+                ? "¿Dirección?"
+                : next === "ciudad"
+                  ? "¿Ciudad / Localidad?"
+                  : "¿Departamento / Región?";
+    }
+    if (t.includes("volver")) {
+      state.catalog.selectedProductId = undefined;
+    } else {
+      const detail = await loadProductDetailByCountry("UY", state.catalog.selectedProductId);
+      return detail ? buildProductFichaMessages(detail) : "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
+    }
+  }
+
+  if (state.catalog.lastList?.length) {
+    const max = Math.min(5, state.catalog.lastList.length);
+    const n = isNumericChoice(t, max) ?? extractChoiceNumberFromText(input, max);
+    if (n) {
+      const chosen = state.catalog.lastList[n - 1];
+      state.catalog.selectedProductId = chosen.product_id;
+      const detail = await loadProductDetailByCountry("UY", chosen.product_id);
+      if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
+      return buildProductFichaMessages(detail);
+    }
+
+    const productOptions: CatalogPendingOption[] = state.catalog.lastList.map((p) => ({
+      label: cleanProductName(p.nombre),
+      value: p.product_id,
+    }));
+    const match = matchPendingOption(input, productOptions);
+    if (match.value) {
+      state.catalog.selectedProductId = match.value;
+      const detail = await loadProductDetailByCountry("UY", match.value);
+      if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
+      return buildProductFichaMessages(detail);
+    }
+    if (match.ambiguous) {
+      return `Me quedaron 2 opciones parecidas. ¿Me dices el número (1–${max}) para elegir bien?`;
+    }
+  }
+
+  const products = await queryProductsUY(state.catalog.filters);
+  state.catalog.lastList = products;
+
+  if (!products.length) {
+    state.catalog.filters.frecuencia = undefined;
+    state.catalog.filters.portabilidad = undefined;
+    state.catalog.filters.modalidad = undefined;
+    state.catalog.filters.tecnologia = undefined;
+    return "No encontré productos con esos filtros. Probemos de nuevo: ¿qué tecnología o modalidad buscas?";
+  }
+
+  const lines = products.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+  return [
+    "Estos son los que encontré (máx. 5):",
+    "",
+    lines,
+    "",
+    "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre (ej: DEP250).",
+  ].join("\n");
+}
+
 async function tryLoadRecommendedIds(productId?: string) {
   if (!productId) return [];
   const select = encodeURIComponent(`producto,recomendados`);
@@ -2123,6 +2786,333 @@ async function loadProjectContent(id: number) {
   const contenido = toTrimmedString(getRecordValue(row, "contenido"));
   const plain = htmlToParagraphText(contenido);
   return { id, titulo, plain };
+}
+
+function isFormLockActive(state: UserState) {
+  if (state.catalog.status === "wait_finish_cotizacion") return true;
+  if (state.catalog.quote) return true;
+  if (state.contactForm) return true;
+  if (state.cambium?.quote) return true;
+  return false;
+}
+
+function startUyContactForm(state: UserState, kind: ContactFormKind) {
+  state.contactForm = { kind, step: "nombre", data: {} };
+}
+
+async function handleUyContactForm(state: UserState, text: string, userPhone: string) {
+  const input = text.trim();
+  const t = normalizeText(input);
+  const form = state.contactForm;
+  if (!form) return "¿Me cuentas un poquito más?";
+
+  if (t.includes("cancel")) {
+    state.contactForm = undefined;
+    state.activeBranch = "menu";
+    return ["Ok, cancelé el formulario.", "", buildMainMenuText("UY")].join("\n");
+  }
+
+  const setAndNext = (key: keyof ContactFormState["data"], value: string, next: ContactFormStep) => {
+    form.data[key] = value;
+    form.step = next;
+  };
+
+  if (form.step === "nombre") {
+    if (input.length < 3) return "¿Nombre y apellidos?";
+    setAndNext("nombre", input, "empresa");
+    return "Perfecto. ¿Empresa?";
+  }
+  if (form.step === "empresa") {
+    if (input.length < 2) return "¿Empresa?";
+    setAndNext("empresa", input, "telefono");
+    return "¿Teléfono?";
+  }
+  if (form.step === "telefono") {
+    const p = normalizePhone(input);
+    if (p.replace(/[^\d]/g, "").length < 7) return "¿Me lo repites? (Ej: +598 9 123 4567)";
+    setAndNext("telefono", p, "correo");
+    return "¿Correo?";
+  }
+  if (form.step === "correo") {
+    if (!validateEmail(input)) return "¿Correo válido? (Ej: nombre@empresa.com)";
+    setAndNext("correo", input.trim(), "direccion");
+    return "¿Dirección?";
+  }
+  if (form.step === "direccion") {
+    if (input.length < 3) return "¿Dirección?";
+    setAndNext("direccion", input, "mensaje");
+    return form.kind === "uy_proyectos" ? "¿Qué proyecto o necesidad tienes? (mensaje)" : "¿Qué problema o solicitud tienes? (mensaje)";
+  }
+  if (form.step === "mensaje") {
+    if (input.length < 4) return "Dime un poquito más en el mensaje (un par de líneas).";
+    setAndNext("mensaje", input, "final");
+
+    const payload = {
+      user_phone: userPhone,
+      country: "UY",
+      flow: form.kind,
+      nombre: form.data.nombre ?? null,
+      empresa: form.data.empresa ?? null,
+      telefono: form.data.telefono ?? null,
+      email: form.data.correo ?? null,
+      direccion: form.data.direccion ?? null,
+      mensaje: form.data.mensaje ?? null,
+      canal: "whatsapp",
+      created_at: new Date().toISOString(),
+    };
+    await saveUyLead(payload);
+
+    state.contactForm = undefined;
+    state.activeBranch = "menu";
+
+    return [
+      "✅ Listo, ya recibimos tu solicitud. En breve te contactamos.",
+      "",
+      buildMainMenuText("UY"),
+    ].join("\n");
+  }
+
+  return "Sigamos con el formulario. Si quieres cancelar, responde: Cancelar.";
+}
+
+async function handleProjectsUY(state: UserState, text: string): Promise<Reply> {
+  const input = text.trim();
+  const t = normalizeText(input);
+  if (t.includes("solicit") || t.includes("formulario") || t.includes("contact")) {
+    startUyContactForm(state, "uy_proyectos");
+    return "📄 Perfecto. Para contactarte, ¿nombre y apellidos? (Puedes cancelar con: Cancelar)";
+  }
+
+  const { projects, bankText } = loadUyProjectsData();
+  state.projects.lastList = projects.map((p) => ({ id: p.id, titulo: p.titulo }));
+
+  const wantsDetail = t.includes("detalle") || t.includes("completo") || t.includes("texto completo");
+  if (wantsDetail && state.projects.reading?.id) {
+    const found = projects.find((p) => p.id === state.projects.reading?.id);
+    if (!found) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
+    const chunks = chunkText(found.contenido, 1100);
+    return [`*${found.titulo}*`, ...(chunks.length ? chunks : ["Descripción no disponible."]), "Para ver otro proyecto, indícame el número o escribe Menú."].filter(Boolean);
+  }
+
+  const n = isNumericChoice(t, projects.length) ?? extractProjectChoiceFromText(t, projects.length);
+  if (n) {
+    const chosen = projects[n - 1];
+    if (!chosen) return "Elige un número válido o escribe Menú.";
+    state.projects.reading = { id: chosen.id, offset: 0 };
+    const resumen = summarizeProject(chosen.contenido, 900);
+    const messages: string[] = [`*${chosen.titulo}*`];
+    if (resumen) messages.push(resumen);
+    messages.push("Si quieres que te envíe el detalle completo, dime: Detalle.");
+    messages.push("Si quieres que te contacten por un proyecto, escribe: Solicitar proyecto.");
+    return messages.filter(Boolean);
+  }
+
+  const bankHints = ["certificacion", "certificación", "certificaciones", "enfoque", "banco", "informativo", "capacidad", "soluciones"];
+  if (bankHints.some((h) => t.includes(normalizeText(h))) && bankText) {
+    const ai = await minimaxAnswerFromKnowledge({ role: "proyectos", input, knowledgeText: bankText });
+    if (ai) return [ai, "", "Si quieres que te contacten por un proyecto, escribe: Solicitar proyecto."].join("\n");
+    const clipped = bankText.length > 1400 ? `${bankText.slice(0, 1400).trim()}...` : bankText;
+    return [clipped, "", "Si quieres que te contacten por un proyecto, escribe: Solicitar proyecto."].join("\n");
+  }
+
+  if (!projects.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
+  const lines = projects.map((p, i) => `${i + 1}) ${p.titulo}`).join("\n");
+  return [
+    "Estos son algunos proyectos:",
+    "",
+    lines,
+    "",
+    "Elige un proyecto por número. Si quieres que te contacten, escribe: Solicitar proyecto.",
+  ].join("\n");
+}
+
+async function handleServicioTecnicoUY(state: UserState, text: string): Promise<Reply> {
+  const input = text.trim();
+  const t = normalizeText(input);
+  const opening = "🔧 ¡Buenas! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
+  if (!input) return `${opening}\n\nSi quieres pedir asistencia, escribe: Solicitar servicio.`;
+
+  if (t.includes("solicit") || t.includes("agendar") || t.includes("formulario") || t.includes("contact")) {
+    startUyContactForm(state, "uy_servicio_tecnico");
+    return "📄 Dale, lo armamos. Para contactarte, ¿nombre y apellidos? (Puedes cancelar con: Cancelar)";
+  }
+
+  const st = loadUyServicioTecnicoText();
+  const core = st ? (st.length > 2200 ? `${st.slice(0, 2200).trim()}...` : st) : "";
+  const ai = await minimaxServicioTecnicoAnswer({
+    input,
+    knowledge: core ? [{ tema: "Servicio técnico (Uruguay)", info: core }] : [],
+  });
+
+  const tail = [
+    "Si quieres pedir asistencia, escribe: Solicitar servicio.",
+    "Para volver al menú: Menú.",
+  ].join("\n");
+
+  return [ai || opening, "", tail].join("\n");
+}
+
+function matchByNameOrNumber(input: string, list: { name: string }[]) {
+  const t = normalizeText(input);
+  const n = extractChoiceNumberFromText(t, list.length);
+  if (n) return list[n - 1] ?? null;
+  const candidates = list
+    .map((p) => {
+      const hay = normalizeText(p.name);
+      const score = scoreTokenMatch(t.split(/\s+/g).filter(Boolean), hay) + (hay.includes(t) || t.includes(hay) ? 10 : 0);
+      return { p, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return candidates[0]?.p ?? null;
+}
+
+async function handleCambium(state: UserState, text: string, userPhone: string): Promise<Reply> {
+  state.cambium ??= {};
+  const cambium = state.cambium;
+  const input = text.trim();
+  const t = normalizeText(input);
+  const data = loadCambiumData();
+
+  if (cambium.quote) {
+    const q = cambium.quote;
+    if (t.includes("cancel")) {
+      cambium.quote = undefined;
+      return ["Ok, cancelé el formulario de Cambium.", "", buildMainMenuText("UY")].join("\n");
+    }
+
+    const setAndNext = (key: keyof CambiumQuote["data"], value: string, next: CambiumQuoteStep) => {
+      q.data[key] = value;
+      q.step = next;
+    };
+
+    if (q.step === "nombre") {
+      if (input.length < 3) return "¿Nombre y apellidos?";
+      setAndNext("nombre", input, "empresa");
+      return "Perfecto. ¿Empresa?";
+    }
+    if (q.step === "empresa") {
+      if (input.length < 2) return "¿Empresa?";
+      setAndNext("empresa", input, "telefono");
+      return "¿Teléfono?";
+    }
+    if (q.step === "telefono") {
+      const p = normalizePhone(input);
+      if (p.replace(/[^\d]/g, "").length < 7) return "¿Me lo repites? (Ej: +598 9 123 4567)";
+      setAndNext("telefono", p, "solucion");
+      const opts = ["ePMP", "Punto a Punto", "Punto a multipunto", "Aplicaciones de Software", "Accesorios de Banda Ancha"];
+      return ["¿Cuál de estas soluciones te interesa?", "", ...opts.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+    }
+    if (q.step === "solucion") {
+      const opts = ["ePMP", "Punto a Punto", "Punto a multipunto", "Aplicaciones de Software", "Accesorios de Banda Ancha"];
+      const n = extractChoiceNumberFromText(t, opts.length);
+      const value = n ? opts[n - 1] : input;
+      if (!value || String(value).trim().length < 2) return "¿Cuál solución te interesa? (Puedes responder con el número)";
+      setAndNext("solucion", String(value).trim(), "email");
+      return "¿Correo?";
+    }
+    if (q.step === "email") {
+      if (!validateEmail(input)) return "¿Correo válido? (Ej: nombre@empresa.com)";
+      setAndNext("email", input.trim(), "direccion");
+      return "¿Dirección?";
+    }
+    if (q.step === "direccion") {
+      if (input.length < 3) return "¿Dirección?";
+      setAndNext("direccion", input, "final");
+
+      const payload = {
+        user_phone: userPhone,
+        country: "UY",
+        flow: "uy_cambium",
+        nombre: q.data.nombre ?? null,
+        empresa: q.data.empresa ?? null,
+        telefono: q.data.telefono ?? null,
+        email: q.data.email ?? null,
+        direccion: q.data.direccion ?? null,
+        producto: q.data.producto ?? null,
+        categoria: q.data.categoria ?? null,
+        solucion: q.data.solucion ?? null,
+        canal: "whatsapp",
+        created_at: new Date().toISOString(),
+      };
+      await saveUyLead(payload);
+
+      cambium.quote = undefined;
+      state.activeBranch = "menu";
+      return ["✅ Listo, recibimos tu solicitud de Cambium. Te contactamos a la brevedad.", "", buildMainMenuText("UY")].join("\n");
+    }
+  }
+
+  if (!cambium.category) {
+    const intro = [
+      "🌐 *Cambium Networks*",
+      data.intro,
+      "",
+      "¿Qué necesitas?",
+      "1) Conectividad empresarial",
+      "2) Radioenlaces",
+      "",
+      "También puedes preguntarme algo específico (ej: “qué es cnMaestro”).",
+    ].join("\n");
+
+    const n = extractChoiceNumberFromText(t, 2);
+    const wantsCon = n === 1 || t.includes("conectiv") || t.includes("wifi") || t.includes("switch") || t.includes("sd wan") || t.includes("sd-wan") || t.includes("nse");
+    const wantsRad = n === 2 || t.includes("radioenlace") || t.includes("radioenlaces") || t.includes("ptp") || t.includes("pmp");
+
+    if (wantsCon) cambium.category = "conectividad";
+    else if (wantsRad) cambium.category = "radioenlaces";
+    else {
+      const ai = await minimaxAnswerFromKnowledge({ role: "cambium", input, knowledgeText: `${data.intro}\n\n${data.bankText}`.trim() });
+      return ai ? [ai, "", "Si quieres ver productos, elige: 1) Conectividad empresarial / 2) Radioenlaces"].join("\n") : intro;
+    }
+  }
+
+  if (t.includes("cambiar") || t.includes("otra categoria") || t.includes("otra categoría")) {
+    cambium.category = undefined;
+    cambium.lastList = undefined;
+    cambium.selected = undefined;
+    return await handleCambium(state, "", userPhone);
+  }
+
+  const category = data.categories.find((c) => c.key === cambium.category) ?? data.categories[0]!;
+  const products = category.products.slice(0, 10);
+  cambium.lastList = products;
+
+  if (!cambium.selected && products.length) {
+    const chosen = input ? matchByNameOrNumber(input, products) : null;
+    if (chosen) {
+      cambium.selected = chosen;
+    } else if (!input) {
+      const lines = products.slice(0, 8).map((p, i) => `${i + 1}) ${p.name}`).join("\n");
+      const head = [`*${category.title}*`, category.detail ? category.detail : "", ""].filter(Boolean).join("\n");
+      return [head, "Estos son algunos productos:", "", lines, "", "Elige uno por número o nombre. Para cambiar categoría: Cambiar categoría."].join("\n");
+    } else {
+      const ai = await minimaxAnswerFromKnowledge({ role: "cambium", input, knowledgeText: `${category.detail}\n\n${data.bankText}`.trim() });
+      if (ai) return [ai, "", "Si quieres ver productos, dime: Listar o elige 1–8."].join("\n");
+      const lines = products.slice(0, 8).map((p, i) => `${i + 1}) ${p.name}`).join("\n");
+      return ["No caché cuál producto querías.", "", lines, "", "Responde con el número o nombre."].join("\n");
+    }
+  }
+
+  if (cambium.selected) {
+    if (t.includes("volver")) {
+      cambium.selected = undefined;
+      return await handleCambium(state, "", userPhone);
+    }
+    if (t.includes("cotiz")) {
+      cambium.quote = {
+        step: "nombre",
+        data: { categoria: category.title, producto: cambium.selected.name },
+      };
+      return "📄 Perfecto. Para cotizar Cambium, ¿nombre y apellidos? (Puedes cancelar con: Cancelar)";
+    }
+    const out: Array<string | OutboundMessage> = [`*${cambium.selected.name}*`];
+    if (cambium.selected.imageUrl) out.push({ type: "image", imageUrl: cambium.selected.imageUrl });
+    out.push("Responde: Cotizar / Volver / Cambiar categoría / Menú");
+    return out;
+  }
+
+  return "Dime si quieres: Listar productos / Cambiar categoría / Menú.";
 }
 
 async function handlePoints(state: UserState, text: string) {
@@ -2366,6 +3356,15 @@ export async function POST(request: Request) {
     let startedPresence = false;
     try {
       const state = (await loadUserState(userKey)) ?? initState();
+      const country = detectCountryFromPhone(userKey);
+      state.country = country;
+      if (!isBranchAvailable(country, state.activeBranch)) {
+        state.activeBranch = "menu";
+        resetBranchState(state, "catalogo");
+        resetBranchState(state, "proyectos");
+        resetBranchState(state, "puntos_venta");
+        resetBranchState(state, "cambium");
+      }
 
       if (inboundId && (state.recentInboundIds ?? []).includes(inboundId)) {
         inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate inboundId=${inboundId}` });
@@ -2386,7 +3385,23 @@ export async function POST(request: Request) {
         const saludo = "¡Buenas! Espero que estés teniendo un gran día, ¿en qué te podemos ayudar hoy?";
         state.greeted = true;
         state.activeBranch = "menu";
-        reply = `${saludo}\n\n${buildMainMenuText()}`;
+        reply = `${saludo}\n\n${buildMainMenuText(country)}`;
+      } else if (isFormLockActive(state)) {
+        const t0 = normalizeText(inboundText);
+        const wantsNav = isMenuCommand(inboundText) || Boolean(detectBranchIntent(inboundText, country).branch);
+        const wantsCancel = t0.includes("cancel");
+        if (wantsNav && !wantsCancel) {
+          reply = "Estamos llenando un formulario. Para salir sin perder lo ingresado, responde: Cancelar.";
+        } else
+        if (state.contactForm) {
+          reply = await handleUyContactForm(state, inboundText, userKey);
+        } else if (state.cambium?.quote) {
+          reply = await handleCambium(state, inboundText, userKey);
+        } else if (state.activeBranch === "catalogo") {
+          reply = country === "UY" ? await handleCatalogUY(state, inboundText, userKey) : await handleCatalog(state, inboundText, userKey);
+        } else {
+          reply = "Estamos llenando un formulario. Para cancelarlo, responde: Cancelar.";
+        }
       } else if (isMenuCommand(inboundText)) {
         if (state.catalog.status === "wait_finish_cotizacion") {
           reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
@@ -2395,11 +3410,12 @@ export async function POST(request: Request) {
           resetBranchState(state, "catalogo");
           resetBranchState(state, "proyectos");
           resetBranchState(state, "puntos_venta");
-          reply = buildMainMenuText();
+          resetBranchState(state, "cambium");
+          reply = buildMainMenuText(country);
         }
       } else {
         if (state.postCotizacion?.awaitingAction) {
-          const intent = detectBranchIntent(inboundText);
+          const intent = detectBranchIntent(inboundText, country);
           const wantsCotizarOtro = detectQuoteIntent(inboundText) || normalizeText(inboundText).includes("otra cotizacion") || normalizeText(inboundText).includes("otra cotización");
 
           if (state.postCotizacion.awaitingReuseConfirm) {
@@ -2421,18 +3437,29 @@ export async function POST(request: Request) {
               resetBranchState(state, "catalogo");
               resetBranchState(state, "proyectos");
               resetBranchState(state, "puntos_venta");
-              reply = buildMainMenuText();
+              resetBranchState(state, "cambium");
+              reply = buildMainMenuText(country);
             } else if (intent.branch) {
               state.postCotizacion = undefined;
               const previous = state.activeBranch;
               state.activeBranch = intent.branch;
               resetBranchState(state, previous);
               resetBranchState(state, intent.branch);
-              if (intent.branch === "proyectos") reply = await handleProjects(state, inboundText);
-              else if (intent.branch === "servicio_tecnico") reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
-              else if (intent.branch === "puntos_venta") reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
-              else if (intent.branch === "catalogo") reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
-              else reply = buildMainMenuText();
+              if (!isBranchAvailable(country, intent.branch)) {
+                reply = buildMainMenuText(country);
+              } else if (intent.branch === "catalogo") {
+                reply = await startCotizarFlow(state, userKey);
+              } else if (intent.branch === "proyectos") {
+                reply = country === "UY" ? await handleProjectsUY(state, "") : await handleProjects(state, "");
+              } else if (intent.branch === "servicio_tecnico") {
+                reply = country === "UY" ? await handleServicioTecnicoUY(state, "") : await handleServicioTecnico(state, "");
+              } else if (intent.branch === "cambium") {
+                reply = await handleCambium(state, "", userKey);
+              } else if (intent.branch === "puntos_venta") {
+                reply = await handlePoints(state, "");
+              } else {
+                reply = buildMainMenuText(country);
+              }
             } else {
               reply = "¿Quieres cotizar con tus datos guardados para hacerlo más rápido? Responde: Sí / No.";
             }
@@ -2445,38 +3472,59 @@ export async function POST(request: Request) {
             resetBranchState(state, "catalogo");
             resetBranchState(state, "proyectos");
             resetBranchState(state, "puntos_venta");
-            reply = buildMainMenuText();
+            resetBranchState(state, "cambium");
+            reply = buildMainMenuText(country);
           } else if (intent.branch) {
             state.postCotizacion = undefined;
             const previous = state.activeBranch;
             state.activeBranch = intent.branch;
             resetBranchState(state, previous);
             resetBranchState(state, intent.branch);
-            if (intent.branch === "proyectos") reply = await handleProjects(state, inboundText);
-            else if (intent.branch === "servicio_tecnico") reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
-            else if (intent.branch === "puntos_venta") reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
-            else if (intent.branch === "catalogo") reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
-            else reply = buildMainMenuText();
+            if (!isBranchAvailable(country, intent.branch)) {
+              reply = buildMainMenuText(country);
+            } else if (intent.branch === "catalogo") {
+              reply = await startCotizarFlow(state, userKey);
+            } else if (intent.branch === "proyectos") {
+              reply = country === "UY" ? await handleProjectsUY(state, "") : await handleProjects(state, "");
+            } else if (intent.branch === "servicio_tecnico") {
+              reply = country === "UY" ? await handleServicioTecnicoUY(state, "") : await handleServicioTecnico(state, "");
+            } else if (intent.branch === "cambium") {
+              reply = await handleCambium(state, "", userKey);
+            } else if (intent.branch === "puntos_venta") {
+              reply = await handlePoints(state, "");
+            } else {
+              reply = buildMainMenuText(country);
+            }
           } else {
-            reply = "Dale. ¿Quieres cotizar otro producto o volver al menú? Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta";
+            reply =
+              country === "UY"
+                ? "Dale. ¿Quieres cotizar otro producto o volver al menú? Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Cambium"
+                : "Dale. ¿Quieres cotizar otro producto o volver al menú? Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta";
           }
         } else
         if (state.activeBranch === "menu") {
           if (detectQuoteIntent(inboundText)) {
             reply = await startCotizarFlow(state, userKey);
           } else {
-          const choice = parseMenuChoice(inboundText) ?? classifyFreeText(inboundText);
+          const choice = parseMenuChoice(inboundText, country) ?? classifyFreeText(inboundText, country);
           if (choice) {
             state.activeBranch = choice;
             resetBranchState(state, choice);
-            if (choice === "catalogo") {
-              reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+            if (!isBranchAvailable(country, choice)) {
+              state.activeBranch = "menu";
+              reply = buildMainMenuText(country);
+            } else if (choice === "catalogo") {
+              reply = await startCotizarFlow(state, userKey);
             } else if (choice === "servicio_tecnico") {
-              reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
+              reply = country === "UY" ? await handleServicioTecnicoUY(state, "") : await handleServicioTecnico(state, "");
             } else if (choice === "proyectos") {
-              reply = await handleProjects(state, "");
+              reply = country === "UY" ? await handleProjectsUY(state, "") : await handleProjects(state, "");
+            } else if (choice === "cambium") {
+              reply = await handleCambium(state, "", userKey);
             } else if (choice === "puntos_venta") {
-              reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
+              reply = await handlePoints(state, "");
+            } else {
+              reply = buildMainMenuText(country);
             }
           } else {
             const msg = await minimaxRewrite({
@@ -2484,7 +3532,7 @@ export async function POST(request: Request) {
               input: inboundText,
               facts: ["Te leo. Si me dices qué necesitas, te guío al tiro."],
             });
-            reply = withMainMenu(msg);
+            reply = withMainMenu(msg, country);
           }
           }
         } else {
@@ -2495,7 +3543,7 @@ export async function POST(request: Request) {
               reply = await startCotizarFlow(state, userKey);
             }
           } else {
-          const intent = detectBranchIntent(inboundText);
+          const intent = detectBranchIntent(inboundText, country);
           if (intent.branch && intent.branch !== state.activeBranch) {
             if (state.catalog.status === "wait_finish_cotizacion") {
               reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
@@ -2504,32 +3552,39 @@ export async function POST(request: Request) {
               state.activeBranch = intent.branch;
               resetBranchState(state, previous);
               resetBranchState(state, intent.branch);
-              if (intent.branch === "proyectos") {
-                reply = await handleProjects(state, inboundText);
-              } else if (intent.branch === "servicio_tecnico") {
-                reply = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
-              } else if (intent.branch === "puntos_venta") {
-                reply = "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
+              if (!isBranchAvailable(country, intent.branch)) {
+                state.activeBranch = "menu";
+                reply = buildMainMenuText(country);
               } else if (intent.branch === "catalogo") {
-                reply = "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+                reply = await startCotizarFlow(state, userKey);
+              } else if (intent.branch === "proyectos") {
+                reply = country === "UY" ? await handleProjectsUY(state, "") : await handleProjects(state, "");
+              } else if (intent.branch === "servicio_tecnico") {
+                reply = country === "UY" ? await handleServicioTecnicoUY(state, "") : await handleServicioTecnico(state, "");
+              } else if (intent.branch === "cambium") {
+                reply = await handleCambium(state, "", userKey);
+              } else if (intent.branch === "puntos_venta") {
+                reply = await handlePoints(state, "");
               } else {
-                reply = buildMainMenuText();
+                reply = buildMainMenuText(country);
               }
             }
           } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "proyectos") {
-            reply = await handleProjects(state, inboundText);
+            reply = country === "UY" ? await handleProjectsUY(state, inboundText) : await handleProjects(state, inboundText);
           } else {
           if (state.activeBranch === "catalogo") {
-            reply = await handleCatalog(state, inboundText, userKey);
+            reply = country === "UY" ? await handleCatalogUY(state, inboundText, userKey) : await handleCatalog(state, inboundText, userKey);
           } else if (state.activeBranch === "proyectos") {
-            reply = await handleProjects(state, inboundText);
+            reply = country === "UY" ? await handleProjectsUY(state, inboundText) : await handleProjects(state, inboundText);
           } else if (state.activeBranch === "puntos_venta") {
-            reply = await handlePoints(state, inboundText);
+            reply = country === "UY" ? buildMainMenuText(country) : await handlePoints(state, inboundText);
           } else if (state.activeBranch === "servicio_tecnico") {
-            reply = await handleServicioTecnico(state, inboundText);
+            reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText) : await handleServicioTecnico(state, inboundText);
+          } else if (state.activeBranch === "cambium") {
+            reply = await handleCambium(state, inboundText, userKey);
           } else {
             state.activeBranch = "menu";
-            reply = buildMainMenuText();
+            reply = buildMainMenuText(country);
           }
           }
           }
