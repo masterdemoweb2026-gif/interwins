@@ -326,6 +326,7 @@ type CambiumState = {
 type UserState = {
   v: 1;
   greeted: boolean;
+  lastMenuDate?: string;
   country?: Country;
   activeBranch: Branch;
   userName?: string;
@@ -370,6 +371,32 @@ function detectCountryFromPhone(phone: string): Country {
   if (digits.startsWith("598")) return "UY";
   if (digits.startsWith("56")) return "CL";
   return "CL";
+}
+
+function getCurrentDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isGreetingMessage(text: string) {
+  const t = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return false;
+  const greetings = new Set([
+    "hola",
+    "holi",
+    "ola",
+    "alo",
+    "hello",
+    "buenas",
+    "buen dia",
+    "buenos dias",
+    "buenas tardes",
+    "buenas noches",
+    "buenas buenas",
+  ]);
+  return greetings.has(t);
 }
 
 function getAvailableBranches(country: Country): Branch[] {
@@ -593,7 +620,15 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
     t === "menu" ||
     t === "menú";
 
-  const mentionsCatalog = t.includes("catalogo") || t.includes("catálogo") || t.includes("cotizar") || t.includes("cotizacion") || t.includes("cotización");
+  const mentionsCatalog =
+    t.includes("catalogo") ||
+    t.includes("catálogo") ||
+    t.includes("cotizar") ||
+    t.includes("cotizacion") ||
+    t.includes("cotización") ||
+    t.includes("arrendar") ||
+    t.includes("arriendo") ||
+    t.includes("alquilar");
   const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
   const mentionsProjects = t.includes("proyecto") || t.includes("proyectos");
   const mentionsCambium = t.includes("cambium") || t.includes("cnmaestro") || t.includes("epmp") || t.includes("radioenlace") || t.includes("radioenlaces");
@@ -678,44 +713,65 @@ async function startCotizarFlow(state: UserState, userKey: string) {
   return "Perfecto. Para cotizar, ¿qué producto buscas? Puedes decir el nombre (ej: DP50) o elegir un tipo: Equipos de radio, Accesorios de radio o Cámaras corporales.";
 }
 
-function buildMainMenuText(country: Country) {
-  const suffixesCL = [
-    "Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Catálogo) y te ayudo al tiro.",
-    "Puedes responder con 1, 2, 3 o 4, o escribir la opción (por ejemplo: Proyectos) y te guío.",
-    "Respóndeme con 1–4, o escribe la opción con tus palabras y te oriento.",
+function buildMainMenuText(country: Country, variant: "welcome" | "return" = "return") {
+  const introsWelcomeCL = [
+    "¡Hola! Bienvenido al asistente virtual de InterWins.",
+    "¡Hola! Qué bueno tenerte por aquí.",
   ];
-  const suffixesUY = [
-    "Escríbeme 1, 2, 3 o 4, o escribe la opción (por ejemplo: Cotizar) y te ayudo al tiro.",
-    "Puedes responder con 1, 2, 3 o 4, o escribir la opción (por ejemplo: Cambium) y te guío.",
-    "Respóndeme con 1–4, o escribe la opción con tus palabras y te oriento.",
+  const introsReturnCL = [
+    "Si quieres, también te puedo ayudar con esto:",
+    "Seguimos cuando quieras. También puedo ayudarte con:",
   ];
-  const suffixList = country === "UY" ? suffixesUY : suffixesCL;
-  const suffix = suffixList[crypto.randomInt(0, suffixList.length)];
-
+  const introsWelcomeUY = [
+    "¡Hola! Bienvenido al asistente virtual de InterWins.",
+    "¡Hola! Encantado de ayudarte.",
+  ];
+  const introsReturnUY = [
+    "Si quieres, también te puedo ayudar con esto:",
+    "Seguimos por aquí. También puedo ayudarte con:",
+  ];
+  const introList =
+    country === "UY"
+      ? variant === "welcome"
+        ? introsWelcomeUY
+        : introsReturnUY
+      : variant === "welcome"
+        ? introsWelcomeCL
+        : introsReturnCL;
+  const intro = introList[crypto.randomInt(0, introList.length)];
   if (country === "UY") {
     return [
-      "1. 📦 Cotizar productos",
-      "2. 🔧 Servicio Técnico",
-      "3. 🏗️ Proyectos",
-      "4. 🌐 Cambium Networks",
+      intro,
       "",
-      suffix,
+      "Estas son algunas de las cosas con las que te puedo apoyar hoy:",
+      "🛒 Comprar equipos o accesorios",
+      "🔧 Servicio Técnico",
+      "📊 Asesoría en Proyectos",
+      "🌐 Soluciones Cambium Networks",
     ].join("\n");
   }
 
   return [
-    "1. 📦 Catálogo de productos",
-    "2. 🔧 Servicio Técnico",
-    "3. 🏗️ Proyectos",
-    "4. 📍 Puntos de Venta",
+    intro,
     "",
-    suffix,
+    "Estas son algunas de las cosas con las que te puedo apoyar hoy:",
+    "🛒 Comprar equipos o accesorios",
+    "⏱️ Arrendar equipos de radiocomunicación",
+    "📊 Asesoría en Proyectos",
+    "🔧 Servicio Técnico",
+    "📍 Direcciones y Puntos de Venta",
   ].join("\n");
 }
 
-function withMainMenu(message: string, country: Country) {
+function markMenuShown(state: UserState) {
+  state.greeted = true;
+  state.lastMenuDate = getCurrentDateKey();
+}
+
+function withMainMenu(message: string, state: UserState, country: Country, variant: "welcome" | "return" = "return") {
+  markMenuShown(state);
   const m = message.trim();
-  return m ? `${m}\n\n${buildMainMenuText(country)}` : buildMainMenuText(country);
+  return m ? `${m}\n\n${buildMainMenuText(country, variant)}` : buildMainMenuText(country, variant);
 }
 
 function parseMenuChoice(text: string, country: Country): Branch | null {
@@ -732,7 +788,7 @@ function parseMenuChoice(text: string, country: Country): Branch | null {
 
 function classifyFreeText(text: string, country: Country): Branch | null {
   const t = normalizeText(text);
-  const catalogHints = ["cotizar", "cotizacion", "precio", "valor", "radio", "repetidor", "camara", "cámara", "accesorio", "equipo"];
+  const catalogHints = ["cotizar", "cotizacion", "precio", "valor", "radio", "repetidor", "camara", "cámara", "accesorio", "equipo", "arrendar", "arriendo", "alquilar"];
   const techHints = ["falla", "problema", "repar", "garantia", "garantía", "program", "configur", "servicio tecnico", "servicio técnico"];
   const projectHints = ["proyecto", "implementacion", "implementación", "caso de exito", "caso de éxito", "certificacion", "certificación"];
   const cambiumHints = ["cambium", "cnmaestro", "epmp", "ptp", "pmp", "radioenlace", "radioenlaces", "wifi", "sd wan", "sd-wan", "nse"];
@@ -1458,6 +1514,14 @@ function resetBranchState(state: UserState, branch: Branch) {
   if (branch === "cambium") state.cambium = {};
 }
 
+function returnToCasualState(state: UserState) {
+  state.activeBranch = "menu";
+  resetBranchState(state, "catalogo");
+  resetBranchState(state, "proyectos");
+  resetBranchState(state, "puntos_venta");
+  resetBranchState(state, "cambium");
+}
+
 async function listDistinctTipoProducto(): Promise<string[]> {
   const q = `inter_products?select=tipo_producto&tipo_producto=not.is.null&limit=1000`;
   const res = await supabaseFetch(q, { method: "GET" });
@@ -1997,13 +2061,10 @@ async function buildCotizacionResumen(state: UserState) {
 }
 
 function buildAfterCotizacionMessage(country: Country) {
-  const tail = country === "UY" ? "Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Cambium" : "Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta";
   return [
     "Uno de nuestros vendedores se pondrá en contacto contigo.",
     "",
-    "¿Quieres cotizar otro producto o volver al menú?",
-    "",
-    tail,
+    buildMainMenuText(country, "return"),
   ].join("\n");
 }
 
@@ -2017,6 +2078,7 @@ async function finalizeCotizacion(state: UserState, userPhone: string): Promise<
   state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
   state.activeBranch = "menu";
   state.postCotizacion = { awaitingAction: true };
+  markMenuShown(state);
   return [resumen, buildAfterCotizacionMessage(state.country ?? "CL")];
 }
 
@@ -2033,7 +2095,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         input,
         facts: ["Ok, dejé la cotización cancelada."],
       });
-      return withMainMenu(msg, state.country ?? "CL");
+      return withMainMenu(msg, state, state.country ?? "CL");
     }
     if (t.includes("termin") || t.includes("confirm") || t === "si" || t === "sí") {
       return await finalizeCotizacion(state, userPhone);
@@ -2424,7 +2486,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         input,
         facts: ["Ok, dejé la cotización cancelada."],
       });
-      return withMainMenu(msg, state.country ?? "UY");
+      return withMainMenu(msg, state, state.country ?? "UY");
     }
     if (t.includes("termin") || t.includes("confirm") || t === "si" || t === "sí") {
       return await finalizeCotizacion(state, userPhone);
@@ -2809,7 +2871,8 @@ async function handleUyContactForm(state: UserState, text: string, userPhone: st
   if (t.includes("cancel")) {
     state.contactForm = undefined;
     state.activeBranch = "menu";
-    return ["Ok, cancelé el formulario.", "", buildMainMenuText("UY")].join("\n");
+    markMenuShown(state);
+    return ["Ok, cancelé el formulario.", "", buildMainMenuText("UY", "return")].join("\n");
   }
 
   const setAndNext = (key: keyof ContactFormState["data"], value: string, next: ContactFormStep) => {
@@ -2864,11 +2927,12 @@ async function handleUyContactForm(state: UserState, text: string, userPhone: st
 
     state.contactForm = undefined;
     state.activeBranch = "menu";
+    markMenuShown(state);
 
     return [
       "✅ Listo, ya recibimos tu solicitud. En breve te contactamos.",
       "",
-      buildMainMenuText("UY"),
+      buildMainMenuText("UY", "return"),
     ].join("\n");
   }
 
@@ -2978,7 +3042,8 @@ async function handleCambium(state: UserState, text: string, userPhone: string):
     const q = cambium.quote;
     if (t.includes("cancel")) {
       cambium.quote = undefined;
-      return ["Ok, cancelé el formulario de Cambium.", "", buildMainMenuText("UY")].join("\n");
+      markMenuShown(state);
+      return ["Ok, cancelé el formulario de Cambium.", "", buildMainMenuText("UY", "return")].join("\n");
     }
 
     const setAndNext = (key: keyof CambiumQuote["data"], value: string, next: CambiumQuoteStep) => {
@@ -3039,7 +3104,8 @@ async function handleCambium(state: UserState, text: string, userPhone: string):
 
       cambium.quote = undefined;
       state.activeBranch = "menu";
-      return ["✅ Listo, recibimos tu solicitud de Cambium. Te contactamos a la brevedad.", "", buildMainMenuText("UY")].join("\n");
+      markMenuShown(state);
+      return ["✅ Listo, recibimos tu solicitud de Cambium. Te contactamos a la brevedad.", "", buildMainMenuText("UY", "return")].join("\n");
     }
   }
 
@@ -3357,13 +3423,10 @@ export async function POST(request: Request) {
     try {
       const state = (await loadUserState(userKey)) ?? initState();
       const country = detectCountryFromPhone(userKey);
+      const todayKey = getCurrentDateKey();
       state.country = country;
       if (!isBranchAvailable(country, state.activeBranch)) {
-        state.activeBranch = "menu";
-        resetBranchState(state, "catalogo");
-        resetBranchState(state, "proyectos");
-        resetBranchState(state, "puntos_venta");
-        resetBranchState(state, "cambium");
+        returnToCasualState(state);
       }
 
       if (inboundId && (state.recentInboundIds ?? []).includes(inboundId)) {
@@ -3380,15 +3443,20 @@ export async function POST(request: Request) {
       startedPresence = true;
 
       let reply: Reply = "";
+      const branchIntent = detectBranchIntent(inboundText, country);
+      const casualChoice = parseMenuChoice(inboundText, country) ?? classifyFreeText(inboundText, country) ?? branchIntent.branch;
+      const pureGreeting = isGreetingMessage(inboundText);
+      const menuShownToday = state.lastMenuDate === todayKey;
 
-      if (!state.greeted) {
-        const saludo = "¡Buenas! Espero que estés teniendo un gran día, ¿en qué te podemos ayudar hoy?";
-        state.greeted = true;
-        state.activeBranch = "menu";
-        reply = `${saludo}\n\n${buildMainMenuText(country)}`;
+      if (!isFormLockActive(state) && pureGreeting) {
+        returnToCasualState(state);
+        reply = withMainMenu("", state, country, menuShownToday ? "return" : "welcome");
+      } else if (!isFormLockActive(state) && !menuShownToday && !casualChoice) {
+        returnToCasualState(state);
+        reply = withMainMenu("", state, country, "welcome");
       } else if (isFormLockActive(state)) {
         const t0 = normalizeText(inboundText);
-        const wantsNav = isMenuCommand(inboundText) || Boolean(detectBranchIntent(inboundText, country).branch);
+        const wantsNav = isMenuCommand(inboundText) || Boolean(branchIntent.branch);
         const wantsCancel = t0.includes("cancel");
         if (wantsNav && !wantsCancel) {
           reply = "Estamos llenando un formulario. Para salir sin perder lo ingresado, responde: Cancelar.";
@@ -3406,16 +3474,13 @@ export async function POST(request: Request) {
         if (state.catalog.status === "wait_finish_cotizacion") {
           reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
         } else {
-          state.activeBranch = "menu";
-          resetBranchState(state, "catalogo");
-          resetBranchState(state, "proyectos");
-          resetBranchState(state, "puntos_venta");
-          resetBranchState(state, "cambium");
-          reply = buildMainMenuText(country);
+          returnToCasualState(state);
+          markMenuShown(state);
+          reply = buildMainMenuText(country, "return");
         }
       } else {
         if (state.postCotizacion?.awaitingAction) {
-          const intent = detectBranchIntent(inboundText, country);
+          const intent = branchIntent;
           const wantsCotizarOtro = detectQuoteIntent(inboundText) || normalizeText(inboundText).includes("otra cotizacion") || normalizeText(inboundText).includes("otra cotización");
 
           if (state.postCotizacion.awaitingReuseConfirm) {
@@ -3433,12 +3498,9 @@ export async function POST(request: Request) {
               reply = await startCotizarFlow(state, userKey);
             } else if (intent.wantsMenu) {
               state.postCotizacion = undefined;
-              state.activeBranch = "menu";
-              resetBranchState(state, "catalogo");
-              resetBranchState(state, "proyectos");
-              resetBranchState(state, "puntos_venta");
-              resetBranchState(state, "cambium");
-              reply = buildMainMenuText(country);
+              returnToCasualState(state);
+              markMenuShown(state);
+              reply = buildMainMenuText(country, "return");
             } else if (intent.branch) {
               state.postCotizacion = undefined;
               const previous = state.activeBranch;
@@ -3446,7 +3508,8 @@ export async function POST(request: Request) {
               resetBranchState(state, previous);
               resetBranchState(state, intent.branch);
               if (!isBranchAvailable(country, intent.branch)) {
-                reply = buildMainMenuText(country);
+                markMenuShown(state);
+                reply = buildMainMenuText(country, "return");
               } else if (intent.branch === "catalogo") {
                 reply = await startCotizarFlow(state, userKey);
               } else if (intent.branch === "proyectos") {
@@ -3458,22 +3521,20 @@ export async function POST(request: Request) {
               } else if (intent.branch === "puntos_venta") {
                 reply = await handlePoints(state, "");
               } else {
-                reply = buildMainMenuText(country);
+                markMenuShown(state);
+                reply = buildMainMenuText(country, "return");
               }
             } else {
-              reply = "¿Quieres cotizar con tus datos guardados para hacerlo más rápido? Responde: Sí / No.";
+              reply = "¿Quieres que use los datos que ya ingresaste para una nueva cotización?";
             }
           } else if (wantsCotizarOtro) {
             state.postCotizacion.awaitingReuseConfirm = true;
-            reply = "Perfecto. ¿Quieres cotizar con los datos que ya ingresaste para hacerlo más rápido? Responde: Sí / No.";
+            reply = "Perfecto. ¿Quieres que use los datos que ya ingresaste para hacerlo más rápido?";
           } else if (intent.wantsMenu) {
             state.postCotizacion = undefined;
-            state.activeBranch = "menu";
-            resetBranchState(state, "catalogo");
-            resetBranchState(state, "proyectos");
-            resetBranchState(state, "puntos_venta");
-            resetBranchState(state, "cambium");
-            reply = buildMainMenuText(country);
+            returnToCasualState(state);
+            markMenuShown(state);
+            reply = buildMainMenuText(country, "return");
           } else if (intent.branch) {
             state.postCotizacion = undefined;
             const previous = state.activeBranch;
@@ -3481,7 +3542,8 @@ export async function POST(request: Request) {
             resetBranchState(state, previous);
             resetBranchState(state, intent.branch);
             if (!isBranchAvailable(country, intent.branch)) {
-              reply = buildMainMenuText(country);
+              markMenuShown(state);
+              reply = buildMainMenuText(country, "return");
             } else if (intent.branch === "catalogo") {
               reply = await startCotizarFlow(state, userKey);
             } else if (intent.branch === "proyectos") {
@@ -3493,26 +3555,28 @@ export async function POST(request: Request) {
             } else if (intent.branch === "puntos_venta") {
               reply = await handlePoints(state, "");
             } else {
-              reply = buildMainMenuText(country);
+              markMenuShown(state);
+              reply = buildMainMenuText(country, "return");
             }
           } else {
             reply =
               country === "UY"
-                ? "Dale. ¿Quieres cotizar otro producto o volver al menú? Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Cambium"
-                : "Dale. ¿Quieres cotizar otro producto o volver al menú? Puedes escribir: Cotizar otro / Menú / Proyectos / Servicio Técnico / Puntos de Venta";
+                ? "Seguimos por aquí. Si quieres, puedo ayudarte con otra cotización, proyectos, servicio técnico o soluciones Cambium."
+                : "Seguimos por aquí. Si quieres, puedo ayudarte con otra cotización, arriendo o compra de equipos, proyectos, servicio técnico o puntos de venta.";
           }
         } else
         if (state.activeBranch === "menu") {
           if (detectQuoteIntent(inboundText)) {
             reply = await startCotizarFlow(state, userKey);
           } else {
-          const choice = parseMenuChoice(inboundText, country) ?? classifyFreeText(inboundText, country);
+          const choice = casualChoice;
           if (choice) {
             state.activeBranch = choice;
             resetBranchState(state, choice);
             if (!isBranchAvailable(country, choice)) {
               state.activeBranch = "menu";
-              reply = buildMainMenuText(country);
+              markMenuShown(state);
+              reply = buildMainMenuText(country, "return");
             } else if (choice === "catalogo") {
               reply = await startCotizarFlow(state, userKey);
             } else if (choice === "servicio_tecnico") {
@@ -3524,15 +3588,27 @@ export async function POST(request: Request) {
             } else if (choice === "puntos_venta") {
               reply = await handlePoints(state, "");
             } else {
-              reply = buildMainMenuText(country);
+              markMenuShown(state);
+              reply = buildMainMenuText(country, "return");
             }
           } else {
             const msg = await minimaxRewrite({
               kind: "fuera_menu",
               input: inboundText,
-              facts: ["Te leo. Si me dices qué necesitas, te guío al tiro."],
+              facts:
+                country === "UY"
+                  ? [
+                      "Te leo.",
+                      "Puedo ayudarte con compra de equipos y accesorios, servicio técnico, proyectos y soluciones Cambium.",
+                      "Cuéntame qué necesitas y te oriento.",
+                    ]
+                  : [
+                      "Te leo.",
+                      "Puedo ayudarte con compra o arriendo de equipos, servicio técnico, proyectos y puntos de venta.",
+                      "Cuéntame qué necesitas y te oriento.",
+                    ],
             });
-            reply = withMainMenu(msg, country);
+            reply = msg;
           }
           }
         } else {
@@ -3553,8 +3629,9 @@ export async function POST(request: Request) {
               resetBranchState(state, previous);
               resetBranchState(state, intent.branch);
               if (!isBranchAvailable(country, intent.branch)) {
-                state.activeBranch = "menu";
-                reply = buildMainMenuText(country);
+                returnToCasualState(state);
+                markMenuShown(state);
+                reply = buildMainMenuText(country, "return");
               } else if (intent.branch === "catalogo") {
                 reply = await startCotizarFlow(state, userKey);
               } else if (intent.branch === "proyectos") {
@@ -3566,7 +3643,8 @@ export async function POST(request: Request) {
               } else if (intent.branch === "puntos_venta") {
                 reply = await handlePoints(state, "");
               } else {
-                reply = buildMainMenuText(country);
+                markMenuShown(state);
+                reply = buildMainMenuText(country, "return");
               }
             }
           } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "proyectos") {
@@ -3577,14 +3655,20 @@ export async function POST(request: Request) {
           } else if (state.activeBranch === "proyectos") {
             reply = country === "UY" ? await handleProjectsUY(state, inboundText) : await handleProjects(state, inboundText);
           } else if (state.activeBranch === "puntos_venta") {
-            reply = country === "UY" ? buildMainMenuText(country) : await handlePoints(state, inboundText);
+            if (country === "UY") {
+              markMenuShown(state);
+              reply = buildMainMenuText(country, "return");
+            } else {
+              reply = await handlePoints(state, inboundText);
+            }
           } else if (state.activeBranch === "servicio_tecnico") {
             reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText) : await handleServicioTecnico(state, inboundText);
           } else if (state.activeBranch === "cambium") {
             reply = await handleCambium(state, inboundText, userKey);
           } else {
-            state.activeBranch = "menu";
-            reply = buildMainMenuText(country);
+            returnToCasualState(state);
+            markMenuShown(state);
+            reply = buildMainMenuText(country, "return");
           }
           }
           }
