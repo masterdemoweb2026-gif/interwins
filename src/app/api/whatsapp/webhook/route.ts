@@ -2456,15 +2456,9 @@ async function buildArriendoProfileReviewMessage(state: UserState) {
   const q = state.catalog.quote?.data ?? {};
   const country = state.country ?? "CL";
   const detail = await loadProductDetailByCountry(country, state.catalog.selectedProductId ?? "");
-  const intentLabel =
-    state.catalog.arriendoIntent === "mas_informacion"
-      ? "Más Información"
-      : state.catalog.arriendoIntent === "cotizar_radios"
-        ? "Cotizar Arriendo de Radios"
-        : undefined;
   const lines = [
     "Perfecto. Ya tengo tus datos para la cotización de arriendo:",
-    intentLabel ? `- Solicitud: ${intentLabel}` : "",
+    "- Solicitud: Arriendo",
     q.nombre ? `- Nombre y Apellido: ${q.nombre}` : "",
     q.telefono ? `- Teléfono: ${q.telefono}` : "",
     q.email ? `- Correo electrónico: ${q.email}` : "",
