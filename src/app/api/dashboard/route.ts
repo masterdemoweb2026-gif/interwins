@@ -110,6 +110,10 @@ function mapCotizacionOrigin(origen: string) {
     case "cl_arriendo_producto":
     case "cl_arriendo_directo":
       return { key: "arriendo", label: "Arriendo" };
+    case "cl_proyectos":
+      return { key: "proyectos", label: "Proyectos" };
+    case "cl_dealer":
+      return { key: "dealer", label: "Dealer" };
     case "cl_cotizacion_producto":
     case "uy_catalogo":
     case "cotizacion":
