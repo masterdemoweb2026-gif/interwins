@@ -713,15 +713,14 @@ function isRentalRequest(state: UserState) {
   return state.catalog.requestKind === "arriendo" || normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
 }
 
-function buildArriendoLandingMessage() {
+function buildArriendoLandingMessage(): Reply {
   return [
-    "Descubre las ventajas de arrendar con InterWins.",
-    "Disponibilidad inmediata. Arrienda Radios Motorola y accesorios de manera permanente, por meses o por evento.",
-    "",
-    "¿Cómo quieres avanzar?",
-    "1) Buscar producto para arrendar",
-    "2) Arrendar",
-  ].join("\n");
+    [
+      "Descubre las ventajas de arrendar con InterWins.",
+      "Disponibilidad inmediata. Arrienda Radios Motorola y accesorios de manera permanente, por meses o por evento.",
+    ].join("\n"),
+    ["📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Deseas que te pongamos en contacto con un dealer de tu región"].join("\n"),
+  ];
 }
 
 function buildArriendoIntentMessage() {
@@ -880,7 +879,7 @@ async function startArriendoFlow(state: UserState, userKey: string) {
   resetBranchState(state, previous);
   resetBranchState(state, "catalogo");
   state.catalog.requestKind = "arriendo";
-  state.catalog.arriendoStage = "landing";
+  state.catalog.arriendoStage = "product_menu";
   state.catalog.optionalCompanyHandled = false;
   return buildArriendoLandingMessage();
 }
@@ -2668,7 +2667,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     state.catalog = {
       filters: keepRental ? { modalidad: "Arriendo" } : {},
       status: "idle",
-      ...(keepRental ? { requestKind: "arriendo" as CatalogRequestKind, arriendoStage: "landing" as CatalogArriendoStage } : {}),
+      ...(keepRental ? { requestKind: "arriendo" as CatalogRequestKind, arriendoStage: "product_menu" as CatalogArriendoStage } : {}),
     };
     return keepRental
       ? buildArriendoLandingMessage()
@@ -2676,16 +2675,8 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (state.catalog.arriendoStage === "landing") {
-    const choice = parseArriendoLandingChoice(input);
-    if (choice === "buscar") {
-      state.catalog.arriendoStage = undefined;
-      return await startCatalogFlow(state, userPhone, { modalidad: "Arriendo", mode: "arriendo" });
-    }
-    if (choice === "directo") {
-      state.catalog.arriendoStage = "direct_topic";
-      return buildArriendoIntentMessage();
-    }
-    return "Puedo ayudarte por las dos vías. Elige Buscar producto para arrendar o Arrendar y seguimos.";
+    state.catalog.arriendoStage = "product_menu";
+    return buildArriendoLandingMessage();
   }
 
   if (state.catalog.arriendoStage === "direct_topic") {
