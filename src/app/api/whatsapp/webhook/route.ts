@@ -854,6 +854,18 @@ async function listDistinctTipoProductoByModalidad(country: Country, modalidad: 
 
 type SuggestedCatalogTypeKey = "equipos_radio" | "accesorio_radio" | "camara_corporal";
 
+function findBestCatalogTypeByKeywords(tipos: string[], keywords: string[]) {
+  const scored = tipos
+    .map((tp) => {
+      const hay = normalizeText(tp);
+      const score = scoreTokenMatch(keywords.map((k) => normalizeText(k)), hay);
+      return { tp, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  return best && best.score >= 1 ? best.tp : undefined;
+}
+
 async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
   const tipos = modalidad
     ? await listDistinctTipoProductoByModalidad(country, modalidad)
@@ -861,23 +873,16 @@ async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
       ? await listDistinctTipoProductoUY()
       : await listDistinctTipoProducto();
   const wanted: Array<{ key: SuggestedCatalogTypeKey; label: string; keywords: string[] }> = [
-    { key: "equipos_radio", label: "Equipos de radio", keywords: ["equipos", "equipo", "radio", "radios", "handy", "portatil", "portátil", "movil", "móvil"] },
-    { key: "accesorio_radio", label: "Accesorios de radio", keywords: ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"] },
-    { key: "camara_corporal", label: "Cámaras corporales", keywords: ["camara", "cámara", "camaras", "cámaras", "corporal", "bodycam", "body"] },
+    { key: "accesorio_radio", label: "Accesorios", keywords: ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"] },
+    { key: "camara_corporal", label: "Cámaras Corporales", keywords: ["camara", "cámara", "camaras", "cámaras", "corporal", "bodycam", "body"] },
+    { key: "equipos_radio", label: "Equipos Radio", keywords: ["equipos", "equipo", "radio", "radios", "handy", "portatil", "portátil", "movil", "móvil"] },
   ];
 
   const suggested: Array<{ key: SuggestedCatalogTypeKey; label: string; tipo: string }> = [];
   for (const w of wanted) {
-    const scored = tipos
-      .map((tp) => {
-        const hay = normalizeText(tp);
-        const score = scoreTokenMatch(w.keywords.map((k) => normalizeText(k)), hay);
-        return { tp, score };
-      })
-      .sort((a, b) => b.score - a.score);
-    const best = scored[0];
-    if (best && best.score >= 1) {
-      suggested.push({ key: w.key, label: w.label, tipo: best.tp });
+    const best = findBestCatalogTypeByKeywords(tipos, w.keywords);
+    if (best) {
+      suggested.push({ key: w.key, label: w.label, tipo: best });
     }
   }
 
@@ -887,6 +892,39 @@ async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
     menu.push(s);
   }
   return menu;
+}
+
+async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilters): Promise<CatalogPendingOption[]> {
+  const portabilidades = country === "UY" ? await listPortabilidadesUY(filters) : await listPortabilidades(filters);
+  const tipos = filters.modalidad
+    ? await listDistinctTipoProductoByModalidad(country, filters.modalidad)
+    : country === "UY"
+      ? await listDistinctTipoProductoUY()
+      : await listDistinctTipoProducto();
+
+  const options: CatalogPendingOption[] = [];
+  const portable = portabilidades.find((o) => normalizeText(o).includes("portatil"));
+  if (portable) {
+    options.push({ label: "Portátiles (Handy)", value: portable });
+  }
+  const mobile = portabilidades.find((o) => normalizeText(o).includes("movil"));
+  if (mobile) {
+    options.push({ label: "Móviles (Para vehículos/base)", value: mobile });
+  }
+  const repeaterType = tipos.find((tp) => normalizeText(tp).includes("repetidor"));
+  if (repeaterType) {
+    options.push({
+      label: "Repetidores",
+      value: repeaterType,
+      applyFilters: {
+        tipo_producto: repeaterType,
+        portabilidad: undefined,
+        frecuencia: undefined,
+        tecnologia: undefined,
+      },
+    });
+  }
+  return options;
 }
 
 async function startCatalogFlow(state: UserState, userKey: string, args?: { modalidad?: string; mode?: "cotizar" | "arriendo" }) {
@@ -2905,9 +2943,12 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Cuál de estos tipos de producto buscas?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     } else {
-      const top = tipos.slice(0, 5);
-      state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
-      return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+      const suggested = await getSuggestedCatalogTypes("CL", state.catalog.filters.modalidad);
+      const top = suggested.length
+        ? suggested.map((o) => ({ label: o.label, value: o.tipo }))
+        : tipos.slice(0, 5).map((o) => ({ label: o, value: o }));
+      state.catalog.pending = { attr: "tipo_producto", options: top };
+      return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
     }
   }
 
@@ -2932,13 +2973,12 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (!state.catalog.filters.portabilidad) {
-    const opts = await listPortabilidades(state.catalog.filters);
+    const opts = isRadioEquipment ? await buildRadioSubtypeOptions("CL", state.catalog.filters) : await listPortabilidades(state.catalog.filters);
     if (opts.length > 1) {
       const top = opts.slice(0, 5);
-      state.catalog.pending = {
-        attr: "portabilidad",
-        options: top.map((o) => ({ label: isRadioEquipment ? formatPortabilidadLabel(o) : o, value: o })),
-      };
+      state.catalog.pending = isRadioEquipment
+        ? { attr: "portabilidad", options: top }
+        : { attr: "portabilidad", options: top.map((o) => ({ label: o, value: o })) };
       return [
         isRadioEquipment ? "¿Qué tipo de equipo necesitas?" : "¿Portátil o móvil?",
         "",
@@ -3181,9 +3221,12 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Cuál de estos tipos de producto buscas?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
     } else {
-      const top = tipos.slice(0, 5);
-      state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
-      return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
+      const suggested = await getSuggestedCatalogTypes("UY", state.catalog.filters.modalidad);
+      const top = suggested.length
+        ? suggested.map((o) => ({ label: o.label, value: o.tipo }))
+        : tipos.slice(0, 5).map((o) => ({ label: o, value: o }));
+      state.catalog.pending = { attr: "tipo_producto", options: top };
+      return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
     }
   }
 
@@ -3208,13 +3251,12 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (!state.catalog.filters.portabilidad) {
-    const opts = await listPortabilidadesUY(state.catalog.filters);
+    const opts = isRadioEquipment ? await buildRadioSubtypeOptions("UY", state.catalog.filters) : await listPortabilidadesUY(state.catalog.filters);
     if (opts.length > 1) {
       const top = opts.slice(0, 5);
-      state.catalog.pending = {
-        attr: "portabilidad",
-        options: top.map((o) => ({ label: isRadioEquipment ? formatPortabilidadLabel(o) : o, value: o })),
-      };
+      state.catalog.pending = isRadioEquipment
+        ? { attr: "portabilidad", options: top }
+        : { attr: "portabilidad", options: top.map((o) => ({ label: o, value: o })) };
       return [
         isRadioEquipment ? "¿Qué tipo de equipo necesitas?" : "¿Portátil o móvil?",
         "",
