@@ -78,6 +78,14 @@ function toJoinedText(value: unknown) {
   return toText(value);
 }
 
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function parseDate(value: string) {
   if (!value) return 0;
   const time = Date.parse(value);
@@ -96,15 +104,24 @@ function getCreatedAt(row: JsonRecord) {
 }
 
 function mapCotizacionOrigin(origen: string) {
-  switch (origen) {
-    case "cl_cotizacion_producto":
-    case "uy_catalogo":
-      return { key: "cotizacion", label: "Cotización" };
+  const normalized = normalizeText(origen);
+
+  switch (normalized) {
     case "cl_arriendo_producto":
     case "cl_arriendo_directo":
       return { key: "arriendo", label: "Arriendo" };
+    case "cl_cotizacion_producto":
+    case "uy_catalogo":
+    case "cotizacion":
+    case "cotizacion_general":
+    case "catalogo":
+    case "otro":
+    case "":
+      return { key: "cotizacion", label: "Cotización" };
     default:
-      return { key: origen || "otro", label: origen || "Otro" };
+      return normalized.includes("arriendo")
+        ? { key: "arriendo", label: "Arriendo" }
+        : { key: "cotizacion", label: "Cotización" };
   }
 }
 
@@ -145,7 +162,7 @@ function normalizeCotizacion(row: JsonRecord, index: number): DashboardRequest {
     telefono: toText(row.telefono),
     email: toText(row.email),
     producto: toText(row.producto_nombre) || toText(row.producto_id),
-    categoria: origen,
+    categoria: !origen || normalizeText(origen) === "otro" ? mapped.label : origen,
     mensaje: recomendados,
     estado: toText(row.estado) || "enviada",
     canal: toText(row.canal) || "whatsapp",
