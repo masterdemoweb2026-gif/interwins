@@ -739,6 +739,22 @@ function buildArriendoProductMenuMessage(): Reply {
   ];
 }
 
+function withCatalogTypeIcon(label: string) {
+  const t = normalizeText(label);
+  if (t.includes("accesor")) return `🎧 ${label}`;
+  if (t.includes("camara")) return `📷 ${label}`;
+  if (t.includes("equipo") || t.includes("radio")) return `📻 ${label}`;
+  return label;
+}
+
+function buildCotizarProductMenuMessage(options: CatalogPendingOption[]): Reply {
+  return [
+    "Perfecto. Para cotizar, ¿qué tipo de producto te interesa?",
+    options.map((option) => option.label).join("\n"),
+    "También puedes escribir el nombre del equipo (ej: DP50).",
+  ];
+}
+
 function parseArriendoLandingChoice(text: string) {
   const t = normalizeText(text);
   if (!t) return null;
@@ -906,16 +922,16 @@ async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilter
   const options: CatalogPendingOption[] = [];
   const portable = portabilidades.find((o) => normalizeText(o).includes("portatil"));
   if (portable) {
-    options.push({ label: "Portátiles (Handy)", value: portable });
+    options.push({ label: "📻 Portátiles (Handy)", value: portable });
   }
   const mobile = portabilidades.find((o) => normalizeText(o).includes("movil"));
   if (mobile) {
-    options.push({ label: "Móviles (Para vehículos/base)", value: mobile });
+    options.push({ label: "🚗 Móviles (Para vehículos/base)", value: mobile });
   }
   const repeaterType = [...tiposByModalidad, ...allTipos].find((tp) => normalizeText(tp).includes("repetidor"));
   if (repeaterType) {
     options.push({
-      label: "Repetidores",
+      label: "📡 Repetidores",
       value: repeaterType,
       applyFilters: {
         tipo_producto: repeaterType,
@@ -955,20 +971,19 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
 
     if (menu.length >= 2) {
       const top = menu.slice(0, 5);
-      state.catalog.pending = { attr: "tipo_producto", options: top.map((m) => ({ label: m.label, value: m.tipo })) };
-      return [
-        isRental ? "Perfecto. Para arrendar, ¿qué tipo de equipo necesitas?" : "Perfecto. Para cotizar, ¿qué tipo de producto te interesa?",
-        "",
-        ...top.map((m, i) => `${i + 1}) ${m.label}`),
-        "",
-        "También puedes escribir el nombre del equipo (ej: DP50).",
-      ].join("\n");
+      const options = top.map((m) => ({ label: withCatalogTypeIcon(m.label), value: m.tipo }));
+      state.catalog.pending = { attr: "tipo_producto", options };
+      return buildCotizarProductMenuMessage(options);
     }
   }
 
   return isRental
     ? buildArriendoProductMenuMessage()
-    : "Perfecto. Para cotizar, ¿qué producto buscas? Puedes decir el nombre (ej: DP50) o elegir un tipo: Equipos de radio, Accesorios de radio o Cámaras corporales.";
+    : buildCotizarProductMenuMessage([
+        { label: "📻 Equipos Radio", value: "equipos-radio" },
+        { label: "🎧 Accesorios", value: "accesorios" },
+        { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
+      ]);
 }
 
 async function startCotizarFlow(state: UserState, userKey: string) {
@@ -2767,7 +2782,11 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     };
     return keepRental
       ? buildArriendoLandingMessage()
-      : "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+      : buildCotizarProductMenuMessage([
+          { label: "📻 Equipos Radio", value: "equipos-radio" },
+          { label: "🎧 Accesorios", value: "accesorios" },
+          { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
+        ]);
   }
 
   if (state.catalog.arriendoStage === "landing") {
@@ -2946,10 +2965,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     } else {
       const suggested = await getSuggestedCatalogTypes("CL", state.catalog.filters.modalidad);
       const top = suggested.length
-        ? suggested.map((o) => ({ label: o.label, value: o.tipo }))
+        ? suggested.map((o) => ({ label: withCatalogTypeIcon(o.label), value: o.tipo }))
         : tipos.slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "tipo_producto", options: top };
-      return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
+      return buildCotizarProductMenuMessage(top);
     }
   }
 
@@ -2982,8 +3001,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.pending = { attr: "portabilidad", options };
       return [
         isRadioEquipment ? "¿Qué formato necesitas?" : "¿Portátil o móvil?",
-        "",
-        ...state.catalog.pending.options.map((o, i) => `${i + 1}) ${o.label}`),
+        ...state.catalog.pending.options.map((o) => o.label),
       ].join("\n");
     }
   }
@@ -3132,7 +3150,11 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
     state.catalog = { filters: { modalidad: "Venta" }, status: "idle" };
-    return "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos, Accesorios, Cámaras)";
+    return buildCotizarProductMenuMessage([
+      { label: "📻 Equipos Radio", value: "equipos-radio" },
+      { label: "🎧 Accesorios", value: "accesorios" },
+      { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
+    ]);
   }
 
   if (state.catalog.quote) {
@@ -3224,10 +3246,10 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     } else {
       const suggested = await getSuggestedCatalogTypes("UY", state.catalog.filters.modalidad);
       const top = suggested.length
-        ? suggested.map((o) => ({ label: o.label, value: o.tipo }))
+        ? suggested.map((o) => ({ label: withCatalogTypeIcon(o.label), value: o.tipo }))
         : tipos.slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "tipo_producto", options: top };
-      return ["¿Qué tipo de producto buscas? Elige una opción o escríbela:", "", ...top.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
+      return buildCotizarProductMenuMessage(top);
     }
   }
 
@@ -3260,8 +3282,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       state.catalog.pending = { attr: "portabilidad", options };
       return [
         isRadioEquipment ? "¿Qué formato necesitas?" : "¿Portátil o móvil?",
-        "",
-        ...state.catalog.pending.options.map((o, i) => `${i + 1}) ${o.label}`),
+        ...state.catalog.pending.options.map((o) => o.label),
       ].join("\n");
     }
   }
