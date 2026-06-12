@@ -251,6 +251,10 @@ type CatalogQuote = {
   }>;
 };
 
+type CatalogRequestKind = "cotizacion" | "arriendo";
+type CatalogArriendoStage = "landing" | "direct_topic";
+type CatalogArriendoIntent = "cotizar_radios" | "mas_informacion";
+
 type CatalogState = {
   filters: CatalogFilters;
   pending?: CatalogPendingOptions;
@@ -258,6 +262,10 @@ type CatalogState = {
   lastList?: Array<{ product_id: string; nombre: string }>;
   selectedProductId?: string;
   quote?: CatalogQuote;
+  requestKind?: CatalogRequestKind;
+  arriendoStage?: CatalogArriendoStage;
+  arriendoIntent?: CatalogArriendoIntent;
+  optionalCompanyHandled?: boolean;
   reviewMode?: "arriendo";
   reviewEditField?: Exclude<CatalogQuoteStep, "final">;
   status?: "idle" | "wait_finish_cotizacion";
@@ -563,7 +571,7 @@ type ProductDetail = {
   precio?: string;
 };
 
-function buildProductFichaMessages(detail: ProductDetail | null) {
+function buildProductFichaMessages(detail: ProductDetail | null, options?: { requestKind?: CatalogRequestKind }) {
   if (!detail) return [];
   const title = cleanProductName(detail.nombre || "");
   const header = title ? `*${title}*` : "*Producto*";
@@ -572,7 +580,8 @@ function buildProductFichaMessages(detail: ProductDetail | null) {
   if (detail.shortFinal) bodyLines.push(detail.shortFinal);
   if (detail.fichaUrl) bodyLines.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
   const body = bodyLines.filter(Boolean).join("\n");
-  const actions = ["¿Qué deseas hacer ahora?", "Cotizar este equipo", "Volver al menú", "Hacer una nueva búsqueda"].join("\n");
+  const primaryAction = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
+  const actions = ["¿Qué deseas hacer ahora?", primaryAction, "Volver al menú", "Hacer una nueva búsqueda"].join("\n");
 
   const out: Array<string | OutboundMessage> = [header];
   if (detail.imageUrl) out.push({ type: "image", imageUrl: detail.imageUrl });
@@ -700,6 +709,48 @@ function isRentalIntent(text: string) {
   return t.includes("arrend") || t.includes("alquil") || t.includes("renta");
 }
 
+function isRentalRequest(state: UserState) {
+  return state.catalog.requestKind === "arriendo" || normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
+}
+
+function buildArriendoLandingMessage() {
+  return [
+    "Descubre las ventajas de arrendar con InterWins.",
+    "Disponibilidad inmediata. Arrienda Radios Motorola y accesorios de manera permanente, por meses o por evento.",
+    "",
+    "¿Cómo quieres avanzar?",
+    "1) Buscar producto para arrendar",
+    "2) Arrendar",
+  ].join("\n");
+}
+
+function buildArriendoIntentMessage() {
+  return [
+    "Cuéntanos qué necesitas:",
+    "",
+    "1) Cotizar Arriendo de Radios",
+    "2) Más Información",
+  ].join("\n");
+}
+
+function parseArriendoLandingChoice(text: string) {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t === "1" || (t.includes("buscar") && t.includes("arrend")) || (t.includes("producto") && t.includes("arrend"))) return "buscar";
+  if (t === "2" || t === "arrendar" || t === "arrendar equipos" || (t.includes("arrend") && !t.includes("buscar"))) return "directo";
+  return null;
+}
+
+function parseArriendoIntentChoice(text: string): CatalogArriendoIntent | null {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t === "1" || t.includes("cotizar") || t.includes("radios")) return "cotizar_radios";
+  if (t === "2" || t.includes("mas informacion") || t.includes("más información") || t.includes("informacion") || t.includes("información")) {
+    return "mas_informacion";
+  }
+  return null;
+}
+
 async function listDistinctTipoProductoByModalidad(country: Country, modalidad: string): Promise<string[]> {
   if (country === "UY") {
     return await listDistinctUyColumn("tipo_producto", { modalidad });
@@ -719,6 +770,10 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   state.activeBranch = "catalogo";
   resetBranchState(state, previous);
   resetBranchState(state, "catalogo");
+  state.catalog.requestKind = args?.mode === "arriendo" ? "arriendo" : "cotizacion";
+  state.catalog.arriendoStage = undefined;
+  state.catalog.arriendoIntent = undefined;
+  state.catalog.optionalCompanyHandled = false;
   if (args?.modalidad) state.catalog.filters.modalidad = args.modalidad;
   const isRental = args?.mode === "arriendo";
 
@@ -782,7 +837,14 @@ async function startCotizarFlow(state: UserState, userKey: string) {
 }
 
 async function startArriendoFlow(state: UserState, userKey: string) {
-  return await startCatalogFlow(state, userKey, { modalidad: "Arriendo", mode: "arriendo" });
+  const previous = state.activeBranch;
+  state.activeBranch = "catalogo";
+  resetBranchState(state, previous);
+  resetBranchState(state, "catalogo");
+  state.catalog.requestKind = "arriendo";
+  state.catalog.arriendoStage = "landing";
+  state.catalog.optionalCompanyHandled = false;
+  return buildArriendoLandingMessage();
 }
 
 async function startCatalogIntentFlow(state: UserState, userKey: string, text: string) {
@@ -2044,6 +2106,15 @@ async function saveCotizacionToSupabase(userPhone: string, state: UserState) {
   const country = state.country ?? "CL";
   const selectedProductId = state.catalog.selectedProductId ?? "";
   const productDetail = selectedProductId ? await loadProductDetailByCountry(country, selectedProductId) : null;
+  const isRentalFlow = isRentalRequest(state);
+  const origen =
+    country === "UY"
+      ? "uy_catalogo"
+      : isRentalFlow
+        ? selectedProductId
+          ? "cl_arriendo_producto"
+          : "cl_arriendo_directo"
+        : "cl_cotizacion_producto";
 
   const included = state.catalog.recommended?.includedIds ?? [];
   const rejected = state.catalog.recommended?.rejectedIds ?? [];
@@ -2053,7 +2124,7 @@ async function saveCotizacionToSupabase(userPhone: string, state: UserState) {
   const row = {
     user_phone: userPhone,
     country,
-    origen: country === "UY" ? "uy_catalogo" : "cl_catalogo",
+    origen,
     nombre: quote.nombre ?? null,
     telefono: quote.telefono ?? null,
     email: quote.email ?? null,
@@ -2147,6 +2218,68 @@ async function upsertUserProfile(userPhone: string, data: CatalogQuote["data"]) 
   });
 }
 
+function getCatalogQuoteStep(state: UserState, data: CatalogQuote["data"]): CatalogQuoteStep {
+  const rental = isRentalRequest(state);
+  if (rental) {
+    const requiredComplete = Boolean(data.nombre && data.telefono && data.email);
+    if (requiredComplete) return "final";
+    if (!state.catalog.optionalCompanyHandled && !data.empresa) return "empresa";
+    if (!data.nombre) return "nombre";
+    if (!data.telefono) return "telefono";
+    if (!data.email) return "email";
+    return "final";
+  }
+  if (!data.nombre) return "nombre";
+  if (!data.telefono) return "telefono";
+  if (!data.email) return "email";
+  if (!data.empresa) return "empresa";
+  if (!data.ciudad || !data.region) return "ciudad_region";
+  return "final";
+}
+
+function getRentalPromptForStep(step: CatalogQuoteStep, country: Country) {
+  if (step === "empresa") return "Nombre de empresa (opcional). Si prefieres omitirlo, escribe: Omitir";
+  if (step === "nombre") return "Perfecto. Ahora indícame tu nombre completo.";
+  if (step === "telefono") return country === "UY" ? "Ahora indícame tu teléfono. Ej: +598 9 123 4567" : "Ahora indícame tu número de teléfono. Ej: +569 1234 5678";
+  if (step === "email") {
+    return country === "UY"
+      ? "¿Cuál es tu correo electrónico? (Ej: nombre@empresa.com)"
+      : "¿Cuál es tu correo electrónico? (Ej: nombre@empresa.cl)";
+  }
+  return "";
+}
+
+async function startDirectRentalForm(state: UserState, userPhone: string, intent: CatalogArriendoIntent) {
+  state.catalog.requestKind = "arriendo";
+  state.catalog.arriendoStage = undefined;
+  state.catalog.arriendoIntent = intent;
+  state.catalog.filters.modalidad = "Arriendo";
+  state.catalog.pending = undefined;
+  state.catalog.lastList = undefined;
+  state.catalog.selectedProductId = undefined;
+  state.catalog.reviewMode = undefined;
+  state.catalog.reviewEditField = undefined;
+
+  const profile = state.catalog.forceAskAll ? null : await loadUserProfile(userPhone);
+  const prefill = profile ? { ...profile } : {};
+  state.catalog.forceAskAll = undefined;
+  state.catalog.optionalCompanyHandled = Boolean(prefill.empresa);
+  const next = getCatalogQuoteStep(state, prefill);
+  state.catalog.quote = { step: next, data: prefill };
+
+  if (next === "final") {
+    state.catalog.reviewMode = "arriendo";
+    return await buildArriendoProfileReviewMessage(state);
+  }
+
+  const intro =
+    intent === "mas_informacion"
+      ? "Perfecto. Te ayudo con más información sobre arriendo."
+      : "Perfecto. Te ayudo con la cotización de arriendo.";
+  const prompt = getRentalPromptForStep(next, state.country ?? "CL");
+  return [intro, "", prompt].filter(Boolean).join("\n");
+}
+
 function detectQuoteFieldToEdit(text: string): Exclude<CatalogQuoteStep, "final"> | null {
   const t = normalizeText(text);
   if (!t) return null;
@@ -2198,7 +2331,13 @@ function applyQuoteFieldValue(q: CatalogQuote, field: Exclude<CatalogQuoteStep, 
     return null;
   }
   if (field === "empresa") {
-    if (input.trim().length < 2) return "¿Para qué empresa es la cotización? Si es para ti, escribe: Particular";
+    const t = normalizeText(input);
+    if (!input.trim()) return "Nombre de empresa (opcional). Si prefieres omitirlo, escribe: Omitir";
+    if (t === "omitir" || t === "omit" || t === "sin empresa" || t === "no tengo empresa" || t === "particular") {
+      q.data.empresa = undefined;
+      return null;
+    }
+    if (input.trim().length < 2) return "Nombre de empresa (opcional). Si prefieres omitirlo, escribe: Omitir";
     q.data.empresa = input.trim();
     return null;
   }
@@ -2217,13 +2356,19 @@ async function buildArriendoProfileReviewMessage(state: UserState) {
   const q = state.catalog.quote?.data ?? {};
   const country = state.country ?? "CL";
   const detail = await loadProductDetailByCountry(country, state.catalog.selectedProductId ?? "");
+  const intentLabel =
+    state.catalog.arriendoIntent === "mas_informacion"
+      ? "Más Información"
+      : state.catalog.arriendoIntent === "cotizar_radios"
+        ? "Cotizar Arriendo de Radios"
+        : undefined;
   const lines = [
     "Perfecto. Ya tengo tus datos para la cotización de arriendo:",
+    intentLabel ? `- Solicitud: ${intentLabel}` : "",
     q.nombre ? `- Nombre y Apellido: ${q.nombre}` : "",
     q.telefono ? `- Teléfono: ${q.telefono}` : "",
     q.email ? `- Correo electrónico: ${q.email}` : "",
     q.empresa ? `- Empresa: ${q.empresa}` : "",
-    q.ciudad || q.region ? `- Ciudad y Región: ${[q.ciudad, q.region].filter(Boolean).join(", ")}` : "",
     detail?.nombre ? `- Equipo: ${cleanProductName(detail.nombre)}` : "",
     "",
     "Si está todo correcto, escribe: Confirmar arriendo",
@@ -2244,7 +2389,7 @@ async function completeCatalogQuote(state: UserState, userPhone: string, input: 
   }
   await upsertUserProfile(userPhone, q.data);
   const country = state.country ?? "CL";
-  const isRentalFlow = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
+  const isRentalFlow = isRentalRequest(state);
   if (country !== "UY" && !isRentalFlow) {
     const recommendedIds = await tryLoadRecommendedIds(state.catalog.selectedProductId);
     if (recommendedIds.length) {
@@ -2334,9 +2479,18 @@ function buildAfterCotizacionMessage(country: Country) {
 }
 
 async function finalizeCotizacion(state: UserState, userPhone: string): Promise<Reply> {
+  const isRentalFlow = isRentalRequest(state);
   await saveCotizacionToSupabase(userPhone, state);
   if (state.catalog.quote?.data) {
     await upsertUserProfile(userPhone, state.catalog.quote.data);
+  }
+  if (isRentalFlow) {
+    const forceAskAll = state.catalog.forceAskAll;
+    state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
+    state.activeBranch = "menu";
+    state.postCotizacion = undefined;
+    markMenuShown(state);
+    return "Gracias por cotizar con nosotros. Pronto nos pondremos en contacto. 📻✨";
   }
   const resumen = await buildCotizacionResumen(state);
   const forceAskAll = state.catalog.forceAskAll;
@@ -2350,6 +2504,7 @@ async function finalizeCotizacion(state: UserState, userPhone: string): Promise<
 async function handleCatalog(state: UserState, text: string, userPhone: string): Promise<Reply> {
   const input = text.trim();
   const t = normalizeText(input);
+  const rentalRequest = isRentalRequest(state);
 
   if (state.catalog.status === "wait_finish_cotizacion") {
     if (t.includes("cancel")) {
@@ -2410,7 +2565,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         state.catalog.recommended.mode = "detail";
         const d = await loadProductDetail(id);
         if (!d) return "No pude cargar ese recomendado. Indícame otra opción o responde Terminar.";
-        const base = buildProductFichaMessages(d);
+        const base = buildProductFichaMessages(d, { requestKind: state.catalog.requestKind });
         return [
           ...base,
           "",
@@ -2471,11 +2626,36 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
-    const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
-    state.catalog = { filters: keepRental ? { modalidad: "Arriendo" } : {}, status: "idle" };
+    const keepRental = rentalRequest;
+    state.catalog = {
+      filters: keepRental ? { modalidad: "Arriendo" } : {},
+      status: "idle",
+      ...(keepRental ? { requestKind: "arriendo" as CatalogRequestKind, arriendoStage: "landing" as CatalogArriendoStage } : {}),
+    };
     return keepRental
-      ? "Perfecto. Hagamos una nueva búsqueda de arriendo. ¿Qué tipo de equipo necesitas?"
+      ? buildArriendoLandingMessage()
       : "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios, Cámaras Corporales)";
+  }
+
+  if (state.catalog.arriendoStage === "landing") {
+    const choice = parseArriendoLandingChoice(input);
+    if (choice === "buscar") {
+      state.catalog.arriendoStage = undefined;
+      return await startCatalogFlow(state, userPhone, { modalidad: "Arriendo", mode: "arriendo" });
+    }
+    if (choice === "directo") {
+      state.catalog.arriendoStage = "direct_topic";
+      return buildArriendoIntentMessage();
+    }
+    return "Puedo ayudarte por las dos vías. Elige Buscar producto para arrendar o Arrendar y seguimos.";
+  }
+
+  if (state.catalog.arriendoStage === "direct_topic") {
+    const choice = parseArriendoIntentChoice(input);
+    if (choice) {
+      return await startDirectRentalForm(state, userPhone, choice);
+    }
+    return "Cuéntame si quieres Cotizar Arriendo de Radios o prefieres Más Información.";
   }
 
   if (state.catalog.quote) {
@@ -2511,8 +2691,11 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         return await completeCatalogQuote(state, userPhone, input);
       }
       if (fieldToEdit) {
+        if (fieldToEdit === "ciudad_region") {
+          return "Para arriendo no necesito ciudad y región. Si está todo bien, escribe Confirmar arriendo.";
+        }
         state.catalog.reviewEditField = fieldToEdit;
-        return getQuoteFieldPrompt(fieldToEdit, "CL");
+        return fieldToEdit === "empresa" ? getRentalPromptForStep("empresa", "CL") : getRentalPromptForStep(fieldToEdit, "CL");
       }
       if (isStockQuestion(input)) {
         return "Para confirmar stock inmediato y tiempos de entrega del arriendo, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.";
@@ -2525,11 +2708,27 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       q.step = next;
     };
 
+    if (rentalRequest && q.step === "empresa") {
+      const omit = !input || t === "omitir" || t === "omit" || t === "sin empresa" || t === "no tengo empresa" || t === "particular";
+      if (!omit && input.trim().length >= 2) {
+        q.data.empresa = input.trim();
+      } else if (!omit) {
+        return "Nombre de empresa (opcional). Si prefieres omitirlo, escribe: Omitir";
+      }
+      state.catalog.optionalCompanyHandled = true;
+      q.step = !q.data.nombre ? "nombre" : !q.data.telefono ? "telefono" : !q.data.email ? "email" : "final";
+      state.catalog.quote = q;
+      if (q.step === "final") {
+        return await completeCatalogQuote(state, userPhone, input);
+      }
+      return getRentalPromptForStep(q.step, "CL");
+    }
+
     if (q.step === "nombre") {
-      if (input.length < 3) return "Perfecto. Para generar tu cotización, por favor indícame tu nombre y apellido.";
+      if (input.length < 3) return rentalRequest ? "Necesito tu nombre completo para continuar." : "Perfecto. Para generar tu cotización, por favor indícame tu nombre y apellido.";
       setAndNext("nombre", input, "telefono");
       state.userName = input.split(" ")[0]?.trim() || state.userName;
-      return "Perfecto. Ahora indícame tu teléfono. Ej: +569 1234 5678";
+      return rentalRequest ? getRentalPromptForStep("telefono", "CL") : "Perfecto. Ahora indícame tu teléfono. Ej: +569 1234 5678";
     }
     if (q.step === "telefono") {
       const phone = normalizePhone(input);
@@ -2538,10 +2737,16 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         return "Disculpa, necesito el número completo para que el ejecutivo te contacte. Por favor, escríbelo con este formato EJ: +569 1234 5678.";
       }
       setAndNext("telefono", phone, "email");
-      return "¿Cuál es tu correo electrónico empresarial o personal? (Ej: nombre@empresa.cl)";
+      return rentalRequest ? getRentalPromptForStep("email", "CL") : "¿Cuál es tu correo electrónico empresarial o personal? (Ej: nombre@empresa.cl)";
     }
     if (q.step === "email") {
       if (!validateEmail(input)) return "Necesito un correo válido para enviarte la cotización. ¿Me lo compartes? (Ej: nombre@empresa.cl)";
+      if (rentalRequest) {
+        q.data.email = input.trim();
+        q.step = "final";
+        state.catalog.quote = q;
+        return await completeCatalogQuote(state, userPhone, input);
+      }
       setAndNext("email", input.trim(), "empresa");
       return "¿Para qué empresa es la cotización? Si es para ti, escribe: Particular";
     }
@@ -2652,15 +2857,15 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (state.catalog.selectedProductId) {
-    if (t.includes("cotiz")) {
+    if (t.includes("cotiz") || t.includes("arrend")) {
       const profile = state.catalog.forceAskAll ? null : await loadUserProfile(userPhone);
       const prefill = profile ? { ...profile } : {};
       state.catalog.forceAskAll = undefined;
-      const next = getNextQuoteStep(prefill);
+      state.catalog.optionalCompanyHandled = Boolean(prefill.empresa);
+      const next = getCatalogQuoteStep(state, prefill);
       state.catalog.quote = { step: next, data: prefill };
       state.catalog.reviewMode = undefined;
       state.catalog.reviewEditField = undefined;
-      const isRentalFlow = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
       if (isRentalFlow && profile && next === "final") {
         state.catalog.reviewMode = "arriendo";
         return await buildArriendoProfileReviewMessage(state);
@@ -2669,6 +2874,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         return await completeCatalogQuote(state, userPhone, input);
       }
 
+      if (isRentalFlow) return getRentalPromptForStep(next, "CL");
       if (next === "telefono") return "Perfecto. Ahora indícame tu teléfono. Ej: +569 1234 5678";
       if (next === "email") return "¿Cuál es tu correo electrónico empresarial o personal? (Ej: nombre@empresa.cl)";
       if (next === "empresa") return "¿Para qué empresa es la cotización? Si es para ti, escribe: Particular";
@@ -2709,7 +2915,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.selectedProductId = chosen.product_id;
       const detail = await loadProductDetail(chosen.product_id);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
-      return buildProductFichaMessages(detail);
+      return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind });
     }
 
     const productOptions: CatalogPendingOption[] = state.catalog.lastList.map((p) => ({
@@ -2721,7 +2927,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.selectedProductId = match.value;
       const detail = await loadProductDetail(match.value);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
-      return buildProductFichaMessages(detail);
+      return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind });
     }
     if (match.ambiguous) {
       return `Me quedaron 2 opciones parecidas. ¿Me dices el número (1–${max}) para elegir bien?`;
