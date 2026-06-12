@@ -3731,13 +3731,18 @@ function getContactFormCountry(kind: ContactFormKind): Country {
   return kind.startsWith("uy_") ? "UY" : "CL";
 }
 
-function getContactFormRequestLabel(kind: ContactFormKind) {
+function getDealerZoneLabel(data?: ContactFormState["data"]) {
+  const zone = (data?.direccion ?? "").trim();
+  return zone ? `Contacto con dealer - ${zone}` : "Contacto con dealer";
+}
+
+function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormState["data"]) {
   switch (kind) {
     case "cl_proyectos":
     case "uy_proyectos":
       return "Asesoría en proyectos";
     case "cl_dealer":
-      return "Contacto con dealer";
+      return getDealerZoneLabel(data);
     case "uy_servicio_tecnico":
       return "Servicio técnico";
   }
@@ -3858,7 +3863,7 @@ async function buildContactFormReviewMessage(state: UserState) {
     "Perfecto. Este es el resumen de tu solicitud:",
     "",
     "*Solicitud*",
-    `- Tipo: ${getContactFormRequestLabel(form.kind)}`,
+    `- Tipo: ${getContactFormRequestLabel(form.kind, form.data)}`,
     "",
     "*Datos de contacto*",
     form.data.nombre ? `- Nombre y Apellido: ${form.data.nombre}` : "",
@@ -3893,7 +3898,7 @@ async function saveClContactLead(userPhone: string, form: ContactFormState) {
     ciudad: null,
     region: null,
     producto_id: null,
-    producto_nombre: getContactFormRequestLabel(form.kind),
+    producto_nombre: getContactFormRequestLabel(form.kind, form.data),
     canal: "whatsapp",
     estado: "enviada",
   };
@@ -4277,6 +4282,9 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
     if (isAffirmative(text) || t.includes("dealer") || t.includes("distribuidor") || t.includes("contact") || t.includes("ejecutivo") || t.includes("asesor")) {
       state.points.awaitingDealerOffer = false;
       return await startContactForm(state, userPhone, "cl_dealer", {
+        intro: state.points.lastQuery
+          ? `Perfecto. Armemos tu solicitud para que un dealer te contacte por la zona de ${state.points.lastQuery}.`
+          : "Perfecto. Armemos tu solicitud para que un dealer de tu región te contacte.",
         presetData: {
           direccion: state.points.lastQuery,
           mensaje: state.points.lastQuery
