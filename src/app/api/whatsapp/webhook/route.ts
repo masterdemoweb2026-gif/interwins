@@ -252,7 +252,7 @@ type CatalogQuote = {
 };
 
 type CatalogRequestKind = "cotizacion" | "arriendo";
-type CatalogArriendoStage = "landing" | "direct_topic";
+type CatalogArriendoStage = "landing" | "direct_topic" | "product_menu";
 type CatalogArriendoIntent = "cotizar_radios" | "mas_informacion";
 
 type CatalogState = {
@@ -733,6 +733,13 @@ function buildArriendoIntentMessage() {
   ].join("\n");
 }
 
+function buildArriendoProductMenuMessage(): Reply {
+  return [
+    "Perfecto. Para arrendar, ¿qué equipo buscas?",
+    ["📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Deseas que te pongamos en contacto con un dealer de tu región"].join("\n"),
+  ];
+}
+
 function parseArriendoLandingChoice(text: string) {
   const t = normalizeText(text);
   if (!t) return null;
@@ -751,6 +758,25 @@ function parseArriendoIntentChoice(text: string): CatalogArriendoIntent | null {
   return null;
 }
 
+function parseArriendoProductChoice(text: string): "equipos_radio" | "accesorio_radio" | "camara_corporal" | "dealer_region" | null {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t === "1" || (t.includes("equipo") && t.includes("radio")) || t === "radio" || t === "radios") return "equipos_radio";
+  if (t === "2" || t.includes("accesorio") || (t.includes("radio") && t.includes("accesorio"))) return "accesorio_radio";
+  if (t === "3" || t.includes("camara corporal") || t.includes("cámara corporal") || t.includes("bodycam") || t.includes("camara")) return "camara_corporal";
+  if (
+    t === "4" ||
+    t.includes("dealer") ||
+    t.includes("distribuidor") ||
+    t.includes("region") ||
+    t.includes("región") ||
+    (t.includes("contact") && t.includes("dealer"))
+  ) {
+    return "dealer_region";
+  }
+  return null;
+}
+
 async function listDistinctTipoProductoByModalidad(country: Country, modalidad: string): Promise<string[]> {
   if (country === "UY") {
     return await listDistinctUyColumn("tipo_producto", { modalidad });
@@ -762,6 +788,43 @@ async function listDistinctTipoProductoByModalidad(country: Country, modalidad: 
     .map((r) => toTrimmedString(getRecordValue(r, "tipo_producto")))
     .filter(Boolean);
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+type SuggestedCatalogTypeKey = "equipos_radio" | "accesorio_radio" | "camara_corporal";
+
+async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
+  const tipos = modalidad
+    ? await listDistinctTipoProductoByModalidad(country, modalidad)
+    : country === "UY"
+      ? await listDistinctTipoProductoUY()
+      : await listDistinctTipoProducto();
+  const wanted: Array<{ key: SuggestedCatalogTypeKey; label: string; keywords: string[] }> = [
+    { key: "equipos_radio", label: "Equipos de radio", keywords: ["equipos", "equipo", "radio", "radios", "handy", "portatil", "portátil", "movil", "móvil"] },
+    { key: "accesorio_radio", label: "Accesorios de radio", keywords: ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"] },
+    { key: "camara_corporal", label: "Cámaras corporales", keywords: ["camara", "cámara", "camaras", "cámaras", "corporal", "bodycam", "body"] },
+  ];
+
+  const suggested: Array<{ key: SuggestedCatalogTypeKey; label: string; tipo: string }> = [];
+  for (const w of wanted) {
+    const scored = tipos
+      .map((tp) => {
+        const hay = normalizeText(tp);
+        const score = scoreTokenMatch(w.keywords.map((k) => normalizeText(k)), hay);
+        return { tp, score };
+      })
+      .sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    if (best && best.score >= 1) {
+      suggested.push({ key: w.key, label: w.label, tipo: best.tp });
+    }
+  }
+
+  const menu: Array<{ key: SuggestedCatalogTypeKey; label: string; tipo: string }> = [];
+  for (const s of suggested) {
+    if (menu.some((m) => m.tipo === s.tipo)) continue;
+    menu.push(s);
+  }
+  return menu;
 }
 
 async function startCatalogFlow(state: UserState, userKey: string, args?: { modalidad?: string; mode?: "cotizar" | "arriendo" }) {
@@ -782,36 +845,11 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   }
 
   if (!state.catalog.filters.tipo_producto && !state.catalog.pending) {
-    const tipos = args?.modalidad
-      ? await listDistinctTipoProductoByModalidad(country, args.modalidad)
-      : country === "UY"
-        ? await listDistinctTipoProductoUY()
-        : await listDistinctTipoProducto();
-    const wanted = [
-      { label: "Equipos de radio", keywords: ["equipos", "equipo", "radio", "radios", "handy", "portatil", "portátil", "movil", "móvil"] },
-      { label: "Accesorios de radio", keywords: ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"] },
-      { label: "Cámaras corporales", keywords: ["camara", "cámara", "camaras", "cámaras", "corporal", "bodycam", "body"] },
-    ];
+    const menu = await getSuggestedCatalogTypes(country, args?.modalidad);
 
-    const suggested: Array<{ label: string; tipo: string }> = [];
-    for (const w of wanted) {
-      const scored = tipos
-        .map((tp) => {
-          const hay = normalizeText(tp);
-          const score = scoreTokenMatch(w.keywords.map((k) => normalizeText(k)), hay);
-          return { tp, score };
-        })
-        .sort((a, b) => b.score - a.score);
-      const best = scored[0];
-      if (best && best.score >= 1) {
-        suggested.push({ label: w.label, tipo: best.tp });
-      }
-    }
-
-    const menu: Array<{ label: string; tipo: string }> = [];
-    for (const s of suggested) {
-      if (menu.some((m) => m.tipo === s.tipo)) continue;
-      menu.push({ label: s.label, tipo: s.tipo });
+    if (isRental) {
+      state.catalog.arriendoStage = "product_menu";
+      return buildArriendoProductMenuMessage();
     }
 
     if (menu.length >= 2) {
@@ -828,7 +866,7 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   }
 
   return isRental
-    ? "Perfecto. Para arrendar, ¿qué equipo buscas? Puedes decir el nombre o elegir un tipo como Equipos de radio, Accesorios de radio o Cámaras corporales."
+    ? buildArriendoProductMenuMessage()
     : "Perfecto. Para cotizar, ¿qué producto buscas? Puedes decir el nombre (ej: DP50) o elegir un tipo: Equipos de radio, Accesorios de radio o Cámaras corporales.";
 }
 
@@ -2656,6 +2694,26 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       return await startDirectRentalForm(state, userPhone, choice);
     }
     return "Cuéntame si quieres Cotizar Arriendo de Radios o prefieres Más Información.";
+  }
+
+  if (state.catalog.arriendoStage === "product_menu") {
+    const choice = parseArriendoProductChoice(input);
+    if (choice === "dealer_region") {
+      return await startDirectRentalForm(state, userPhone, "mas_informacion");
+    }
+    if (choice) {
+      const suggested = await getSuggestedCatalogTypes(state.country ?? "CL", "Arriendo");
+      const selected = suggested.find((item) => item.key === choice);
+      if (selected) {
+        state.catalog.arriendoStage = undefined;
+        state.catalog.filters.modalidad = "Arriendo";
+        state.catalog.filters.tipo_producto = selected.tipo;
+      } else {
+        return "No encontré esa categoría de arriendo ahora mismo. Si quieres, elige otra opción o te pongo en contacto con un dealer de tu región.";
+      }
+    } else {
+      return "Puedo ayudarte con equipos de radio, accesorio de radio, cámara corporal o contacto con un dealer de tu región.";
+    }
   }
 
   if (state.catalog.quote) {
