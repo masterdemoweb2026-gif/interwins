@@ -2299,7 +2299,7 @@ async function startDirectRentalForm(state: UserState, userPhone: string, intent
   state.catalog.reviewEditField = undefined;
 
   const profile = state.catalog.forceAskAll ? null : await loadUserProfile(userPhone);
-  const prefill = profile ? { ...profile } : {};
+  const prefill: CatalogQuote["data"] = profile ? { ...profile } : {};
   state.catalog.forceAskAll = undefined;
   state.catalog.optionalCompanyHandled = Boolean(prefill.empresa);
   const next = getCatalogQuoteStep(state, prefill);
@@ -2917,7 +2917,8 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   if (state.catalog.selectedProductId) {
     if (t.includes("cotiz") || t.includes("arrend")) {
       const profile = state.catalog.forceAskAll ? null : await loadUserProfile(userPhone);
-      const prefill = profile ? { ...profile } : {};
+      const prefill: CatalogQuote["data"] = profile ? { ...profile } : {};
+      const isRentalFlow = isRentalRequest(state);
       state.catalog.forceAskAll = undefined;
       state.catalog.optionalCompanyHandled = Boolean(prefill.empresa);
       const next = getCatalogQuoteStep(state, prefill);
@@ -3192,7 +3193,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   if (state.catalog.selectedProductId) {
     if (t.includes("cotiz")) {
       const profile = state.catalog.forceAskAll ? null : await loadUserProfile(userPhone);
-      const prefill = profile ? { ...profile } : {};
+      const prefill: CatalogQuote["data"] = profile ? { ...profile } : {};
       state.catalog.forceAskAll = undefined;
       const next = getNextQuoteStep(prefill);
       state.catalog.quote = { step: next, data: prefill };
