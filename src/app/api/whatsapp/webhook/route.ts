@@ -266,7 +266,7 @@ type CatalogState = {
   arriendoStage?: CatalogArriendoStage;
   arriendoIntent?: CatalogArriendoIntent;
   optionalCompanyHandled?: boolean;
-  reviewMode?: "arriendo";
+  reviewMode?: "arriendo" | "cotizacion";
   reviewEditField?: Exclude<CatalogQuoteStep, "final">;
   status?: "idle" | "wait_finish_cotizacion";
   forceAskAll?: boolean;
@@ -2478,6 +2478,10 @@ async function startCatalogQuoteForm(
     state.catalog.reviewMode = "arriendo";
     return await buildArriendoProfileReviewMessage(state);
   }
+  if (!isRentalFlow && profile && next === "final") {
+    state.catalog.reviewMode = "cotizacion";
+    return await buildCotizacionProfileReviewMessage(state);
+  }
   if (next === "final") {
     return await completeCatalogQuote(state, userPhone, options?.intro ?? "");
   }
@@ -2586,15 +2590,54 @@ async function buildArriendoProfileReviewMessage(state: UserState) {
   const country = state.country ?? "CL";
   const detail = await loadProductDetailByCountry(country, state.catalog.selectedProductId ?? "");
   const lines = [
-    "Perfecto. Ya tengo tus datos para la cotización de arriendo:",
-    "- Solicitud: Arriendo",
+    "Perfecto. Este es el resumen de tu solicitud:",
+    "",
+    "*Solicitud*",
+    "- Tipo: Arriendo",
+    "",
+    "*Datos de contacto*",
     q.nombre ? `- Nombre y Apellido: ${q.nombre}` : "",
     q.telefono ? `- Teléfono: ${q.telefono}` : "",
     q.email ? `- Correo electrónico: ${q.email}` : "",
-    q.empresa ? `- Empresa: ${q.empresa}` : "",
-    detail?.nombre ? `- Equipo: ${cleanProductName(detail.nombre)}` : "",
+    "",
+    "*Empresa*",
+    q.empresa ? `- Empresa: ${q.empresa}` : "- Empresa: Particular / No informada",
+    "",
+    "*Equipo solicitado*",
+    detail?.nombre ? `- Equipo: ${cleanProductName(detail.nombre)}` : "- Equipo: No informado",
     "",
     "Si está todo correcto, escribe: Confirmar arriendo",
+    "Si quieres editar algo, puedes decir por ejemplo: cambiar teléfono",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+async function buildCotizacionProfileReviewMessage(state: UserState) {
+  const q = state.catalog.quote?.data ?? {};
+  const country = state.country ?? "CL";
+  const detail = await loadProductDetailByCountry(country, state.catalog.selectedProductId ?? "");
+  const ubicacion = [q.ciudad, q.region].filter(Boolean).join(", ");
+  const lines = [
+    "Perfecto. Este es el resumen de tu solicitud:",
+    "",
+    "*Solicitud*",
+    "- Tipo: Cotización",
+    "",
+    "*Datos de contacto*",
+    q.nombre ? `- Nombre y Apellido: ${q.nombre}` : "",
+    q.telefono ? `- Teléfono: ${q.telefono}` : "",
+    q.email ? `- Correo electrónico: ${q.email}` : "",
+    "",
+    "*Empresa*",
+    q.empresa ? `- Empresa: ${q.empresa}` : "- Empresa: Particular / No informada",
+    "",
+    "*Ubicación*",
+    ubicacion ? `- Ciudad y Región: ${ubicacion}` : "- Ciudad y Región: No informadas",
+    "",
+    "*Producto solicitado*",
+    detail?.nombre ? `- Producto: ${cleanProductName(detail.nombre)}` : "- Producto: No informado",
+    "",
+    "Si está todo correcto, escribe: Confirmar cotización",
     "Si quieres editar algo, puedes decir por ejemplo: cambiar teléfono",
   ].filter(Boolean);
   return lines.join("\n");
@@ -2943,6 +2986,36 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       return "Si está todo correcto, escribe Confirmar arriendo. Si quieres cambiar algo, dime por ejemplo: cambiar teléfono.";
     }
 
+    if (state.catalog.reviewMode === "cotizacion") {
+      if (state.catalog.reviewEditField) {
+        const error = applyQuoteFieldValue(q, state.catalog.reviewEditField, input, "CL");
+        if (error) return error;
+        state.catalog.reviewEditField = undefined;
+        state.catalog.quote = q;
+        await upsertUserProfile(userPhone, q.data);
+        return await buildCotizacionProfileReviewMessage(state);
+      }
+
+      const confirmCotizacion =
+        t.includes("confirmar cotizacion") ||
+        t.includes("confirmar cotización") ||
+        t === "confirmar" ||
+        t.includes("esta bien") ||
+        t.includes("está bien") ||
+        t.includes("correcto") ||
+        t.includes("dale");
+      const fieldToEdit = detectQuoteFieldToEdit(input);
+
+      if (confirmCotizacion) {
+        return await completeCatalogQuote(state, userPhone, input);
+      }
+      if (fieldToEdit) {
+        state.catalog.reviewEditField = fieldToEdit;
+        return getQuoteFieldPrompt(fieldToEdit, "CL");
+      }
+      return "Si está todo correcto, escribe Confirmar cotización. Si quieres cambiar algo, dime por ejemplo: cambiar teléfono.";
+    }
+
     const setAndNext = (key: keyof CatalogQuote["data"], value: string, next: CatalogQuoteStep) => {
       q.data[key] = value;
       q.step = next;
@@ -3227,7 +3300,39 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (t.includes("cancel")) {
       state.catalog.quote = undefined;
       state.catalog.status = "idle";
+      state.catalog.reviewMode = undefined;
+      state.catalog.reviewEditField = undefined;
       return "Ok, dejé la cotización cancelada. ¿Quieres seguir viendo productos o vuelvo al menú?";
+    }
+
+    if (state.catalog.reviewMode === "cotizacion") {
+      if (state.catalog.reviewEditField) {
+        const error = applyQuoteFieldValue(q, state.catalog.reviewEditField, input, "UY");
+        if (error) return error;
+        state.catalog.reviewEditField = undefined;
+        state.catalog.quote = q;
+        await upsertUserProfile(userPhone, q.data);
+        return await buildCotizacionProfileReviewMessage(state);
+      }
+
+      const confirmCotizacion =
+        t.includes("confirmar cotizacion") ||
+        t.includes("confirmar cotización") ||
+        t === "confirmar" ||
+        t.includes("esta bien") ||
+        t.includes("está bien") ||
+        t.includes("correcto") ||
+        t.includes("dale");
+      const fieldToEdit = detectQuoteFieldToEdit(input);
+
+      if (confirmCotizacion) {
+        return await completeCatalogQuote(state, userPhone, input);
+      }
+      if (fieldToEdit) {
+        state.catalog.reviewEditField = fieldToEdit;
+        return getQuoteFieldPrompt(fieldToEdit, "UY");
+      }
+      return "Si está todo correcto, escribe Confirmar cotización. Si quieres cambiar algo, dime por ejemplo: cambiar correo.";
     }
 
     const setAndNext = (key: keyof CatalogQuote["data"], value: string, next: CatalogQuoteStep) => {
