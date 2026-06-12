@@ -896,11 +896,12 @@ async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
 
 async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilters): Promise<CatalogPendingOption[]> {
   const portabilidades = country === "UY" ? await listPortabilidadesUY(filters) : await listPortabilidades(filters);
-  const tipos = filters.modalidad
+  const tiposByModalidad = filters.modalidad
     ? await listDistinctTipoProductoByModalidad(country, filters.modalidad)
     : country === "UY"
       ? await listDistinctTipoProductoUY()
       : await listDistinctTipoProducto();
+  const allTipos = country === "UY" ? await listDistinctTipoProductoUY() : await listDistinctTipoProducto();
 
   const options: CatalogPendingOption[] = [];
   const portable = portabilidades.find((o) => normalizeText(o).includes("portatil"));
@@ -911,7 +912,7 @@ async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilter
   if (mobile) {
     options.push({ label: "Móviles (Para vehículos/base)", value: mobile });
   }
-  const repeaterType = tipos.find((tp) => normalizeText(tp).includes("repetidor"));
+  const repeaterType = [...tiposByModalidad, ...allTipos].find((tp) => normalizeText(tp).includes("repetidor"));
   if (repeaterType) {
     options.push({
       label: "Repetidores",
@@ -2980,7 +2981,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "portabilidad", options };
       return [
-        isRadioEquipment ? "¿Qué tipo de equipo necesitas?" : "¿Portátil o móvil?",
+        isRadioEquipment ? "¿Qué formato necesitas?" : "¿Portátil o móvil?",
         "",
         ...state.catalog.pending.options.map((o, i) => `${i + 1}) ${o.label}`),
       ].join("\n");
@@ -3258,7 +3259,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "portabilidad", options };
       return [
-        isRadioEquipment ? "¿Qué tipo de equipo necesitas?" : "¿Portátil o móvil?",
+        isRadioEquipment ? "¿Qué formato necesitas?" : "¿Portátil o móvil?",
         "",
         ...state.catalog.pending.options.map((o, i) => `${i + 1}) ${o.label}`),
       ].join("\n");
