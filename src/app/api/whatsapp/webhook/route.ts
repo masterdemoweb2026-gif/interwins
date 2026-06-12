@@ -937,8 +937,8 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   state.catalog.arriendoStage = undefined;
   state.catalog.arriendoIntent = undefined;
   state.catalog.optionalCompanyHandled = false;
-  if (args?.modalidad) state.catalog.filters.modalidad = args.modalidad;
   const isRental = args?.mode === "arriendo";
+  state.catalog.filters.modalidad = args?.modalidad ?? (isRental ? "Arriendo" : "Venta");
 
   if (state.catalog.selectedProductId) {
     return country === "UY" ? await handleCatalogUY(state, "cotizar", userKey) : await handleCatalog(state, "cotizar", userKey);
@@ -2760,7 +2760,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
     const keepRental = rentalRequest;
     state.catalog = {
-      filters: keepRental ? { modalidad: "Arriendo" } : {},
+      filters: { modalidad: keepRental ? "Arriendo" : "Venta" },
       status: "idle",
       ...(keepRental ? { requestKind: "arriendo" as CatalogRequestKind, arriendoStage: "product_menu" as CatalogArriendoStage } : {}),
     };
@@ -3040,7 +3040,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
-      state.catalog.filters = keepRental ? { modalidad: "Arriendo" } : {};
+      state.catalog.filters = { modalidad: keepRental ? "Arriendo" : "Venta" };
       state.catalog.pending = undefined;
       state.catalog.skipRadioTechFrequency = undefined;
       return keepRental
@@ -3088,7 +3088,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
     state.catalog.filters.frecuencia = undefined;
     state.catalog.filters.portabilidad = undefined;
-    state.catalog.filters.modalidad = keepRental ? "Arriendo" : undefined;
+    state.catalog.filters.modalidad = keepRental ? "Arriendo" : "Venta";
     state.catalog.filters.tecnologia = undefined;
     state.catalog.skipRadioTechFrequency = undefined;
     return keepRental
@@ -3130,7 +3130,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
-    state.catalog = { filters: {}, status: "idle" };
+    state.catalog = { filters: { modalidad: "Venta" }, status: "idle" };
     return "Perfecto. ¿Qué tipo de producto buscas? (Ej: Equipos, Accesorios, Cámaras)";
   }
 
@@ -3313,7 +3313,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
-      state.catalog.filters = {};
+      state.catalog.filters = { modalidad: "Venta" };
       state.catalog.pending = undefined;
       state.catalog.skipRadioTechFrequency = undefined;
       return "Perfecto. Hagamos una nueva búsqueda. ¿Qué tipo de producto necesitas?";
@@ -3359,7 +3359,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
     state.catalog.filters.frecuencia = undefined;
     state.catalog.filters.portabilidad = undefined;
-    state.catalog.filters.modalidad = keepRental ? "Arriendo" : undefined;
+    state.catalog.filters.modalidad = keepRental ? "Arriendo" : "Venta";
     state.catalog.filters.tecnologia = undefined;
     state.catalog.skipRadioTechFrequency = undefined;
     return keepRental
