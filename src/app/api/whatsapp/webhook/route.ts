@@ -735,7 +735,7 @@ function buildArriendoIntentMessage() {
 function buildArriendoProductMenuMessage(): Reply {
   return [
     "Perfecto. Para arrendar, ¿qué equipo buscas?",
-    ["📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Deseas que te pongamos en contacto con un dealer de tu región"].join("\n"),
+    ["¿Qué opción prefieres para elegir?", "📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Arrendar directamente con un ejecutivo"].join("\n"),
   ];
 }
 
