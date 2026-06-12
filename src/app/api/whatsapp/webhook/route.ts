@@ -4008,7 +4008,11 @@ export async function POST(request: Request) {
       startedPresence = true;
 
       let reply: Reply = "";
-      const branchIntent = detectBranchIntent(inboundText, country);
+      const rawBranchIntent = detectBranchIntent(inboundText, country);
+      const branchIntent =
+        state.activeBranch === "catalogo" && isRentalRequest(state) && rawBranchIntent.branch === "puntos_venta"
+          ? { ...rawBranchIntent, branch: null as Branch | null }
+          : rawBranchIntent;
       const casualChoice = parseMenuChoice(inboundText, country) ?? classifyFreeText(inboundText, country) ?? branchIntent.branch;
       const pureGreeting = isGreetingMessage(inboundText);
       const menuShownToday = state.lastMenuDate === todayKey;
