@@ -912,12 +912,6 @@ async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
 
 async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilters): Promise<CatalogPendingOption[]> {
   const portabilidades = country === "UY" ? await listPortabilidadesUY(filters) : await listPortabilidades(filters);
-  const tiposByModalidad = filters.modalidad
-    ? await listDistinctTipoProductoByModalidad(country, filters.modalidad)
-    : country === "UY"
-      ? await listDistinctTipoProductoUY()
-      : await listDistinctTipoProducto();
-  const allTipos = country === "UY" ? await listDistinctTipoProductoUY() : await listDistinctTipoProducto();
 
   const options: CatalogPendingOption[] = [];
   const portable = portabilidades.find((o) => normalizeText(o).includes("portatil"));
@@ -928,18 +922,9 @@ async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilter
   if (mobile) {
     options.push({ label: "🚗 Móviles (Para vehículos/base)", value: mobile });
   }
-  const repeaterType = [...tiposByModalidad, ...allTipos].find((tp) => normalizeText(tp).includes("repetidor"));
-  if (repeaterType) {
-    options.push({
-      label: "📡 Repetidores",
-      value: repeaterType,
-      applyFilters: {
-        tipo_producto: repeaterType,
-        portabilidad: undefined,
-        frecuencia: undefined,
-        tecnologia: undefined,
-      },
-    });
+  const repeaterPortability = portabilidades.find((o) => normalizeText(o).includes("repetidor"));
+  if (repeaterPortability) {
+    options.push({ label: "📡 Repetidores", value: repeaterPortability });
   }
   return options;
 }
