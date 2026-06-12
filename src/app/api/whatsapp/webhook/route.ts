@@ -760,19 +760,77 @@ function parseArriendoIntentChoice(text: string): CatalogArriendoIntent | null {
 function parseArriendoProductChoice(text: string): "equipos_radio" | "accesorio_radio" | "camara_corporal" | "dealer_region" | null {
   const t = normalizeText(text);
   if (!t) return null;
-  if (t === "1" || (t.includes("equipo") && t.includes("radio")) || t === "radio" || t === "radios") return "equipos_radio";
-  if (t === "2" || t.includes("accesorio") || (t.includes("radio") && t.includes("accesorio"))) return "accesorio_radio";
-  if (t === "3" || t.includes("camara corporal") || t.includes("cámara corporal") || t.includes("bodycam") || t.includes("camara")) return "camara_corporal";
-  if (
-    t === "4" ||
-    t.includes("dealer") ||
-    t.includes("distribuidor") ||
-    t.includes("region") ||
-    t.includes("región") ||
-    (t.includes("contact") && t.includes("dealer"))
-  ) {
-    return "dealer_region";
+
+  if (t === "1") return "equipos_radio";
+  if (t === "2") return "accesorio_radio";
+  if (t === "3") return "camara_corporal";
+  if (t === "4") return "dealer_region";
+
+  const equipmentTerms = [
+    "equipo de radio",
+    "equipos de radio",
+    "radio movil",
+    "radio móvil",
+    "radio base",
+    "radio",
+    "radios",
+    "handy",
+    "portatil",
+    "portátil",
+    "movil",
+    "móvil",
+  ];
+  const accessoryTerms = [
+    "accesorio",
+    "accesorios",
+    "antena",
+    "bateria",
+    "batería",
+    "cargador",
+    "microfono",
+    "micrófono",
+    "parlante microfono",
+    "parlante micrófono",
+    "auricular",
+  ];
+  const cameraTerms = [
+    "camara corporal",
+    "cámara corporal",
+    "bodycam",
+    "camara personal",
+    "cámara personal",
+    "camara de cuerpo",
+    "cámara de cuerpo",
+  ];
+  const dealerTerms = [
+    "dealer",
+    "distribuidor",
+    "distribuidores",
+    "ejecutivo",
+    "asesor",
+    "contacto directo",
+    "contactar",
+  ];
+
+  const scoreByTerms = (terms: string[]) => terms.reduce((acc, term) => acc + (t.includes(term) ? 1 : 0), 0);
+
+  const equipmentScore = scoreByTerms(equipmentTerms) + (t.includes("equipo") && t.includes("radio") ? 1 : 0);
+  const accessoryScore = scoreByTerms(accessoryTerms) + (t.includes("radio") && t.includes("accesorio") ? 1 : 0);
+  const cameraScore = scoreByTerms(cameraTerms) + (t.includes("camara") || t.includes("cámara") ? 1 : 0);
+  const dealerScore =
+    scoreByTerms(dealerTerms) +
+    (t.includes("region") || t.includes("región") ? 1 : 0) +
+    ((t.includes("contact") && (t.includes("dealer") || t.includes("ejecutivo") || t.includes("asesor"))) ? 1 : 0) +
+    ((t.includes("hablar") && (t.includes("ejecutivo") || t.includes("asesor"))) ? 1 : 0);
+
+  if (dealerScore > 0 && equipmentScore === 0 && accessoryScore === 0 && cameraScore === 0) return "dealer_region";
+  if (cameraScore > 0 && cameraScore >= equipmentScore && cameraScore >= accessoryScore) return "camara_corporal";
+  if (equipmentScore > 0 && accessoryScore > 0) {
+    return equipmentScore >= accessoryScore ? "equipos_radio" : "accesorio_radio";
   }
+  if (equipmentScore > 0) return "equipos_radio";
+  if (accessoryScore > 0) return "accesorio_radio";
+  if (dealerScore > 0) return "dealer_region";
   return null;
 }
 
