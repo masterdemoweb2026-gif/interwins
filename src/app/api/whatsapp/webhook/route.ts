@@ -3816,6 +3816,30 @@ function getDealerCtaText() {
   return "Si quieres ingresar una solicitud, escribe: Contactar Dealer.";
 }
 
+function getNaturalMenuReminderText() {
+  return "Recuerda que puedes volver a tu menu de opciones cuando lo desees.";
+}
+
+function getServiceNaturalGuidanceText() {
+  return "Si necesitas ayuda mas personalizada con tu caso, solo debes solicitar el servicio tecnico y te derivamos al formulario de contacto.";
+}
+
+function getDealerNaturalGuidanceText() {
+  return "Si necesitas que te pongamos en contacto con un dealer de tu region, solo debes solicitarlo y te derivamos al formulario de contacto.";
+}
+
+function getCancelReminderText() {
+  return "Si en algun momento quieres salir de este proceso, solo escribe: Cancelar.";
+}
+
+function getCancelConfirmationText() {
+  return "Perfecto, cancelé esta solicitud. Si quieres, retomamos desde el menu.";
+}
+
+function getFormInProgressText() {
+  return "Ahora mismo estamos completando una solicitud. Si prefieres salir de este proceso, solo escribe: Cancelar.";
+}
+
 function getContactFormMessagePrompt(kind: ContactFormKind) {
   switch (kind) {
     case "cl_proyectos":
@@ -4048,7 +4072,7 @@ async function startContactForm(
   }
 
   const intro = options?.intro ?? getContactFormStartIntro(kind);
-  return [intro, "", getContactFormStepPrompt(next, kind), "", "Si quieres cancelar, responde: Cancelar."].join("\n");
+  return [intro, "", getContactFormStepPrompt(next, kind), "", getCancelReminderText()].join("\n");
 }
 
 async function handleContactForm(state: UserState, text: string, userPhone: string) {
@@ -4061,7 +4085,7 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
     state.contactForm = undefined;
     state.activeBranch = "menu";
     markMenuShown(state);
-    return ["Ok, cancelé el formulario.", "", buildMainMenuText(state.country ?? getContactFormCountry(form.kind), "return")].join("\n");
+    return [getCancelConfirmationText(), "", buildMainMenuText(state.country ?? getContactFormCountry(form.kind), "return")].join("\n");
   }
 
   if (form.reviewMode) {
@@ -4182,8 +4206,9 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
   });
 
   const tail = [
-    getServiceCtaText(),
-    "Para volver al menú: Menú.",
+    getServiceNaturalGuidanceText(),
+    "",
+    getNaturalMenuReminderText(),
   ].join("\n");
 
   return [ai || opening, "", tail].join("\n");
@@ -4216,7 +4241,7 @@ async function handleCambium(state: UserState, text: string, userPhone: string):
     if (t.includes("cancel")) {
       cambium.quote = undefined;
       markMenuShown(state);
-      return ["Ok, cancelé el formulario de Cambium.", "", buildMainMenuText("UY", "return")].join("\n");
+      return [getCancelConfirmationText(), "", buildMainMenuText("UY", "return")].join("\n");
     }
 
     const setAndNext = (key: keyof CambiumQuote["data"], value: string, next: CambiumQuoteStep) => {
@@ -4374,7 +4399,7 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
     }
     if (isNegative(text)) {
       state.points.awaitingDealerOffer = false;
-      return "Perfecto. Si quieres buscar otra zona o ciudad, escríbemela. Para volver al menú: Menú.";
+      return ["Perfecto. Si quieres buscar otra zona o ciudad, escríbemela.", "", getNaturalMenuReminderText()].join("\n");
     }
   }
 
@@ -4389,7 +4414,8 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
       "No encontré puntos de venta con ese dato.",
       "",
       "¿Me dices otra comuna/ciudad cercana o la zona (Zona Norte / Zona Centro / Zona Sur)?",
-      "Si quieres volver al menú, responde: Menú.",
+      "",
+      getNaturalMenuReminderText(),
     ].join("\n");
   }
   const blocks = puntosVenta
@@ -4402,8 +4428,11 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
     formatted,
     "",
     "¿Deseas que te pongamos en contacto con un dealer de su región?",
-    getDealerCtaText(),
-    "Si quieres buscar otra zona o ciudad, escríbemela. Para volver al menú: Menú.",
+    getDealerNaturalGuidanceText(),
+    "",
+    "Si quieres buscar otra zona o ciudad, escríbemela.",
+    "",
+    getNaturalMenuReminderText(),
   ].join("\n");
 }
 
@@ -4432,9 +4461,9 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
     "📞 Mesa Central: +56 2 3263 5550",
     "📞 SAM: +56 2 3263 5551",
     "",
-    cta,
+    getServiceNaturalGuidanceText(),
     "",
-    "Si quieres volver al menú, responde: Menú.",
+    getNaturalMenuReminderText(),
   ].join("\n");
 
   return ai ? [ai, servicios] : servicios;
@@ -4644,7 +4673,7 @@ export async function POST(request: Request) {
         const wantsNav = isMenuCommand(inboundText) || Boolean(branchIntent.branch);
         const wantsCancel = t0.includes("cancel");
         if (wantsNav && !wantsCancel) {
-          reply = "Estamos llenando un formulario. Para salir sin perder lo ingresado, responde: Cancelar.";
+          reply = getFormInProgressText();
         } else
         if (state.contactForm) {
           reply = await handleContactForm(state, inboundText, userKey);
@@ -4653,7 +4682,7 @@ export async function POST(request: Request) {
         } else if (state.activeBranch === "catalogo") {
           reply = country === "UY" ? await handleCatalogUY(state, inboundText, userKey) : await handleCatalog(state, inboundText, userKey);
         } else {
-          reply = "Estamos llenando un formulario. Para cancelarlo, responde: Cancelar.";
+          reply = getFormInProgressText();
         }
       } else if (isMenuCommand(inboundText)) {
         if (state.catalog.status === "wait_finish_cotizacion") {
