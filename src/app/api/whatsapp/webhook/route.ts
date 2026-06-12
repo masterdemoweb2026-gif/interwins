@@ -719,7 +719,7 @@ function buildArriendoLandingMessage(): Reply {
       "Descubre las ventajas de arrendar con InterWins.",
       "Disponibilidad inmediata. Arrienda Radios Motorola y accesorios de manera permanente, por meses o por evento.",
     ].join("\n"),
-    ["📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Deseas que te pongamos en contacto con un dealer de tu región"].join("\n"),
+    ["¿Qué opción prefieres para elegir?", "📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Arrendar directamente con un ejecutivo"].join("\n"),
   ];
 }
 
