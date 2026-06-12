@@ -379,6 +379,29 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function hasAnalogTechnology(value: string) {
+  const t = normalizeText(value);
+  return t.includes("analogo") || t.includes("analogico");
+}
+
+function hasDigitalTechnology(value: string) {
+  return normalizeText(value).includes("digital");
+}
+
+function matchesSelectedTechnology(value: string, selected?: string) {
+  if (!selected) return true;
+  const wanted = normalizeText(selected);
+  if (!wanted) return true;
+
+  const hasAnalog = hasAnalogTechnology(value);
+  const hasDigital = hasDigitalTechnology(value);
+
+  if (wanted.includes("digital")) return hasDigital && !hasAnalog;
+  if (wanted.includes("analogo") || wanted.includes("analogico")) return hasAnalog && !hasDigital;
+
+  return normalizeText(value).includes(wanted);
+}
+
 function detectCountryFromPhone(phone: string): Country {
   const digits = String(phone || "").replace(/[^\d]/g, "");
   if (digits.startsWith("598")) return "UY";
@@ -1930,7 +1953,7 @@ async function listFrecuencias(filters: CatalogFilters): Promise<string[]> {
 async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
   const params: string[] = [
-    `select=product_id,nombre`,
+    `select=product_id,nombre,tecnologia,frecuencia`,
     `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
     `limit=5`,
     `order=nombre.asc`,
@@ -1943,7 +1966,42 @@ async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_i
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return [];
   return (res.data as unknown[])
-    .map((r) => ({ product_id: toTrimmedString(getRecordValue(r, "product_id")), nombre: toTrimmedString(getRecordValue(r, "nombre")) }))
+    .map((r) => ({
+      product_id: toTrimmedString(getRecordValue(r, "product_id")),
+      nombre: toTrimmedString(getRecordValue(r, "nombre")),
+      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
+    }))
+    .filter((r) => r.product_id && r.nombre)
+    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
+    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
+    .slice(0, 5)
+    .filter((r) => r.product_id && r.nombre);
+}
+
+async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
+  if (!filters.tipo_producto) return [];
+  const table = getUyProductsTable();
+  const params: string[] = [
+    `select=product_id,nombre,tecnologia,frecuencia`,
+    `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
+    `limit=5`,
+    `order=nombre.asc`,
+  ];
+  if (filters.modalidad) params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
+  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
+  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
+  if (filters.tecnologia) params.push(`tecnologia=ilike.*${encodeURIComponent(filters.tecnologia)}*`);
+  const q = `${table}?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[])
+    .map((r) => ({
+      product_id: toTrimmedString(getRecordValue(r, "product_id")),
+      nombre: toTrimmedString(getRecordValue(r, "nombre")),
+      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
+    }))
+    .filter((r) => r.product_id && r.nombre)
+    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
     .filter((r) => r.product_id && r.nombre);
 }
 
@@ -2016,27 +2074,6 @@ async function listPortabilidadesUY(filters: CatalogFilters): Promise<string[]> 
 async function listFrecuenciasUY(filters: CatalogFilters): Promise<string[]> {
   if (!filters.tipo_producto) return [];
   return await listDistinctUyColumn("frecuencia", filters);
-}
-
-async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
-  if (!filters.tipo_producto) return [];
-  const table = getUyProductsTable();
-  const params: string[] = [
-    `select=product_id,nombre`,
-    `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
-    `limit=5`,
-    `order=nombre.asc`,
-  ];
-  if (filters.modalidad) params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
-  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
-  if (filters.tecnologia) params.push(`tecnologia=ilike.*${encodeURIComponent(filters.tecnologia)}*`);
-  const q = `${table}?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({ product_id: toTrimmedString(getRecordValue(r, "product_id")), nombre: toTrimmedString(getRecordValue(r, "nombre")) }))
-    .filter((r) => r.product_id && r.nombre);
 }
 
 async function loadProductDetailUY(productId: string) {
@@ -2994,7 +3031,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   if (isRadioEquipment && !state.catalog.skipRadioTechFrequency && (!state.catalog.filters.frecuencia || !state.catalog.filters.tecnologia)) {
     const options = buildRadioFrequencyTechnologyOptions();
     state.catalog.pending = { attr: "frecuencia", options };
-    return ["¿Qué combinación necesitas?", "", ...options.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
+    return ["¿En qué frecuencia operan tus equipos actuales o cuál necesitas?", "", ...options.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
   }
 
   if (!isRadioEquipment && !state.catalog.filters.frecuencia) {
@@ -3275,7 +3312,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   if (isRadioEquipment && !state.catalog.skipRadioTechFrequency && (!state.catalog.filters.frecuencia || !state.catalog.filters.tecnologia)) {
     const options = buildRadioFrequencyTechnologyOptions();
     state.catalog.pending = { attr: "frecuencia", options };
-    return ["¿Qué combinación necesitas?", "", ...options.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
+    return ["¿En qué frecuencia operan tus equipos actuales o cuál necesitas?", "", ...options.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
   }
 
   if (!isRadioEquipment && !state.catalog.filters.frecuencia) {
