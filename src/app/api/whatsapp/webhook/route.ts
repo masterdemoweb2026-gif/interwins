@@ -3706,7 +3706,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
   }
 
   const lines = list.map((p, i) => `${i + 1}) ${p.titulo}`).join("\n");
-  return ["Estos son algunos proyectos:", "", lines, "", `Elige algún proyecto o ${getProjectsCtaText().toLowerCase()}`, "Si quieres regresar al menú, escribe: Menú."].join("\n");
+  return ["Estos son algunos proyectos:", "", lines, "", getProjectsNaturalGuidanceText(), "", getProjectsMenuReminderText()].join("\n");
 }
 
 async function loadProjectContent(id: number) {
@@ -3798,6 +3798,14 @@ function getContactFormSuccessMessage(kind: ContactFormKind, data?: ContactFormS
 
 function getProjectsCtaText() {
   return "Si quieres ingresar una solicitud, escribe: Solicitar Asesoría.";
+}
+
+function getProjectsNaturalGuidanceText() {
+  return "Puedes escoger algun proyecto para revisarlo, en caso de necesitar una asesoria para tus proyectos solo debes solicitarla y te derivamos al formulario de contacto.";
+}
+
+function getProjectsMenuReminderText() {
+  return "Recuerda que puedes volver a tu menu de opciones cuando lo desees.";
 }
 
 function getServiceCtaText() {
