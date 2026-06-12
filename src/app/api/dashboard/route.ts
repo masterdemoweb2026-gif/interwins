@@ -114,6 +114,8 @@ function mapCotizacionOrigin(origen: string) {
       return { key: "proyectos", label: "Proyectos" };
     case "cl_dealer":
       return { key: "dealer", label: "Dealer" };
+    case "cl_servicio_tecnico":
+      return { key: "servicio_tecnico", label: "Servicio técnico" };
     case "cl_cotizacion_producto":
     case "uy_catalogo":
     case "cotizacion":

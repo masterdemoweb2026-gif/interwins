@@ -293,21 +293,23 @@ type PointsState = {
   awaitingDealerOffer?: boolean;
 };
 
-type ContactFormKind = "cl_proyectos" | "cl_dealer" | "uy_proyectos" | "uy_servicio_tecnico";
+type ContactFormKind = "cl_proyectos" | "cl_dealer" | "cl_servicio_tecnico" | "uy_proyectos" | "uy_servicio_tecnico";
 
-type ContactFormStep = "nombre" | "empresa" | "telefono" | "correo" | "direccion" | "mensaje" | "final";
+type ContactFormStep = "nombre" | "empresa" | "telefono" | "correo" | "direccion" | "producto" | "mensaje" | "final";
 
 type ContactFormState = {
   kind: ContactFormKind;
   step: ContactFormStep;
   reviewMode?: boolean;
   reviewEditField?: Exclude<ContactFormStep, "final">;
+  optionalProductHandled?: boolean;
   data: Partial<{
     nombre: string;
     empresa: string;
     telefono: string;
     correo: string;
     direccion: string;
+    producto: string;
     mensaje: string;
   }>;
 };
@@ -3654,7 +3656,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
     return [
       `*${detail.titulo}*`,
       ...(chunks.length ? chunks : ["Descripción no disponible."]),
-      "Si quieres solicitar asesoría, escribe: Solicitar Asesoría.",
+      getProjectsCtaText(),
       "Si quieres ver otro proyecto, elige un número o escribe Menú.",
     ].filter(Boolean);
   }
@@ -3693,7 +3695,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
     const messages: string[] = [`*${detail.titulo}*`];
     if (resumen) messages.push(resumen);
     messages.push("Si quieres que te envíe el detalle completo, dime: Detalle.");
-    messages.push("Si quieres solicitar asesoría, escribe: Solicitar Asesoría.");
+    messages.push(getProjectsCtaText());
     messages.push("Para ver otro proyecto, indícame el número (ej: 2) o escribe: proyecto 2.");
     return messages.filter(Boolean);
   }
@@ -3704,7 +3706,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
   }
 
   const lines = list.map((p, i) => `${i + 1}) ${p.titulo}`).join("\n");
-  return ["Estos son algunos proyectos:", "", lines, "", "Elige algún proyecto o escribe: Solicitar Asesoría.", "Si quieres regresar al menú, escribe: Menú."].join("\n");
+  return ["Estos son algunos proyectos:", "", lines, "", `Elige algún proyecto o ${getProjectsCtaText().toLowerCase()}`, "Si quieres regresar al menú, escribe: Menú."].join("\n");
 }
 
 async function loadProjectContent(id: number) {
@@ -3736,6 +3738,10 @@ function getDealerZoneLabel(data?: ContactFormState["data"]) {
   return zone ? `Contacto con dealer - ${zone}` : "Contacto con dealer";
 }
 
+function isServiceContactKind(kind: ContactFormKind) {
+  return kind === "cl_servicio_tecnico" || kind === "uy_servicio_tecnico";
+}
+
 function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormState["data"]) {
   switch (kind) {
     case "cl_proyectos":
@@ -3743,6 +3749,7 @@ function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormSta
       return "Asesoría en proyectos";
     case "cl_dealer":
       return getDealerZoneLabel(data);
+    case "cl_servicio_tecnico":
     case "uy_servicio_tecnico":
       return "Servicio técnico";
   }
@@ -3754,11 +3761,51 @@ function getContactFormStartIntro(kind: ContactFormKind) {
       return "Perfecto. Armemos tu solicitud de asesoría en proyectos.";
     case "cl_dealer":
       return "Perfecto. Armemos tu solicitud para que un dealer de tu región te contacte.";
+    case "cl_servicio_tecnico":
+      return "Perfecto. Armemos tu solicitud de servicio técnico.";
     case "uy_proyectos":
       return "Perfecto. Armemos tu solicitud de asesoría en proyectos.";
     case "uy_servicio_tecnico":
       return "Perfecto. Armemos tu solicitud de servicio técnico.";
   }
+}
+
+function getContactFormReviewTitle(kind: ContactFormKind, data?: ContactFormState["data"]) {
+  switch (kind) {
+    case "cl_proyectos":
+    case "uy_proyectos":
+      return "Perfecto. Este es el resumen de tu solicitud de asesoría en proyectos:";
+    case "cl_dealer":
+      return `Perfecto. Este es el resumen de tu solicitud de ${getContactFormRequestLabel(kind, data)}:`;
+    case "cl_servicio_tecnico":
+    case "uy_servicio_tecnico":
+      return "Perfecto. Este es el resumen de tu solicitud de servicio técnico:";
+  }
+}
+
+function getContactFormSuccessMessage(kind: ContactFormKind, data?: ContactFormState["data"]) {
+  switch (kind) {
+    case "cl_proyectos":
+    case "uy_proyectos":
+      return "✅ Tu solicitud de asesoría en proyectos fue enviada correctamente. Te contactaremos a la brevedad.";
+    case "cl_dealer":
+      return `✅ Tu solicitud de ${getContactFormRequestLabel(kind, data)} fue enviada correctamente. Te contactaremos a la brevedad.`;
+    case "cl_servicio_tecnico":
+    case "uy_servicio_tecnico":
+      return "✅ Tu solicitud de servicio técnico fue enviada correctamente. Te contactaremos a la brevedad.";
+  }
+}
+
+function getProjectsCtaText() {
+  return "Si quieres ingresar una solicitud, escribe: Solicitar Asesoría.";
+}
+
+function getServiceCtaText() {
+  return "Si quieres ingresar una solicitud, escribe: Solicitar Servicio Técnico.";
+}
+
+function getDealerCtaText() {
+  return "Si quieres ingresar una solicitud, escribe: Contactar Dealer.";
 }
 
 function getContactFormMessagePrompt(kind: ContactFormKind) {
@@ -3768,6 +3815,7 @@ function getContactFormMessagePrompt(kind: ContactFormKind) {
       return "¿Qué proyecto o necesidad tienes? (mensaje)";
     case "cl_dealer":
       return "¿Qué necesitas del dealer de tu región? (mensaje)";
+    case "cl_servicio_tecnico":
     case "uy_servicio_tecnico":
       return "¿Qué problema o solicitud tienes? (mensaje)";
   }
@@ -3780,15 +3828,17 @@ function getContactFormStepPrompt(step: Exclude<ContactFormStep, "final">, kind:
   if (step === "telefono") return country === "UY" ? "Ahora indícame tu teléfono. Ej: +598 9 123 4567" : "Ahora indícame tu teléfono. Ej: +569 1234 5678";
   if (step === "correo") return country === "UY" ? "¿Cuál es tu correo electrónico? (Ej: nombre@empresa.com)" : "¿Cuál es tu correo electrónico? (Ej: nombre@empresa.cl)";
   if (step === "direccion") return "¿Cuál es tu dirección, comuna o referencia de ubicación?";
+  if (step === "producto") return "¿Con qué equipo o producto necesitas ayuda? Si prefieres omitirlo, escribe: Omitir";
   return getContactFormMessagePrompt(kind);
 }
 
-function getContactFormNextStep(data: ContactFormState["data"]): ContactFormStep {
+function getContactFormNextStep(kind: ContactFormKind, data: ContactFormState["data"], optionalProductHandled?: boolean): ContactFormStep {
   if (!data.nombre) return "nombre";
   if (!data.empresa) return "empresa";
   if (!data.telefono) return "telefono";
   if (!data.correo) return "correo";
   if (!data.direccion) return "direccion";
+  if (isServiceContactKind(kind) && !optionalProductHandled && !data.producto) return "producto";
   if (!data.mensaje) return "mensaje";
   return "final";
 }
@@ -3801,6 +3851,7 @@ function detectContactFieldToEdit(text: string): Exclude<ContactFormStep, "final
   if (t.includes("telefono") || t.includes("teléfono") || t.includes("celular") || t.includes("fono")) return "telefono";
   if (t.includes("correo") || t.includes("mail") || t.includes("email")) return "correo";
   if (t.includes("direccion") || t.includes("dirección") || t.includes("comuna") || t.includes("ubicacion") || t.includes("ubicación")) return "direccion";
+  if (t.includes("producto") || t.includes("equipo") || t.includes("modelo")) return "producto";
   if (t.includes("mensaje") || t.includes("detalle") || t.includes("solicitud") || t.includes("necesidad")) return "mensaje";
   return null;
 }
@@ -3841,6 +3892,19 @@ function applyContactFieldValue(form: ContactFormState, field: Exclude<ContactFo
     form.data.direccion = input.trim();
     return null;
   }
+  if (field === "producto") {
+    const t = normalizeText(input);
+    if (!input.trim()) return "¿Con qué equipo o producto necesitas ayuda? Si prefieres omitirlo, escribe: Omitir";
+    if (t === "omitir" || t === "no se" || t === "nose" || t === "ninguno") {
+      form.data.producto = "";
+      form.optionalProductHandled = true;
+      return null;
+    }
+    if (input.trim().length < 2) return "Cuéntame el equipo o modelo. Si prefieres omitirlo, escribe: Omitir";
+    form.data.producto = input.trim();
+    form.optionalProductHandled = true;
+    return null;
+  }
   if (input.trim().length < 4) return "Dime un poquito más en el mensaje para que podamos ayudarte mejor.";
   form.data.mensaje = input.trim();
   return null;
@@ -3859,8 +3923,11 @@ function mapContactFormToUserProfile(data: ContactFormState["data"]): CatalogQuo
 async function buildContactFormReviewMessage(state: UserState) {
   const form = state.contactForm;
   if (!form) return "No veo una solicitud activa en este momento.";
+  const productSection = isServiceContactKind(form.kind)
+    ? ["*Equipo o producto*", form.data.producto ? `- Producto: ${form.data.producto}` : "- Producto: No informado", ""]
+    : [];
   const lines = [
-    "Perfecto. Este es el resumen de tu solicitud:",
+    getContactFormReviewTitle(form.kind, form.data),
     "",
     "*Solicitud*",
     `- Tipo: ${getContactFormRequestLabel(form.kind, form.data)}`,
@@ -3876,6 +3943,7 @@ async function buildContactFormReviewMessage(state: UserState) {
     "*Ubicación*",
     form.data.direccion ? `- Dirección o referencia: ${form.data.direccion}` : "- Dirección o referencia: No informada",
     "",
+    ...productSection,
     "*Detalle*",
     form.data.mensaje ? `- Mensaje: ${form.data.mensaje}` : "- Mensaje: No informado",
     "",
@@ -3898,7 +3966,7 @@ async function saveClContactLead(userPhone: string, form: ContactFormState) {
     ciudad: null,
     region: null,
     producto_id: null,
-    producto_nombre: getContactFormRequestLabel(form.kind, form.data),
+    producto_nombre: form.data.producto?.trim() || getContactFormRequestLabel(form.kind, form.data),
     canal: "whatsapp",
     estado: "enviada",
   };
@@ -3925,6 +3993,7 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
       telefono: form.data.telefono ?? null,
       email: form.data.correo ?? null,
       direccion: form.data.direccion ?? null,
+      producto: form.data.producto?.trim() || null,
       mensaje: form.data.mensaje ?? null,
       canal: "whatsapp",
       created_at: new Date().toISOString(),
@@ -3938,7 +4007,7 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
   markMenuShown(state);
 
   return [
-    "✅ Listo, ya recibimos tu solicitud. En breve te contactamos.",
+    getContactFormSuccessMessage(form.kind, form.data),
     "",
     buildMainMenuText(state.country ?? getContactFormCountry(form.kind), "return"),
   ].join("\n");
@@ -3957,11 +4026,13 @@ async function startContactForm(
     telefono: options?.presetData?.telefono ?? profile?.telefono,
     correo: options?.presetData?.correo ?? profile?.email,
     direccion: options?.presetData?.direccion ?? profile?.direccion,
+    producto: options?.presetData?.producto,
     mensaje: options?.presetData?.mensaje,
   };
 
-  const next = getContactFormNextStep(data);
-  state.contactForm = { kind, step: next, data, reviewMode: false, reviewEditField: undefined };
+  const optionalProductHandled = Boolean(options?.presetData?.producto);
+  const next = getContactFormNextStep(kind, data, optionalProductHandled);
+  state.contactForm = { kind, step: next, data, reviewMode: false, reviewEditField: undefined, optionalProductHandled };
 
   if (next === "final") {
     state.contactForm.reviewMode = true;
@@ -4018,7 +4089,7 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
   const error = applyContactFieldValue(form, form.step as Exclude<ContactFormStep, "final">, input);
   if (error) return error;
 
-  form.step = getContactFormNextStep(form.data);
+  form.step = getContactFormNextStep(form.kind, form.data, form.optionalProductHandled);
   state.contactForm = form;
 
   if (form.step === "final") {
@@ -4048,7 +4119,7 @@ async function handleProjectsUY(state: UserState, text: string, userPhone: strin
     return [
       `*${found.titulo}*`,
       ...(chunks.length ? chunks : ["Descripción no disponible."]),
-      "Si quieres que te contacten por un proyecto, escribe: Solicitar Asesoría.",
+      getProjectsCtaText(),
       "Para ver otro proyecto, indícame el número o escribe Menú.",
     ].filter(Boolean);
   }
@@ -4062,16 +4133,16 @@ async function handleProjectsUY(state: UserState, text: string, userPhone: strin
     const messages: string[] = [`*${chosen.titulo}*`];
     if (resumen) messages.push(resumen);
     messages.push("Si quieres que te envíe el detalle completo, dime: Detalle.");
-    messages.push("Si quieres que te contacten por un proyecto, escribe: Solicitar Asesoría.");
+    messages.push(getProjectsCtaText());
     return messages.filter(Boolean);
   }
 
   const bankHints = ["certificacion", "certificación", "certificaciones", "enfoque", "banco", "informativo", "capacidad", "soluciones"];
   if (bankHints.some((h) => t.includes(normalizeText(h))) && bankText) {
     const ai = await minimaxAnswerFromKnowledge({ role: "proyectos", input, knowledgeText: bankText });
-    if (ai) return [ai, "", "Si quieres que te contacten por un proyecto, escribe: Solicitar Asesoría."].join("\n");
+    if (ai) return [ai, "", getProjectsCtaText()].join("\n");
     const clipped = bankText.length > 1400 ? `${bankText.slice(0, 1400).trim()}...` : bankText;
-    return [clipped, "", "Si quieres que te contacten por un proyecto, escribe: Solicitar Asesoría."].join("\n");
+    return [clipped, "", getProjectsCtaText()].join("\n");
   }
 
   if (!projects.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
@@ -4081,7 +4152,7 @@ async function handleProjectsUY(state: UserState, text: string, userPhone: strin
     "",
     lines,
     "",
-    "Elige un proyecto por número. Si quieres que te contacten, escribe: Solicitar Asesoría.",
+    `Elige un proyecto por número. ${getProjectsCtaText()}`,
   ].join("\n");
 }
 
@@ -4089,7 +4160,7 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
   const input = text.trim();
   const t = normalizeText(input);
   const opening = "🔧 ¡Buenas! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
-  if (!input) return `${opening}\n\nSi quieres pedir asistencia, escribe: Solicitar servicio.`;
+  if (!input) return `${opening}\n\n${getServiceCtaText()}`;
 
   if (t.includes("solicit") || t.includes("agendar") || t.includes("formulario") || t.includes("contact")) {
     return await startContactForm(state, userPhone, "uy_servicio_tecnico");
@@ -4103,7 +4174,7 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
   });
 
   const tail = [
-    "Si quieres pedir asistencia, escribe: Solicitar servicio.",
+    getServiceCtaText(),
     "Para volver al menú: Menú.",
   ].join("\n");
 
@@ -4323,14 +4394,21 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
     formatted,
     "",
     "¿Deseas que te pongamos en contacto con un dealer de su región?",
+    getDealerCtaText(),
     "Si quieres buscar otra zona o ciudad, escríbemela. Para volver al menú: Menú.",
   ].join("\n");
 }
 
-async function handleServicioTecnico(state: UserState, text: string) {
+async function handleServicioTecnico(state: UserState, text: string, userPhone: string) {
   const q = text.trim();
+  const t = normalizeText(q);
   const opening = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
-  if (!q) return opening;
+  const cta = getServiceCtaText();
+  if (!q) return [opening, "", cta].join("\n");
+
+  if (t.includes("solicit") || t.includes("agendar") || t.includes("formulario") || t.includes("contact")) {
+    return await startContactForm(state, userPhone, "cl_servicio_tecnico");
+  }
 
   const hits = (await answerServicioTecnico(q)) ?? [];
   const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge: hits.map((h) => ({ tema: h.tema, info: h.info })) });
@@ -4346,10 +4424,12 @@ async function handleServicioTecnico(state: UserState, text: string) {
     "📞 Mesa Central: +56 2 3263 5550",
     "📞 SAM: +56 2 3263 5551",
     "",
+    cta,
+    "",
     "Si quieres volver al menú, responde: Menú.",
   ].join("\n");
 
-  return [ai, servicios];
+  return ai ? [ai, servicios] : servicios;
 }
 
 export async function GET(request: Request) {
@@ -4612,7 +4692,7 @@ export async function POST(request: Request) {
               } else if (intent.branch === "proyectos") {
                 reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
               } else if (intent.branch === "servicio_tecnico") {
-                reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "");
+                reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
               } else if (intent.branch === "cambium") {
                 reply = await handleCambium(state, "", userKey);
               } else if (intent.branch === "puntos_venta") {
@@ -4646,7 +4726,7 @@ export async function POST(request: Request) {
             } else if (intent.branch === "proyectos") {
               reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
             } else if (intent.branch === "servicio_tecnico") {
-              reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "");
+              reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
             } else if (intent.branch === "cambium") {
               reply = await handleCambium(state, "", userKey);
             } else if (intent.branch === "puntos_venta") {
@@ -4677,7 +4757,7 @@ export async function POST(request: Request) {
             } else if (choice === "catalogo") {
               reply = await startCatalogIntentFlow(state, userKey, inboundText);
             } else if (choice === "servicio_tecnico") {
-              reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "");
+              reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
             } else if (choice === "proyectos") {
               reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
             } else if (choice === "cambium") {
@@ -4734,7 +4814,7 @@ export async function POST(request: Request) {
               } else if (intent.branch === "proyectos") {
                 reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
               } else if (intent.branch === "servicio_tecnico") {
-                reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "");
+                reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
               } else if (intent.branch === "cambium") {
                 reply = await handleCambium(state, "", userKey);
               } else if (intent.branch === "puntos_venta") {
@@ -4759,7 +4839,7 @@ export async function POST(request: Request) {
               reply = await handlePoints(state, inboundText, userKey);
             }
           } else if (state.activeBranch === "servicio_tecnico") {
-            reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText, userKey) : await handleServicioTecnico(state, inboundText);
+            reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText, userKey) : await handleServicioTecnico(state, inboundText, userKey);
           } else if (state.activeBranch === "cambium") {
             reply = await handleCambium(state, inboundText, userKey);
           } else {
