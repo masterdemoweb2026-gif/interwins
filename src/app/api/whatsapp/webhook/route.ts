@@ -767,6 +767,8 @@ function parseArriendoProductChoice(text: string): "equipos_radio" | "accesorio_
   if (t === "4") return "dealer_region";
 
   const equipmentTerms = [
+    "equipo",
+    "equipos",
     "equipo de radio",
     "equipos de radio",
     "radio movil",
@@ -808,6 +810,8 @@ function parseArriendoProductChoice(text: string): "equipos_radio" | "accesorio_
     "distribuidores",
     "ejecutivo",
     "asesor",
+    "arrendar directamente",
+    "directamente",
     "contacto directo",
     "contactar",
   ];
@@ -820,6 +824,7 @@ function parseArriendoProductChoice(text: string): "equipos_radio" | "accesorio_
   const dealerScore =
     scoreByTerms(dealerTerms) +
     (t.includes("region") || t.includes("región") ? 1 : 0) +
+    ((t.includes("arrendar") && t.includes("direct")) ? 1 : 0) +
     ((t.includes("contact") && (t.includes("dealer") || t.includes("ejecutivo") || t.includes("asesor"))) ? 1 : 0) +
     ((t.includes("hablar") && (t.includes("ejecutivo") || t.includes("asesor"))) ? 1 : 0);
 
