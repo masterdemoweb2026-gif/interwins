@@ -2975,10 +2975,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   if (!state.catalog.filters.portabilidad) {
     const opts = isRadioEquipment ? await buildRadioSubtypeOptions("CL", state.catalog.filters) : await listPortabilidades(state.catalog.filters);
     if (opts.length > 1) {
-      const top = opts.slice(0, 5);
-      state.catalog.pending = isRadioEquipment
-        ? { attr: "portabilidad", options: top }
-        : { attr: "portabilidad", options: top.map((o) => ({ label: o, value: o })) };
+      const options: CatalogPendingOption[] = isRadioEquipment
+        ? (opts as CatalogPendingOption[]).slice(0, 5)
+        : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
+      state.catalog.pending = { attr: "portabilidad", options };
       return [
         isRadioEquipment ? "¿Qué tipo de equipo necesitas?" : "¿Portátil o móvil?",
         "",
@@ -3253,10 +3253,10 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   if (!state.catalog.filters.portabilidad) {
     const opts = isRadioEquipment ? await buildRadioSubtypeOptions("UY", state.catalog.filters) : await listPortabilidadesUY(state.catalog.filters);
     if (opts.length > 1) {
-      const top = opts.slice(0, 5);
-      state.catalog.pending = isRadioEquipment
-        ? { attr: "portabilidad", options: top }
-        : { attr: "portabilidad", options: top.map((o) => ({ label: o, value: o })) };
+      const options: CatalogPendingOption[] = isRadioEquipment
+        ? (opts as CatalogPendingOption[]).slice(0, 5)
+        : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
+      state.catalog.pending = { attr: "portabilidad", options };
       return [
         isRadioEquipment ? "¿Qué tipo de equipo necesitas?" : "¿Portátil o móvil?",
         "",
