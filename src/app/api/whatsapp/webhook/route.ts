@@ -349,6 +349,9 @@ type UserState = {
   activeBranch: Branch;
   userName?: string;
   recentInboundIds?: string[];
+  serviceTech?: {
+    lastProducto?: string;
+  };
   catalog: CatalogState;
   projects: ProjectsState;
   points: PointsState;
@@ -684,6 +687,14 @@ function getRecordValue(record: unknown, key: string): unknown {
 
 function toTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function extractLikelyProductModel(text: string) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return "";
+  const m = raw.toUpperCase().match(/\b[A-Z]{1,6}\s?-?\s?\d{2,6}[A-Z]?\b/);
+  if (!m?.[0]) return "";
+  return m[0].replace(/[\s-]+/g, "").trim();
 }
 
 function extractInboundTimestampMs(payload: unknown, message: unknown) {
@@ -4358,7 +4369,8 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
   if (!input) return `${opening}\n\n${getServiceCtaText()}`;
 
   if (t.includes("solicit") || t.includes("agendar") || t.includes("formulario") || t.includes("contact")) {
-    return await startContactForm(state, userPhone, "uy_servicio_tecnico");
+    const producto = extractLikelyProductModel(input) || state.serviceTech?.lastProducto || "";
+    return await startContactForm(state, userPhone, "uy_servicio_tecnico", producto ? { presetData: { producto } } : undefined);
   }
 
   const st = loadUyServicioTecnicoText();
@@ -4607,8 +4619,13 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
   if (!q) return [opening, "", cta].join("\n");
 
   if (t.includes("solicit") || t.includes("agendar") || t.includes("formulario") || t.includes("contact")) {
-    return await startContactForm(state, userPhone, "cl_servicio_tecnico");
+    const producto = extractLikelyProductModel(q) || state.serviceTech?.lastProducto || "";
+    return await startContactForm(state, userPhone, "cl_servicio_tecnico", producto ? { presetData: { producto } } : undefined);
   }
+
+  state.serviceTech ??= {};
+  const detected = extractLikelyProductModel(q);
+  if (detected) state.serviceTech.lastProducto = detected;
 
   const hits = (await answerServicioTecnico(q)) ?? [];
   const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge: hits.map((h) => ({ tema: h.tema, info: h.info })) });
