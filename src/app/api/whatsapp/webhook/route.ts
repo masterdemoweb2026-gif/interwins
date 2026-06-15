@@ -349,6 +349,7 @@ type UserState = {
   activeBranch: Branch;
   userName?: string;
   recentInboundIds?: string[];
+  recentInboundHashes?: Array<{ h: string; ts: number }>;
   serviceTech?: {
     lastProducto?: string;
   };
@@ -2024,6 +2025,7 @@ function initState(): UserState {
     greeted: false,
     activeBranch: "menu",
     recentInboundIds: [],
+    recentInboundHashes: [],
     catalog: { filters: {}, status: "idle" },
     projects: { offset: 0 },
     points: {},
@@ -4828,6 +4830,23 @@ export async function POST(request: Request) {
       state.country = country;
       if (!isBranchAvailable(country, state.activeBranch)) {
         returnToCasualState(state);
+      }
+
+      const inboundHash = crypto
+        .createHash("sha256")
+        .update(`${normalizeText(userKey)}|${normalizeText(inboundText)}`)
+        .digest("hex")
+        .slice(0, 16);
+      const hashWindowMs = 5 * 60 * 1000;
+      const hashKeepMs = 15 * 60 * 1000;
+      const prevHashes = state.recentInboundHashes ?? [];
+      const prunedHashes = prevHashes.filter((e) => Number.isFinite(e.ts) && e.ts > inboundTimestampMs - hashKeepMs);
+      const isHashDuplicate = prunedHashes.some((e) => e.h === inboundHash && inboundTimestampMs - e.ts < hashWindowMs);
+      state.recentInboundHashes = [{ h: inboundHash, ts: inboundTimestampMs }, ...prunedHashes.filter((e) => e.h !== inboundHash)].slice(0, 40);
+      if (isHashDuplicate) {
+        inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate hash=${inboundHash}` });
+        await saveUserState(userKey, state);
+        return NextResponse.json({ ok: true }, { status: 200 });
       }
 
       const derivedInboundKey = buildInboundDedupeKey(userKey, inboundText, inboundDedupeTimestampMs);
