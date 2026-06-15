@@ -701,6 +701,23 @@ function isMenuCommand(text: string) {
   );
 }
 
+function isProjectsIntentNormalized(t: string) {
+  if (!t) return false;
+  return (
+    t.includes("proyecto") ||
+    t.includes("proyectos") ||
+    t.includes("poryecto") ||
+    t.includes("poryectos") ||
+    t.includes("proyeto") ||
+    t.includes("proyetos") ||
+    t.includes("proyect") ||
+    t.includes("asesoria") ||
+    t.includes("asesoría") ||
+    t.includes("consultoria") ||
+    t.includes("consultoría")
+  );
+}
+
 function detectBranchIntent(text: string, country: Country): { branch: Branch | null; wantsMenu: boolean } {
   const t = normalizeText(text);
   if (!t) return { branch: null, wantsMenu: false };
@@ -732,7 +749,7 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
     t.includes("arriendo") ||
     t.includes("alquilar");
   const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
-  const mentionsProjects = t.includes("proyecto") || t.includes("proyectos") || t.includes("asesoria") || t.includes("asesoría") || t.includes("consultoria") || t.includes("consultoría");
+  const mentionsProjects = isProjectsIntentNormalized(t);
   const mentionsCambium = t.includes("cambium") || t.includes("cnmaestro") || t.includes("epmp") || t.includes("radioenlace") || t.includes("radioenlaces");
   const mentionsPoints = country !== "UY" && isPuntosVentaIntentNormalized(t);
 
@@ -1143,8 +1160,7 @@ function parseMenuChoice(text: string, country: Country): Branch | null {
   if (t === "1" || t.includes("catalogo") || t.includes("catálogo") || t.includes("cotizar") || t.includes("cotizacion") || t.includes("cotización"))
     return "catalogo";
   if (t === "2" || t.includes("servicio") || t.includes("tecnico") || t.includes("técnico")) return "servicio_tecnico";
-  if (t === "3" || t.includes("proyecto") || t.includes("proyectos") || t.includes("asesoria") || t.includes("asesoría") || t.includes("consultoria") || t.includes("consultoría"))
-    return "proyectos";
+  if (t === "3" || isProjectsIntentNormalized(t)) return "proyectos";
   if (t === "4") return country === "UY" ? "cambium" : "puntos_venta";
   if (country !== "UY" && isPuntosVentaIntentNormalized(t)) return "puntos_venta";
   if (t.includes("cambium") || t.includes("cnmaestro")) return "cambium";
@@ -1177,6 +1193,11 @@ function classifyFreeText(text: string, country: Country): Branch | null {
   const projectHints = [
     "proyecto",
     "proyectos",
+    "poryecto",
+    "poryectos",
+    "proyeto",
+    "proyetos",
+    "proyect",
     "asesoria",
     "asesoría",
     "asesoramiento",
