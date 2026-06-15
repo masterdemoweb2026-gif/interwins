@@ -4729,7 +4729,7 @@ export async function POST(request: Request) {
     undefined;
   const inboundTimestampMsRaw = extractInboundTimestampMs(payload, message);
   const inboundTimestampMs = inboundTimestampMsRaw ?? Date.now();
-  const inboundDedupeTimestampMs = Math.floor(inboundTimestampMs / 60000) * 60000;
+  const inboundDedupeTimestampMs = Math.floor(inboundTimestampMs / 15000) * 15000;
 
   const isInboundText = typeof text === "string" && text.trim().length > 0;
   const autoReplyEnabled = shouldAutoReply();
@@ -4832,13 +4832,17 @@ export async function POST(request: Request) {
         returnToCasualState(state);
       }
 
+      if (inboundId) {
+        await markMessageRead(inboundId, userKey);
+      }
+
       const inboundHash = crypto
         .createHash("sha256")
         .update(`${normalizeText(userKey)}|${normalizeText(inboundText)}`)
         .digest("hex")
         .slice(0, 16);
-      const hashWindowMs = 5 * 60 * 1000;
-      const hashKeepMs = 15 * 60 * 1000;
+      const hashWindowMs = 20 * 1000;
+      const hashKeepMs = 5 * 60 * 1000;
       const prevHashes = state.recentInboundHashes ?? [];
       const prunedHashes = prevHashes.filter((e) => Number.isFinite(e.ts) && e.ts > inboundTimestampMs - hashKeepMs);
       const isHashDuplicate = prunedHashes.some((e) => e.h === inboundHash && inboundTimestampMs - e.ts < hashWindowMs);
@@ -4860,10 +4864,6 @@ export async function POST(request: Request) {
         });
         await saveUserState(userKey, state);
         return NextResponse.json({ ok: true }, { status: 200 });
-      }
-
-      if (inboundId) {
-        await markMessageRead(inboundId, userKey);
       }
 
       await sendChatPresence(userKey, "start");
