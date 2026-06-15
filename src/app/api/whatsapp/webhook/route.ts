@@ -4149,14 +4149,24 @@ async function saveClContactLead(userPhone: string, form: ContactFormState) {
     region: null,
     producto_id: null,
     producto_nombre: form.data.producto?.trim() || getContactFormRequestLabel(form.kind, form.data),
+    mensaje: form.data.mensaje ?? null,
     canal: "whatsapp",
     estado: "enviada",
   };
-  await supabaseFetch(`cotizaciones`, {
+  const res = await supabaseFetch(`cotizaciones`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
     body: JSON.stringify(row),
   });
+  if (!res.ok) {
+    const fallbackRow = { ...row };
+    delete (fallbackRow as Record<string, unknown>).mensaje;
+    await supabaseFetch(`cotizaciones`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify(fallbackRow),
+    });
+  }
 }
 
 async function finalizeContactForm(state: UserState, userPhone: string) {

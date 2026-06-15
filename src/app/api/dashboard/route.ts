@@ -180,6 +180,7 @@ function mapOriginDisplayLabel(value: string) {
 function normalizeCotizacion(row: JsonRecord, index: number): DashboardRequest {
   const origen = toText(row.origen);
   const mapped = mapCotizacionOrigin(origen);
+  const mensaje = toText(row.mensaje);
   const recomendados = [
     toJoinedText(row.recomendados_ofrecidos),
     toJoinedText(row.recomendados_incluidos),
@@ -202,7 +203,7 @@ function normalizeCotizacion(row: JsonRecord, index: number): DashboardRequest {
     email: toText(row.email),
     producto: toText(row.producto_nombre) || toText(row.producto_id),
     categoria: mapOriginDisplayLabel(origen) || mapped.label,
-    mensaje: recomendados,
+    mensaje: mensaje || recomendados,
     estado: toText(row.estado) || "enviada",
     canal: toText(row.canal) || "whatsapp",
   };
