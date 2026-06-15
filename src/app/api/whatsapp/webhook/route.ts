@@ -709,6 +709,18 @@ function buildInboundDedupeKey(from: string, text: string, tsMs: number) {
   return `t${ts}:${h}`;
 }
 
+function shouldUseServiceTechOpeningPrompt(text: string) {
+  const t = normalizeText(text);
+  if (!t) return true;
+  if (t === "2") return true;
+  if (t === "servicio tecnico" || t === "servicio técnico") return true;
+  if (t === "soporte tecnico" || t === "soporte técnico") return true;
+  if (t === "tecnico" || t === "técnico") return true;
+  if (t.includes("servicio tecnico") || t.includes("servicio técnico")) return t.length <= 28;
+  if (t.includes("soporte tecnico") || t.includes("soporte técnico")) return t.length <= 26;
+  return false;
+}
+
 function isMenuCommand(text: string) {
   const t = normalizeText(text);
   return (
@@ -4688,7 +4700,7 @@ export async function POST(request: Request) {
     undefined;
   const inboundTimestampMsRaw = extractInboundTimestampMs(payload, message);
   const inboundTimestampMs = inboundTimestampMsRaw ?? Date.now();
-  const inboundDedupeTimestampMs = inboundTimestampMsRaw ?? Math.floor(inboundTimestampMs / 30000) * 30000;
+  const inboundDedupeTimestampMs = Math.floor(inboundTimestampMs / 60000) * 60000;
 
   const isInboundText = typeof text === "string" && text.trim().length > 0;
   const autoReplyEnabled = shouldAutoReply();
@@ -4791,9 +4803,15 @@ export async function POST(request: Request) {
         returnToCasualState(state);
       }
 
-      const inboundDedupeKey = inboundId || buildInboundDedupeKey(userKey, inboundText, inboundDedupeTimestampMs);
-      if ((state.recentInboundIds ?? []).includes(inboundDedupeKey)) {
-        inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate inboundKey=${inboundDedupeKey}` });
+      const derivedInboundKey = buildInboundDedupeKey(userKey, inboundText, inboundDedupeTimestampMs);
+      const inboundKeys = [inboundId, derivedInboundKey].filter(Boolean) as string[];
+      if (inboundKeys.some((k) => (state.recentInboundIds ?? []).includes(k))) {
+        inboxAdd({
+          source: "gowa",
+          signatureValid: null,
+          from: userKey,
+          text: `[DEBUG] Skipping reply: duplicate inboundKey=${(inboundId || derivedInboundKey) ?? ""}`,
+        });
         await saveUserState(userKey, state);
         return NextResponse.json({ ok: true }, { status: 200 });
       }
@@ -4916,11 +4934,13 @@ export async function POST(request: Request) {
             } else if (intent.branch === "proyectos") {
               reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
             } else if (intent.branch === "servicio_tecnico") {
-              reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
+              const stInput = shouldUseServiceTechOpeningPrompt(inboundText) ? "" : inboundText;
+              reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
             } else if (intent.branch === "cambium") {
               reply = await handleCambium(state, "", userKey);
             } else if (intent.branch === "puntos_venta") {
               reply = await handlePoints(state, "", userKey);
+            } else {
             } else {
               markMenuShown(state);
               reply = buildMainMenuText(country, "return");
@@ -4947,7 +4967,8 @@ export async function POST(request: Request) {
             } else if (choice === "catalogo") {
               reply = await startCatalogIntentFlow(state, userKey, inboundText);
             } else if (choice === "servicio_tecnico") {
-              reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
+              const stInput = shouldUseServiceTechOpeningPrompt(inboundText) ? "" : inboundText;
+              reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
             } else if (choice === "proyectos") {
               reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
             } else if (choice === "cambium") {
@@ -5004,7 +5025,8 @@ export async function POST(request: Request) {
               } else if (intent.branch === "proyectos") {
                 reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
               } else if (intent.branch === "servicio_tecnico") {
-                reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
+                const stInput = shouldUseServiceTechOpeningPrompt(inboundText) ? "" : inboundText;
+                reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
               } else if (intent.branch === "cambium") {
                 reply = await handleCambium(state, "", userKey);
               } else if (intent.branch === "puntos_venta") {
@@ -5044,8 +5066,9 @@ export async function POST(request: Request) {
 
       {
         const prev = state.recentInboundIds ?? [];
-        const next = [inboundDedupeKey, ...prev.filter((x) => x !== inboundDedupeKey)].slice(0, 15);
-        state.recentInboundIds = next;
+        const toAdd = inboundKeys.length ? inboundKeys : [derivedInboundKey];
+        const keep = prev.filter((x) => !toAdd.includes(x));
+        state.recentInboundIds = [...toAdd, ...keep].slice(0, 25);
       }
 
       await saveUserState(userKey, state);
