@@ -394,17 +394,12 @@ function hasDigitalTechnology(value: string) {
 }
 
 function matchesSelectedTechnology(value: string, selected?: string) {
-  if (!selected) return true;
-  const wanted = normalizeText(selected);
+  const wanted = normalizeText(selected ?? "");
   if (!wanted) return true;
-
-  const hasAnalog = hasAnalogTechnology(value);
-  const hasDigital = hasDigitalTechnology(value);
-
-  if (wanted.includes("digital")) return hasDigital && !hasAnalog;
-  if (wanted.includes("analogo") || wanted.includes("analogico")) return hasAnalog && !hasDigital;
-
-  return normalizeText(value).includes(wanted);
+  const v = value ?? "";
+  if (wanted.includes("digital")) return hasDigitalTechnology(v);
+  if (wanted.includes("analogo") || wanted.includes("analogico")) return hasAnalogTechnology(v);
+  return normalizeText(v).includes(wanted);
 }
 
 function detectCountryFromPhone(phone: string): Country {
@@ -1967,16 +1962,16 @@ async function listFrecuencias(filters: CatalogFilters): Promise<string[]> {
 
 async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
+  const queryLimit = filters.tecnologia ? 40 : 10;
   const params: string[] = [
     `select=product_id,nombre,tecnologia,frecuencia`,
     `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
-    `limit=5`,
+    `limit=${queryLimit}`,
     `order=nombre.asc`,
   ];
   if (filters.modalidad) params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
   if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
   if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
-  if (filters.tecnologia) params.push(`tecnologia=ilike.*${encodeURIComponent(filters.tecnologia)}*`);
   const q = `inter_products?${params.join("&")}`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return [];
@@ -1996,16 +1991,16 @@ async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_i
 async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
   const table = getUyProductsTable();
+  const queryLimit = filters.tecnologia ? 40 : 10;
   const params: string[] = [
     `select=product_id,nombre,tecnologia,frecuencia`,
     `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
-    `limit=5`,
+    `limit=${queryLimit}`,
     `order=nombre.asc`,
   ];
   if (filters.modalidad) params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
   if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
   if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
-  if (filters.tecnologia) params.push(`tecnologia=ilike.*${encodeURIComponent(filters.tecnologia)}*`);
   const q = `${table}?${params.join("&")}`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return [];
@@ -2017,6 +2012,8 @@ async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product
     }))
     .filter((r) => r.product_id && r.nombre)
     .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
+    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
+    .slice(0, 5)
     .filter((r) => r.product_id && r.nombre);
 }
 
