@@ -2947,7 +2947,7 @@ async function finalizeCotizacion(state: UserState, userPhone: string): Promise<
     state.activeBranch = "menu";
     state.postCotizacion = undefined;
     markMenuShown(state);
-    return "Gracias por cotizar con nosotros. Pronto nos pondremos en contacto. 📻✨";
+    return ["Gracias por cotizar con nosotros. Pronto nos pondremos en contacto. 📻✨", "", buildMainMenuText(state.country ?? "CL", "return")].join("\n");
   }
   const resumen = await buildCotizacionResumen(state);
   const forceAskAll = state.catalog.forceAskAll;
