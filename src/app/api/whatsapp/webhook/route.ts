@@ -723,6 +723,11 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
     t.includes("cotizar") ||
     t.includes("cotizacion") ||
     t.includes("cotización") ||
+    t.includes("comprar") ||
+    t.includes("compra") ||
+    t.includes("comprame") ||
+    t.includes("cómprame") ||
+    t.includes("adquirir") ||
     t.includes("arrendar") ||
     t.includes("arriendo") ||
     t.includes("alquilar");
@@ -742,10 +747,16 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
 function detectQuoteIntent(text: string) {
   const t = normalizeText(text);
   if (!t) return false;
+  if (t.includes("donde comprar") || t.includes("dónde comprar") || t.includes("puntos de venta") || t.includes("punto de venta")) return false;
   return (
     t.includes("cotiz") ||
     t.includes("cotizacion") ||
     t.includes("cotización") ||
+    t.includes("comprar") ||
+    t.includes("compra") ||
+    t.includes("comprame") ||
+    t.includes("cómprame") ||
+    t.includes("adquirir") ||
     t.includes("presupuest") ||
     t.includes("precio") ||
     t.includes("valor") ||
@@ -1141,7 +1152,26 @@ function parseMenuChoice(text: string, country: Country): Branch | null {
 
 function classifyFreeText(text: string, country: Country): Branch | null {
   const t = normalizeText(text);
-  const catalogHints = ["cotizar", "cotizacion", "precio", "valor", "radio", "repetidor", "camara", "cámara", "accesorio", "equipo", "arrendar", "arriendo", "alquilar"];
+  const catalogHints = [
+    "cotizar",
+    "cotizacion",
+    "precio",
+    "valor",
+    "comprar",
+    "compra",
+    "adquirir",
+    "radio",
+    "repetidor",
+    "camara",
+    "cámara",
+    "accesorio",
+    "equipo",
+    "equpo",
+    "eqipo",
+    "arrendar",
+    "arriendo",
+    "alquilar",
+  ];
   const techHints = ["falla", "problema", "repar", "garantia", "garantía", "program", "configur", "servicio tecnico", "servicio técnico"];
   const projectHints = ["proyecto", "implementacion", "implementación", "caso de exito", "caso de éxito", "certificacion", "certificación"];
   const cambiumHints = ["cambium", "cnmaestro", "epmp", "ptp", "pmp", "radioenlace", "radioenlaces", "wifi", "sd wan", "sd-wan", "nse"];
