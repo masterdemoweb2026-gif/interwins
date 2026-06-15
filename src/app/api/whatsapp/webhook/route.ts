@@ -2445,6 +2445,13 @@ function normalizePhone(phone: string) {
   return digits.replace(/^00/, "+");
 }
 
+function normalizeUserKeyFrom(from: string) {
+  const raw = String(from ?? "").trim();
+  if (!raw) return "";
+  const digits = raw.replace(/[^\d]/g, "");
+  return digits || raw;
+}
+
 async function saveCotizacionToSupabase(userPhone: string, state: UserState) {
   const quote = state.catalog.quote?.data ?? {};
   const country = state.country ?? "CL";
@@ -4814,11 +4821,12 @@ export async function POST(request: Request) {
       inboxAdd({ source: "gowa", signatureValid: null, from: "", text: "[DEBUG] IN gate=true but from is empty" });
       return NextResponse.json({ ok: true }, { status: 200 });
     }
-    const userKey = from;
+    const replyTo = from;
+    const userKey = normalizeUserKeyFrom(from);
     await ensureMessageBufferRow(userKey);
     const acquired = await tryAcquireProcessingLock(userKey);
     if (!acquired) {
-      inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: "[DEBUG] Skipping reply: lock not acquired" });
+      inboxAdd({ source: "gowa", signatureValid: null, from: replyTo, text: "[DEBUG] Skipping reply: lock not acquired" });
       return NextResponse.json({ ok: true }, { status: 200 });
     }
 
@@ -4833,7 +4841,7 @@ export async function POST(request: Request) {
       }
 
       if (inboundId) {
-        await markMessageRead(inboundId, userKey);
+        await markMessageRead(inboundId, replyTo);
       }
 
       const inboundHash = crypto
@@ -4866,7 +4874,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true }, { status: 200 });
       }
 
-      await sendChatPresence(userKey, "start");
+      await sendChatPresence(replyTo, "start");
       startedPresence = true;
 
       let reply: Reply = "";
@@ -5140,7 +5148,7 @@ export async function POST(request: Request) {
       }
     } finally {
       if (startedPresence) {
-        await sendChatPresence(userKey, "stop");
+        await sendChatPresence(replyTo, "stop");
       }
       await releaseProcessingLock(userKey);
     }
