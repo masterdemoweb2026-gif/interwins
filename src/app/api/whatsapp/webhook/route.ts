@@ -732,7 +732,7 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
     t.includes("arriendo") ||
     t.includes("alquilar");
   const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
-  const mentionsProjects = t.includes("proyecto") || t.includes("proyectos");
+  const mentionsProjects = t.includes("proyecto") || t.includes("proyectos") || t.includes("asesoria") || t.includes("asesoría") || t.includes("consultoria") || t.includes("consultoría");
   const mentionsCambium = t.includes("cambium") || t.includes("cnmaestro") || t.includes("epmp") || t.includes("radioenlace") || t.includes("radioenlaces");
   const mentionsPoints = country !== "UY" && isPuntosVentaIntentNormalized(t);
 
@@ -1143,7 +1143,8 @@ function parseMenuChoice(text: string, country: Country): Branch | null {
   if (t === "1" || t.includes("catalogo") || t.includes("catálogo") || t.includes("cotizar") || t.includes("cotizacion") || t.includes("cotización"))
     return "catalogo";
   if (t === "2" || t.includes("servicio") || t.includes("tecnico") || t.includes("técnico")) return "servicio_tecnico";
-  if (t === "3" || t.includes("proyecto") || t.includes("proyectos")) return "proyectos";
+  if (t === "3" || t.includes("proyecto") || t.includes("proyectos") || t.includes("asesoria") || t.includes("asesoría") || t.includes("consultoria") || t.includes("consultoría"))
+    return "proyectos";
   if (t === "4") return country === "UY" ? "cambium" : "puntos_venta";
   if (country !== "UY" && isPuntosVentaIntentNormalized(t)) return "puntos_venta";
   if (t.includes("cambium") || t.includes("cnmaestro")) return "cambium";
@@ -1173,7 +1174,21 @@ function classifyFreeText(text: string, country: Country): Branch | null {
     "alquilar",
   ];
   const techHints = ["falla", "problema", "repar", "garantia", "garantía", "program", "configur", "servicio tecnico", "servicio técnico"];
-  const projectHints = ["proyecto", "implementacion", "implementación", "caso de exito", "caso de éxito", "certificacion", "certificación"];
+  const projectHints = [
+    "proyecto",
+    "proyectos",
+    "asesoria",
+    "asesoría",
+    "asesoramiento",
+    "consultoria",
+    "consultoría",
+    "implementacion",
+    "implementación",
+    "caso de exito",
+    "caso de éxito",
+    "certificacion",
+    "certificación",
+  ];
   const cambiumHints = ["cambium", "cnmaestro", "epmp", "ptp", "pmp", "radioenlace", "radioenlaces", "wifi", "sd wan", "sd-wan", "nse"];
   const pointsHints = [
     "donde comprar",
