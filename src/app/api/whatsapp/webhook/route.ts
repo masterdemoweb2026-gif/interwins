@@ -3978,7 +3978,7 @@ function detectContactFieldToEdit(text: string): Exclude<ContactFormStep, "final
   if (t.includes("correo") || t.includes("mail") || t.includes("email")) return "correo";
   if (t.includes("direccion") || t.includes("dirección") || t.includes("comuna") || t.includes("ubicacion") || t.includes("ubicación")) return "direccion";
   if (t.includes("producto") || t.includes("equipo") || t.includes("modelo")) return "producto";
-  if (t.includes("mensaje") || t.includes("detalle") || t.includes("solicitud") || t.includes("necesidad")) return "mensaje";
+  if (t.includes("mensaje") || t.includes("detalle") || t.includes("observacion") || t.includes("observación")) return "mensaje";
   return null;
 }
 
@@ -4192,10 +4192,12 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
       return await buildContactFormReviewMessage(state);
     }
 
-    const fieldToEdit = detectContactFieldToEdit(input);
     const confirm =
       t.includes("confirmar solicitud") ||
+      t.includes("confirmar la solicitud") ||
       t === "confirmar" ||
+      t === "confirmo" ||
+      (t.includes("confirm") && t.includes("solicitud")) ||
       t.includes("esta bien") ||
       t.includes("está bien") ||
       t.includes("correcto") ||
@@ -4204,6 +4206,7 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
     if (confirm) {
       return await finalizeContactForm(state, userPhone);
     }
+    const fieldToEdit = detectContactFieldToEdit(input);
     if (fieldToEdit) {
       form.reviewEditField = fieldToEdit;
       state.contactForm = form;
