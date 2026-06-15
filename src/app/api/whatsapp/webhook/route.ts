@@ -840,6 +840,9 @@ function parseArriendoProductChoice(text: string): "equipos_radio" | "accesorio_
   const equipmentTerms = [
     "equipo",
     "equipos",
+    "equpo",
+    "eqipo",
+    "equp",
     "equipo de radio",
     "equipos de radio",
     "radio movil",
@@ -984,7 +987,7 @@ async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilter
   return options;
 }
 
-async function startCatalogFlow(state: UserState, userKey: string, args?: { modalidad?: string; mode?: "cotizar" | "arriendo" }) {
+async function startCatalogFlow(state: UserState, userKey: string, args?: { modalidad?: string; mode?: "cotizar" | "arriendo"; seedText?: string }) {
   const country = state.country ?? "CL";
   const previous = state.activeBranch;
   state.activeBranch = "catalogo";
@@ -999,6 +1002,18 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
 
   if (state.catalog.selectedProductId) {
     return country === "UY" ? await handleCatalogUY(state, "cotizar", userKey) : await handleCatalog(state, "cotizar", userKey);
+  }
+
+  if (!isRental && !state.catalog.filters.tipo_producto && !state.catalog.pending && args?.seedText) {
+    const hint = parseArriendoProductChoice(args.seedText);
+    if (hint === "equipos_radio") {
+      const menu = await getSuggestedCatalogTypes(country, args?.modalidad);
+      const equipment = menu.find((m) => m.key === "equipos_radio");
+      if (equipment?.tipo) {
+        state.catalog.filters.tipo_producto = equipment.tipo;
+        return country === "UY" ? await handleCatalogUY(state, "", userKey) : await handleCatalog(state, "", userKey);
+      }
+    }
   }
 
   if (!state.catalog.filters.tipo_producto && !state.catalog.pending) {
@@ -1026,8 +1041,8 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
       ]);
 }
 
-async function startCotizarFlow(state: UserState, userKey: string) {
-  return await startCatalogFlow(state, userKey, { mode: "cotizar" });
+async function startCotizarFlow(state: UserState, userKey: string, seedText?: string) {
+  return await startCatalogFlow(state, userKey, { mode: "cotizar", seedText });
 }
 
 async function startArriendoFlow(state: UserState, userKey: string) {
@@ -1046,7 +1061,7 @@ async function startCatalogIntentFlow(state: UserState, userKey: string, text: s
   if (country === "CL" && isRentalIntent(text)) {
     return await startArriendoFlow(state, userKey);
   }
-  return await startCotizarFlow(state, userKey);
+  return await startCotizarFlow(state, userKey, text);
 }
 
 function buildMainMenuText(country: Country, variant: "welcome" | "return" = "return") {
