@@ -752,7 +752,9 @@ function buildArriendoLandingMessage(): Reply {
       "Descubre las ventajas de arrendar con InterWins.",
       "Disponibilidad inmediata. Arrienda Radios Motorola y accesorios de manera permanente, por meses o por evento.",
     ].join("\n"),
-    ["¿Qué opción prefieres para elegir?", "📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Arrendar directamente con un ejecutivo"].join("\n"),
+    ["¿Qué opción prefieres para elegir?", "", "📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Arrendar directamente con un ejecutivo"].join(
+      "\n",
+    ),
   ];
 }
 
@@ -768,7 +770,9 @@ function buildArriendoIntentMessage() {
 function buildArriendoProductMenuMessage(): Reply {
   return [
     "Perfecto. Para arrendar, ¿qué equipo buscas?",
-    ["¿Qué opción prefieres para elegir?", "📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Arrendar directamente con un ejecutivo"].join("\n"),
+    ["¿Qué opción prefieres para elegir?", "", "📻 Equipos de radio", "🎧 Accesorio de radio", "📷 Cámara corporal", "🤝 Arrendar directamente con un ejecutivo"].join(
+      "\n",
+    ),
   ];
 }
 
@@ -1058,6 +1062,7 @@ function buildMainMenuText(country: Country, variant: "welcome" | "return" = "re
       intro,
       "",
       "Estas son algunas de las cosas con las que te puedo apoyar hoy:",
+      "",
       "🛒 Comprar equipos o accesorios",
       "🔧 Servicio Técnico",
       "📊 Asesoría en Proyectos",
@@ -1069,6 +1074,7 @@ function buildMainMenuText(country: Country, variant: "welcome" | "return" = "re
     intro,
     "",
     "Estas son algunas de las cosas con las que te puedo apoyar hoy:",
+    "",
     "🛒 Comprar equipos o accesorios",
     "⏱️ Arrendar equipos de radiocomunicación",
     "📊 Asesoría en Proyectos",
@@ -3166,10 +3172,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         ? (opts as CatalogPendingOption[]).slice(0, 5)
         : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "portabilidad", options };
-      return [
-        isRadioEquipment ? "¿Qué formato necesitas?" : "¿Portátil o móvil?",
-        ...state.catalog.pending.options.map((o) => o.label),
-      ].join("\n");
+      return isRadioEquipment
+        ? ["¿Qué formato necesitas?", "", ...state.catalog.pending.options.map((o) => o.label)].join("\n")
+        : ["¿Portátil o móvil?", ...state.catalog.pending.options.map((o) => o.label)].join("\n");
     }
   }
 
@@ -3468,10 +3473,9 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         ? (opts as CatalogPendingOption[]).slice(0, 5)
         : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "portabilidad", options };
-      return [
-        isRadioEquipment ? "¿Qué formato necesitas?" : "¿Portátil o móvil?",
-        ...state.catalog.pending.options.map((o) => o.label),
-      ].join("\n");
+      return isRadioEquipment
+        ? ["¿Qué formato necesitas?", "", ...state.catalog.pending.options.map((o) => o.label)].join("\n")
+        : ["¿Portátil o móvil?", ...state.catalog.pending.options.map((o) => o.label)].join("\n");
     }
   }
 
