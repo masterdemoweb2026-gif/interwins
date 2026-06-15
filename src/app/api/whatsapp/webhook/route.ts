@@ -4941,7 +4941,6 @@ export async function POST(request: Request) {
             } else if (intent.branch === "puntos_venta") {
               reply = await handlePoints(state, "", userKey);
             } else {
-            } else {
               markMenuShown(state);
               reply = buildMainMenuText(country, "return");
             }
