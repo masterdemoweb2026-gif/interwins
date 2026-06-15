@@ -144,6 +144,39 @@ function mapUyFlow(flow: string) {
   }
 }
 
+function mapOriginDisplayLabel(value: string) {
+  const normalized = normalizeText(value);
+  switch (normalized) {
+    case "cl_cotizacion_producto":
+      return "Cotización de producto";
+    case "cl_arriendo_producto":
+      return "Arriendo de producto";
+    case "cl_arriendo_directo":
+      return "Arriendo directo";
+    case "cl_dealer":
+      return "Solicitud Dealer";
+    case "cl_proyectos":
+      return "Solicitud Proyectos";
+    case "cl_servicio_tecnico":
+      return "Solicitud Servicio técnico";
+    case "uy_servicio_tecnico":
+      return "Solicitud Servicio técnico";
+    case "uy_proyectos":
+      return "Solicitud Proyectos";
+    case "uy_cambium":
+      return "Solicitud Cambium";
+    case "uy_catalogo":
+    case "cotizacion":
+    case "cotizacion_general":
+    case "catalogo":
+    case "otro":
+    case "":
+      return "Cotización";
+    default:
+      return value;
+  }
+}
+
 function normalizeCotizacion(row: JsonRecord, index: number): DashboardRequest {
   const origen = toText(row.origen);
   const mapped = mapCotizacionOrigin(origen);
@@ -168,7 +201,7 @@ function normalizeCotizacion(row: JsonRecord, index: number): DashboardRequest {
     telefono: toText(row.telefono),
     email: toText(row.email),
     producto: toText(row.producto_nombre) || toText(row.producto_id),
-    categoria: !origen || normalizeText(origen) === "otro" ? mapped.label : origen,
+    categoria: mapOriginDisplayLabel(origen) || mapped.label,
     mensaje: recomendados,
     estado: toText(row.estado) || "enviada",
     canal: toText(row.canal) || "whatsapp",
@@ -178,6 +211,7 @@ function normalizeCotizacion(row: JsonRecord, index: number): DashboardRequest {
 function normalizeUyLead(row: JsonRecord, index: number): DashboardRequest {
   const flow = toText(row.flow);
   const mapped = mapUyFlow(flow);
+  const categoria = toText(row.categoria);
   return {
     id: `uy-leads-${toText(row.id) || toText(row.user_phone) || index}`,
     source: "uy_leads",
@@ -191,7 +225,7 @@ function normalizeUyLead(row: JsonRecord, index: number): DashboardRequest {
     telefono: toText(row.telefono),
     email: toText(row.email),
     producto: toText(row.producto),
-    categoria: toText(row.categoria),
+    categoria: mapOriginDisplayLabel(categoria || flow) || mapped.label,
     mensaje: [toText(row.solucion), toText(row.mensaje)].filter(Boolean).join(" | "),
     estado: toText(row.estado) || "recibida",
     canal: toText(row.canal) || "whatsapp",

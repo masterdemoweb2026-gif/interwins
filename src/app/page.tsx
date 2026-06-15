@@ -63,23 +63,12 @@ function badgeClasses(flowKey: string) {
 }
 
 export default function Home() {
-  const [to, setTo] = useState("");
-  const [message, setMessage] = useState("test");
-  const [isSending, setIsSending] = useState(false);
-  const [result, setResult] = useState<string>("");
-  const [metaStatus, setMetaStatus] = useState<string>("");
-  const [inbox, setInbox] = useState<string>("");
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState("");
   const [flowFilter, setFlowFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState("all");
   const [search, setSearch] = useState("");
-
-  const webhookUrl = useMemo(() => {
-    const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "");
-    if (!base) return "/api/whatsapp/webhook";
-    return `${base}/api/whatsapp/webhook`;
-  }, []);
 
   async function refreshDashboard() {
     setIsLoadingDashboard(true);
@@ -99,31 +88,9 @@ export default function Home() {
     }
   }
 
-  async function refreshMetaStatus() {
-    try {
-      const res = await fetch("/api/debug/meta", { cache: "no-store" });
-      const data = (await res.json()) as unknown;
-      setMetaStatus(JSON.stringify(data, null, 2));
-    } catch (err) {
-      setMetaStatus(String(err));
-    }
-  }
-
-  async function refreshInbox() {
-    try {
-      const res = await fetch("/api/debug/inbox", { cache: "no-store" });
-      const data = (await res.json()) as unknown;
-      setInbox(JSON.stringify(data, null, 2));
-    } catch (err) {
-      setInbox(String(err));
-    }
-  }
-
   useEffect(() => {
     const bootId = window.setTimeout(() => {
       void refreshDashboard();
-      void refreshMetaStatus();
-      void refreshInbox();
     }, 0);
     const dashboardId = window.setInterval(() => {
       void refreshDashboard();
@@ -133,26 +100,6 @@ export default function Home() {
       window.clearInterval(dashboardId);
     };
   }, []);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setIsSending(true);
-    setResult("");
-    try {
-      const res = await fetch("/api/test/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to, message }),
-      });
-
-      const data = (await res.json()) as unknown;
-      setResult(JSON.stringify({ ok: res.ok, status: res.status, data }, null, 2));
-    } catch (err) {
-      setResult(String(err));
-    } finally {
-      setIsSending(false);
-    }
-  }
 
   const flowOptions = useMemo(() => {
     const items = dashboard?.requests ?? [];
@@ -169,6 +116,8 @@ export default function Home() {
     return items.filter((item) => {
       const byFlow = flowFilter === "all" || item.flowKey === flowFilter;
       if (!byFlow) return false;
+      const byCountry = countryFilter === "all" || item.country === countryFilter;
+      if (!byCountry) return false;
       if (!query) return true;
       const haystack = [
         item.flowLabel,
@@ -186,7 +135,7 @@ export default function Home() {
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [dashboard, flowFilter, search]);
+  }, [dashboard, countryFilter, flowFilter, search]);
 
   const summary = dashboard?.summary;
   const supportCount =
@@ -243,9 +192,6 @@ export default function Home() {
               <p className="max-w-2xl text-sm leading-6 text-zinc-300 md:text-base">
                 Vista consolidada de cotizaciones, arriendos, servicio técnico, proyectos y formularios capturados desde WhatsApp.
               </p>
-              <div className="text-xs text-zinc-400 md:text-sm">
-                Webhook activo: <span className="font-mono text-zinc-200">{webhookUrl}</span>
-              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -289,7 +235,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2 lg:min-w-[520px]">
+              <div className="grid gap-3 md:grid-cols-2 lg:min-w-[520px] xl:grid-cols-3">
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Tipo de solicitud</label>
                   <select
@@ -303,6 +249,19 @@ export default function Home() {
                         {option.label}
                       </option>
                     ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">País</label>
+                  <select
+                    value={countryFilter}
+                    onChange={(e) => setCountryFilter(e.target.value)}
+                    className="h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none focus:border-cyan-400/40"
+                  >
+                    <option value="all">Todos</option>
+                    <option value="CL">CL</option>
+                    <option value="UY">URU</option>
                   </select>
                 </div>
 
@@ -413,86 +372,6 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <details className="rounded-[28px] border border-white/10 bg-white/6 p-5 shadow-xl shadow-black/10 backdrop-blur">
-            <summary className="cursor-pointer list-none text-lg font-semibold tracking-tight marker:hidden">Herramientas técnicas</summary>
-            <div className="mt-5 grid gap-5">
-              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/20 p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="text-sm font-medium">Conectividad GOWA</div>
-                  <button
-                    type="button"
-                    onClick={refreshMetaStatus}
-                    className="h-9 rounded-lg border border-white/10 px-3 text-sm text-zinc-200 transition hover:bg-white/5"
-                  >
-                    Refrescar
-                  </button>
-                </div>
-                {metaStatus ? (
-                  <pre className="overflow-auto rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-zinc-200">{metaStatus}</pre>
-                ) : null}
-              </div>
-
-              <form onSubmit={onSubmit} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-black/20 p-5">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium">Número destino</label>
-                  <input
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    placeholder="569XXXXXXXX o 569XXXXXXXX@s.whatsapp.net"
-                    className="h-11 rounded-xl border border-white/10 bg-transparent px-3 text-white outline-none focus:border-cyan-400/40"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium">Mensaje</label>
-                  <input
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    className="h-11 rounded-xl border border-white/10 bg-transparent px-3 text-white outline-none focus:border-cyan-400/40"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isSending}
-                  className="h-11 rounded-xl bg-cyan-400 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60"
-                >
-                  {isSending ? "Enviando..." : "Enviar prueba"}
-                </button>
-              </form>
-
-              {result ? (
-                <pre className="overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-200">{result}</pre>
-              ) : null}
-            </div>
-          </details>
-
-          <section className="rounded-[28px] border border-white/10 bg-white/6 p-5 shadow-xl shadow-black/10 backdrop-blur">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight">Mensajes entrantes</h2>
-                <p className="mt-1 text-sm text-zinc-400">Bandeja de debug para revisar lo que está llegando al bot.</p>
-              </div>
-              <button
-                type="button"
-                onClick={refreshInbox}
-                className="h-9 rounded-lg border border-white/10 px-3 text-sm text-zinc-200 transition hover:bg-white/5"
-              >
-                Refrescar
-              </button>
-            </div>
-
-            {inbox ? (
-              <pre className="mt-5 max-h-[520px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-200">{inbox}</pre>
-            ) : (
-              <div className="mt-5 rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-zinc-500">
-                Aún no hay mensajes cargados en debug.
-              </div>
-            )}
-          </section>
         </section>
       </main>
     </div>
