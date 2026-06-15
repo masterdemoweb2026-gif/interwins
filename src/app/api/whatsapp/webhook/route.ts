@@ -604,6 +604,20 @@ type ProductDetail = {
   precio?: string;
 };
 
+function buildProductsListMessage(products: Array<{ product_id: string; nombre: string }>, example: string) {
+  const lines = products
+    .slice(0, 5)
+    .map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`)
+    .join("\n");
+  return [
+    "Estos son los que encontré (máx. 5):",
+    "",
+    lines,
+    "",
+    `Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre (ej: ${example}).`,
+  ].join("\n");
+}
+
 function buildProductFichaMessages(detail: ProductDetail | null, options?: { requestKind?: CatalogRequestKind }) {
   if (!detail) return [];
   const title = cleanProductName(detail.nombre || "");
@@ -614,13 +628,17 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   if (detail.fichaUrl) bodyLines.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
   const body = bodyLines.filter(Boolean).join("\n");
   const primaryAction = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
-  const actions = ["¿Qué deseas hacer ahora?", "", primaryAction, "Volver al menú", "Hacer una nueva búsqueda"].join("\n");
+  const actions = ["¿Qué deseas hacer ahora?", "", primaryAction, "Volver a la lista", "Volver al menú", "Hacer una nueva búsqueda"].join("\n");
 
   const out: Array<string | OutboundMessage> = [header];
   if (detail.imageUrl) out.push({ type: "image", imageUrl: detail.imageUrl });
   if (body.trim()) out.push(body);
   out.push(actions);
   return out;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function isStockQuestion(text: string) {
@@ -3207,6 +3225,11 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       markMenuShown(state);
       return buildMainMenuText("CL", "return");
     }
+    if (t === "volver a la lista" || (t.includes("volver") && t.includes("lista")) || t === "lista" || t.includes("ver lista") || t === "volver") {
+      state.catalog.selectedProductId = undefined;
+      if (state.catalog.lastList?.length) return buildProductsListMessage(state.catalog.lastList, "Motorola DP250");
+      return "Perfecto. Indícame el número del producto que quieres ver o escribe Nueva búsqueda.";
+    }
     if (isStockQuestion(input)) {
       return await startCatalogQuoteForm(state, userPhone, "CL", {
         intro: "Para confirmar stock inmediato y tiempos de entrega, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.",
@@ -3507,6 +3530,11 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       returnToCasualState(state);
       markMenuShown(state);
       return buildMainMenuText("UY", "return");
+    }
+    if (t === "volver a la lista" || (t.includes("volver") && t.includes("lista")) || t === "lista" || t.includes("ver lista") || t === "volver") {
+      state.catalog.selectedProductId = undefined;
+      if (state.catalog.lastList?.length) return buildProductsListMessage(state.catalog.lastList, "DEP250");
+      return "Perfecto. Indícame el número del producto que quieres ver o escribe Nueva búsqueda.";
     }
     if (isStockQuestion(input)) {
       return await startCatalogQuoteForm(state, userPhone, "UY", {
@@ -4903,6 +4931,10 @@ export async function POST(request: Request) {
 
       await saveUserState(userKey, state);
       const messages = Array.isArray(reply) ? reply : [reply];
+      const hasProductFicha =
+        messages.some((m) => m && typeof m === "object" && "type" in m && (m as OutboundMessage).type === "image") ||
+        messages.some((m) => typeof m === "string" && (m.includes("📄 Ficha técnica") || m.includes("💰 Precio") || m.includes("¿Qué deseas hacer ahora?")));
+      if (hasProductFicha) await sleep(700);
       for (const m of messages) {
         if (typeof m === "string") {
           const msg = m.trim();
