@@ -2797,7 +2797,7 @@ async function buildArriendoProfileReviewMessage(state: UserState) {
     "*Equipo solicitado*",
     detail?.nombre ? `- Equipo: ${cleanProductName(detail.nombre)}` : "- Equipo: No informado",
     "",
-    "Si está todo correcto, escribe: Confirmar arriendo",
+    "Si está todo correcto, escribe: Confirmar solicitud",
     "Si quieres editar algo, puedes decir por ejemplo: cambiar teléfono",
   ].filter(Boolean);
   return lines.join("\n");
@@ -3154,7 +3154,12 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
       const confirmArriendo =
         t.includes("confirmar arriendo") ||
+        t.includes("confirmar el arriendo") ||
+        t.includes("confirmar solicitud") ||
+        t.includes("confirmar la solicitud") ||
         t === "confirmar" ||
+        t === "confirmo" ||
+        t.includes("confirmo") ||
         t.includes("esta bien") ||
         t.includes("está bien") ||
         t.includes("correcto") ||
@@ -3166,7 +3171,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       }
       if (fieldToEdit) {
         if (fieldToEdit === "ciudad_region") {
-          return "Para arriendo no necesito ciudad y región. Si está todo bien, escribe Confirmar arriendo.";
+          return "Para arriendo no necesito ciudad y región. Si está todo bien, escribe Confirmar solicitud.";
         }
         state.catalog.reviewEditField = fieldToEdit;
         return fieldToEdit === "empresa" ? getRentalPromptForStep("empresa", "CL") : getRentalPromptForStep(fieldToEdit, "CL");
@@ -3174,7 +3179,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       if (isStockQuestion(input)) {
         return "Para confirmar stock inmediato y tiempos de entrega del arriendo, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.";
       }
-      return "Si está todo correcto, escribe Confirmar arriendo. Si quieres cambiar algo, dime por ejemplo: cambiar teléfono.";
+      return "Si está todo correcto, escribe Confirmar solicitud. Si quieres cambiar algo, dime por ejemplo: cambiar teléfono.";
     }
 
     if (state.catalog.reviewMode === "cotizacion") {
