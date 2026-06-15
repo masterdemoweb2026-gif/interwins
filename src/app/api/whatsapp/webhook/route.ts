@@ -2135,7 +2135,14 @@ async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_i
     `limit=${queryLimit}`,
     `order=nombre.asc`,
   ];
-  if (filters.modalidad) params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
+  if (filters.modalidad) {
+    const m = filters.modalidad.trim();
+    if (normalizeText(m) === "venta") {
+      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
+    } else {
+      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
+    }
+  }
   if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
   if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
   const q = `inter_products?${params.join("&")}`;
@@ -2164,7 +2171,14 @@ async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product
     `limit=${queryLimit}`,
     `order=nombre.asc`,
   ];
-  if (filters.modalidad) params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
+  if (filters.modalidad) {
+    const m = filters.modalidad.trim();
+    if (normalizeText(m) === "venta") {
+      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
+    } else {
+      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
+    }
+  }
   if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
   if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
   const q = `${table}?${params.join("&")}`;
