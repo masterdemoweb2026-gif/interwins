@@ -1365,6 +1365,14 @@ function applyCatalogPendingSelection(state: UserState, pending: CatalogPendingO
   } else {
     state.catalog.filters[pending.attr] = option.value;
   }
+  if (pending.attr === "tipo_producto") {
+    state.catalog.selectedProductId = undefined;
+    state.catalog.lastList = undefined;
+    state.catalog.filters.frecuencia = undefined;
+    state.catalog.filters.tecnologia = undefined;
+    state.catalog.filters.portabilidad = undefined;
+    state.catalog.skipRadioTechFrequency = undefined;
+  }
   if (option.skipRadioTechFrequency) {
     state.catalog.skipRadioTechFrequency = true;
     state.catalog.filters.frecuencia = undefined;
@@ -3315,6 +3323,12 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const candidates = tipos.filter((tp) => normalizeText(tp).includes(t) || t.includes(normalizeText(tp)));
     if (candidates.length === 1) {
       state.catalog.filters.tipo_producto = candidates[0];
+      state.catalog.selectedProductId = undefined;
+      state.catalog.lastList = undefined;
+      state.catalog.filters.frecuencia = undefined;
+      state.catalog.filters.tecnologia = undefined;
+      state.catalog.filters.portabilidad = undefined;
+      state.catalog.skipRadioTechFrequency = undefined;
     } else if (candidates.length > 1) {
       const top = candidates.slice(0, 5);
       state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
@@ -3445,17 +3459,44 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   state.catalog.lastList = products;
 
   if (!products.length) {
+    const missingLabel = (() => {
+      const tp = normalizeText(state.catalog.filters.tipo_producto || "");
+      if (tp.includes("camara") || tp.includes("cámara") || tp.includes("body")) return "Cámaras Corporales";
+      if (tp.includes("accesor")) return "Accesorios";
+      if (tp.includes("radio") || tp.includes("equipo")) return "Equipos Radio";
+      return "";
+    })();
     const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
     state.catalog.filters.frecuencia = undefined;
     state.catalog.filters.portabilidad = undefined;
     state.catalog.filters.modalidad = keepRental ? "Arriendo" : "Venta";
     state.catalog.filters.tecnologia = undefined;
     state.catalog.skipRadioTechFrequency = undefined;
+    if (!keepRental && !isRadioEquipment) {
+      const retry = await queryProducts(state.catalog.filters);
+      if (retry.length) {
+        state.catalog.lastList = retry;
+        const lines = retry.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+        return ["Estos son los que encontré (máx. 5):", "", lines, "", "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre."].join("\n");
+      }
+      const menu = await getSuggestedCatalogTypes("CL", state.catalog.filters.modalidad);
+      const top = menu.length
+        ? menu.slice(0, 5).map((m) => ({ label: withCatalogTypeIcon(m.label), value: m.tipo }))
+        : [
+            { label: "📻 Equipos Radio", value: "equipos-radio" },
+            { label: "🎧 Accesorios", value: "accesorios" },
+            { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
+          ];
+      state.catalog.filters.tipo_producto = undefined;
+      state.catalog.pending = { attr: "tipo_producto", options: top };
+      const intro = missingLabel ? `Por ahora no encontré opciones para ${missingLabel}. Probemos con otra categoría:` : "Por ahora no encontré opciones para esa categoría. Probemos con otra:";
+      return [intro, "", top.map((o) => o.label).join("\n"), "También puedes escribir el nombre del producto (ej: DP50)."].join("\n");
+    }
     return keepRental
       ? "No encontré equipos de arriendo con esos filtros. Probemos otra vez y te ayudo a encontrar una alternativa."
       : isRadioEquipment
       ? "No encontré productos con esa combinación. Probemos otra vez desde la modalidad del equipo."
-      : "No encontré productos con esos filtros. Probemos de nuevo: ¿qué tecnología o modalidad buscas?";
+      : "Por ahora no encontré productos con esos filtros. ¿Quieres hacer una nueva búsqueda o volver al menú?";
   }
 
   const lines = products.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
@@ -3621,6 +3662,12 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     const candidates = tipos.filter((tp) => normalizeText(tp).includes(t) || t.includes(normalizeText(tp)));
     if (candidates.length === 1) {
       state.catalog.filters.tipo_producto = candidates[0];
+      state.catalog.selectedProductId = undefined;
+      state.catalog.lastList = undefined;
+      state.catalog.filters.frecuencia = undefined;
+      state.catalog.filters.tecnologia = undefined;
+      state.catalog.filters.portabilidad = undefined;
+      state.catalog.skipRadioTechFrequency = undefined;
     } else if (candidates.length > 1) {
       const top = candidates.slice(0, 5);
       state.catalog.pending = { attr: "tipo_producto", options: top.map((o) => ({ label: o, value: o })) };
@@ -3748,17 +3795,44 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   state.catalog.lastList = products;
 
   if (!products.length) {
+    const missingLabel = (() => {
+      const tp = normalizeText(state.catalog.filters.tipo_producto || "");
+      if (tp.includes("camara") || tp.includes("cámara") || tp.includes("body")) return "Cámaras Corporales";
+      if (tp.includes("accesor")) return "Accesorios";
+      if (tp.includes("radio") || tp.includes("equipo")) return "Equipos Radio";
+      return "";
+    })();
     const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
     state.catalog.filters.frecuencia = undefined;
     state.catalog.filters.portabilidad = undefined;
     state.catalog.filters.modalidad = keepRental ? "Arriendo" : "Venta";
     state.catalog.filters.tecnologia = undefined;
     state.catalog.skipRadioTechFrequency = undefined;
+    if (!keepRental && !isRadioEquipment) {
+      const retry = await queryProductsUY(state.catalog.filters);
+      if (retry.length) {
+        state.catalog.lastList = retry;
+        const lines = retry.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+        return ["Estos son los que encontré (máx. 5):", "", lines, "", "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre."].join("\n");
+      }
+      const menu = await getSuggestedCatalogTypes("UY", state.catalog.filters.modalidad);
+      const top = menu.length
+        ? menu.slice(0, 5).map((m) => ({ label: withCatalogTypeIcon(m.label), value: m.tipo }))
+        : [
+            { label: "📻 Equipos Radio", value: "equipos-radio" },
+            { label: "🎧 Accesorios", value: "accesorios" },
+            { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
+          ];
+      state.catalog.filters.tipo_producto = undefined;
+      state.catalog.pending = { attr: "tipo_producto", options: top };
+      const intro = missingLabel ? `Por ahora no encontré opciones para ${missingLabel}. Probemos con otra categoría:` : "Por ahora no encontré opciones para esa categoría. Probemos con otra:";
+      return [intro, "", top.map((o) => o.label).join("\n"), "También puedes escribir el nombre del producto."].join("\n");
+    }
     return keepRental
       ? "No encontré equipos de arriendo con esos filtros. Probemos otra vez y te ayudo a encontrar una alternativa."
       : isRadioEquipment
       ? "No encontré productos con esa combinación. Probemos otra vez desde la modalidad del equipo."
-      : "No encontré productos con esos filtros. Probemos de nuevo: ¿qué tecnología o modalidad buscas?";
+      : "Por ahora no encontré productos con esos filtros. ¿Quieres hacer una nueva búsqueda o volver al menú?";
   }
 
   const lines = products.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
