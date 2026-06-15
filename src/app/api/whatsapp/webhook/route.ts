@@ -4584,7 +4584,15 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
     getNaturalMenuReminderText(),
   ].join("\n");
 
-  return ai ? [ai, servicios] : servicios;
+  if (!ai) return servicios;
+  const aiNorm = normalizeText(ai);
+  const alreadyHasFooter =
+    aiNorm.includes("mantencion preventiva") ||
+    aiNorm.includes("mantencion") ||
+    aiNorm.includes("reparacion") ||
+    aiNorm.includes("mesa central") ||
+    aiNorm.includes("sam:");
+  return alreadyHasFooter ? ai : [ai, "", servicios].join("\n");
 }
 
 export async function GET(request: Request) {
