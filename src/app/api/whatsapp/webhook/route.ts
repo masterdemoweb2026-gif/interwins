@@ -686,6 +686,29 @@ function toTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function extractInboundTimestampMs(payload: unknown, message: unknown) {
+  const pick = (obj: unknown, key: string) => toTrimmedString(isRecord(obj) ? (obj as Record<string, unknown>)[key] : undefined);
+  const raw =
+    pick(message, "timestamp") ||
+    pick(message, "messageTimestamp") ||
+    pick(message, "t") ||
+    pick(payload, "timestamp") ||
+    pick(payload, "messageTimestamp") ||
+    pick(payload, "t") ||
+    pick(payload, "ts");
+  if (!raw) return null as number | null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n < 1_000_000_000_000 ? Math.trunc(n * 1000) : Math.trunc(n);
+}
+
+function buildInboundDedupeKey(from: string, text: string, tsMs: number) {
+  const base = `${normalizeText(from)}|${normalizeText(text)}`;
+  const h = crypto.createHash("sha256").update(base).digest("hex").slice(0, 16);
+  const ts = Number.isFinite(tsMs) && tsMs > 0 ? Math.trunc(tsMs) : 0;
+  return `t${ts}:${h}`;
+}
+
 function isMenuCommand(text: string) {
   const t = normalizeText(text);
   return (
@@ -4663,6 +4686,9 @@ export async function POST(request: Request) {
       toTrimmedString(isRecord(message) ? (message as Record<string, unknown>).id : undefined) ||
       toTrimmedString(isRecord(payload) && isRecord(payload.message) ? (payload.message as Record<string, unknown>).id : undefined)) ||
     undefined;
+  const inboundTimestampMsRaw = extractInboundTimestampMs(payload, message);
+  const inboundTimestampMs = inboundTimestampMsRaw ?? Date.now();
+  const inboundDedupeTimestampMs = inboundTimestampMsRaw ?? Math.floor(inboundTimestampMs / 30000) * 30000;
 
   const isInboundText = typeof text === "string" && text.trim().length > 0;
   const autoReplyEnabled = shouldAutoReply();
@@ -4765,8 +4791,9 @@ export async function POST(request: Request) {
         returnToCasualState(state);
       }
 
-      if (inboundId && (state.recentInboundIds ?? []).includes(inboundId)) {
-        inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate inboundId=${inboundId}` });
+      const inboundDedupeKey = inboundId || buildInboundDedupeKey(userKey, inboundText, inboundDedupeTimestampMs);
+      if ((state.recentInboundIds ?? []).includes(inboundDedupeKey)) {
+        inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate inboundKey=${inboundDedupeKey}` });
         await saveUserState(userKey, state);
         return NextResponse.json({ ok: true }, { status: 200 });
       }
@@ -5015,9 +5042,9 @@ export async function POST(request: Request) {
         }
       }
 
-      if (inboundId) {
+      {
         const prev = state.recentInboundIds ?? [];
-        const next = [inboundId, ...prev.filter((x) => x !== inboundId)].slice(0, 10);
+        const next = [inboundDedupeKey, ...prev.filter((x) => x !== inboundDedupeKey)].slice(0, 15);
         state.recentInboundIds = next;
       }
 
