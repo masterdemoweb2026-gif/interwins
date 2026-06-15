@@ -4764,7 +4764,7 @@ export async function POST(request: Request) {
         reply = withMainMenu("", state, country, "welcome");
       } else if (isFormLockActive(state)) {
         const t0 = normalizeText(inboundText);
-        const wantsNav = isMenuCommand(inboundText) || Boolean(branchIntent.branch);
+        const wantsNav = isMenuCommand(inboundText) || branchIntent.wantsMenu || Boolean(isNumericChoice(t0, 4));
         const wantsCancel = t0.includes("cancel");
         if (wantsNav && !wantsCancel) {
           reply = getFormInProgressText();
