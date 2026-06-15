@@ -1015,6 +1015,31 @@ function findBestCatalogTypeByKeywords(tipos: string[], keywords: string[]) {
   return best && best.score >= 1 ? best.tp : undefined;
 }
 
+function pickBestTipoProductoForCategory(key: SuggestedCatalogTypeKey, tipos: string[]) {
+  const camera = (tp: string) => {
+    const n = normalizeText(tp);
+    return (n.includes("camara") || n.includes("cámara") || n.includes("body")) && (n.includes("corporal") || n.includes("camaras corporales") || n.includes("cámaras corporales"));
+  };
+  const accessory = (tp: string) => {
+    const n = normalizeText(tp);
+    return n.includes("accesor");
+  };
+  if (key === "camara_corporal") {
+    const pure = tipos.filter((tp) => camera(tp) && !accessory(tp));
+    const bestPure = findBestCatalogTypeByKeywords(pure, ["camara", "cámara", "camaras", "cámaras", "corporal", "bodycam", "body"]);
+    if (bestPure) return bestPure;
+    const best = findBestCatalogTypeByKeywords(tipos, ["camara", "cámara", "camaras", "cámaras", "corporal", "bodycam", "body"]);
+    return best;
+  }
+  if (key === "accesorio_radio") {
+    const pure = tipos.filter((tp) => accessory(tp) && !camera(tp));
+    const bestPure = findBestCatalogTypeByKeywords(pure, ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"]);
+    if (bestPure) return bestPure;
+    return findBestCatalogTypeByKeywords(tipos, ["accesorios", "accesorio", "bateria", "batería", "antena", "cargador", "auricular", "mic", "microfono", "micrófono"]);
+  }
+  return findBestCatalogTypeByKeywords(tipos, ["equipos", "equipo", "radio", "radios", "handy", "portatil", "portátil", "movil", "móvil"]);
+}
+
 async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
   const tipos = modalidad
     ? await listDistinctTipoProductoByModalidad(country, modalidad)
@@ -1029,7 +1054,7 @@ async function getSuggestedCatalogTypes(country: Country, modalidad?: string) {
 
   const suggested: Array<{ key: SuggestedCatalogTypeKey; label: string; tipo: string }> = [];
   for (const w of wanted) {
-    const best = findBestCatalogTypeByKeywords(tipos, w.keywords);
+    const best = pickBestTipoProductoForCategory(w.key, tipos);
     if (best) {
       suggested.push({ key: w.key, label: w.label, tipo: best });
     }
@@ -1319,6 +1344,74 @@ function cleanProductName(rawName: string) {
 function isRadioEquipmentTipoProducto(tipoProducto?: string) {
   const t = normalizeText(tipoProducto || "");
   return t.includes("equipo") && t.includes("radio");
+}
+
+function isBodycamTipoProducto(tipoProducto?: string) {
+  const t = normalizeText(tipoProducto || "");
+  const isCam = t.includes("camara") || t.includes("cámara") || t.includes("body");
+  if (!isCam) return false;
+  return t.includes("corporal") || t.includes("camaras corporales") || t.includes("cámaras corporales") || t.includes("videobadge") || t.includes("videotag");
+}
+
+function scoreBodycamCandidateName(name: string) {
+  const t = normalizeText(name || "");
+  if (!t) return 0;
+  let s = 0;
+  if (t.includes("camara corporal") || t.includes("cámara corporal") || t.includes("bodycam") || t.includes("videobadge") || t.includes("videotag")) s += 6;
+  if (/\bvb\s?-?\d{3}\b/.test(t) || t.includes("vb440") || t.includes("vb-440")) s += 5;
+  if (/\bvt\s?-?100\b/.test(t) || t.includes("vt100") || t.includes("vt-100")) s += 5;
+  if (t.includes("v500")) s += 5;
+  const accessoryTokens = [
+    "dock",
+    "dc-",
+    "dockcontroller",
+    "base de acoplamiento",
+    "acoplamiento",
+    "arnes",
+    "arnés",
+    "harn",
+    "klick",
+    "fast",
+    "clip",
+    "pinza",
+    "soporte",
+    "mount",
+    "cable",
+    "usb",
+    "cargador",
+    "carga",
+    "kit",
+    "correa",
+  ];
+  let accessoryHits = 0;
+  for (const token of accessoryTokens) {
+    if (t.includes(token)) {
+      s -= 4;
+      accessoryHits += 1;
+    }
+  }
+  const isDeviceNamed = t.includes("camara corporal") || t.includes("cámara corporal") || t.includes("videobadge") || t.includes("videotag");
+  if (accessoryHits > 0 && !isDeviceNamed) s -= 6 * accessoryHits;
+  return s;
+}
+
+async function pickBestBodycamList(country: Country, candidates: Array<{ product_id: string; nombre: string }>) {
+  const prelim = candidates
+    .map((p) => ({ ...p, score: scoreBodycamCandidateName(p.nombre) }))
+    .sort((a, b) => b.score - a.score || a.nombre.localeCompare(b.nombre, "es"));
+  const head = prelim.slice(0, 15);
+  const rest = prelim.slice(15);
+  const enriched = await Promise.all(
+    head.map(async (p) => {
+      const d = await loadProductDetailByCountry(country, p.product_id);
+      const nombre = d?.nombre ? d.nombre : p.nombre;
+      return { product_id: p.product_id, nombre, score: scoreBodycamCandidateName(nombre) };
+    }),
+  );
+  const all = [...enriched, ...rest].sort((a, b) => b.score - a.score || a.nombre.localeCompare(b.nombre, "es"));
+  const good = all.filter((p) => p.score > 0);
+  const pool = (good.length >= 3 ? good : all).slice(0, 5).map((p) => ({ product_id: p.product_id, nombre: p.nombre }));
+  return pool.filter((p) => p.product_id && p.nombre);
 }
 
 function formatPortabilidadLabel(option: string) {
@@ -2128,10 +2221,11 @@ async function listFrecuencias(filters: CatalogFilters): Promise<string[]> {
 
 async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
-  const queryLimit = filters.tecnologia ? 40 : 10;
+  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
+  const queryLimit = isBodycam ? 50 : filters.tecnologia ? 40 : 10;
   const params: string[] = [
     `select=product_id,nombre,tecnologia,frecuencia`,
-    `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
+    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
     `limit=${queryLimit}`,
     `order=nombre.asc`,
   ];
@@ -2157,17 +2251,18 @@ async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_i
     .filter((r) => r.product_id && r.nombre)
     .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
     .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
-    .slice(0, 5)
+    .slice(0, 25)
     .filter((r) => r.product_id && r.nombre);
 }
 
 async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
   const table = getUyProductsTable();
-  const queryLimit = filters.tecnologia ? 40 : 10;
+  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
+  const queryLimit = isBodycam ? 50 : filters.tecnologia ? 40 : 10;
   const params: string[] = [
     `select=product_id,nombre,tecnologia,frecuencia`,
-    `tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`,
+    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
     `limit=${queryLimit}`,
     `order=nombre.asc`,
   ];
@@ -2193,7 +2288,7 @@ async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product
     .filter((r) => r.product_id && r.nombre)
     .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
     .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
-    .slice(0, 5)
+    .slice(0, 25)
     .filter((r) => r.product_id && r.nombre);
 }
 
@@ -3299,7 +3394,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       q.data.region = parsed.region;
       q.step = "final";
       state.catalog.quote = q;
-      return await completeCatalogQuote(state, userPhone, input);
+      await upsertUserProfile(userPhone, q.data);
+      state.catalog.reviewMode = "cotizacion";
+      return await buildCotizacionProfileReviewMessage(state);
     }
   }
 
@@ -3443,7 +3540,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (state.catalog.lastList && state.catalog.lastList.length) {
-    const max = state.catalog.lastList.length;
+    const max = Math.min(5, state.catalog.lastList.length);
     const n = isNumericChoice(t, max) ?? extractChoiceNumberFromText(input, max);
     if (n) {
       const chosen = state.catalog.lastList[n - 1];
@@ -3470,7 +3567,6 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   const products = await queryProducts(state.catalog.filters);
-  state.catalog.lastList = products;
 
   if (!products.length) {
     const missingLabel = (() => {
@@ -3489,8 +3585,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     if (!keepRental && !isRadioEquipment) {
       const retry = await queryProducts(state.catalog.filters);
       if (retry.length) {
-        state.catalog.lastList = retry;
-        const lines = retry.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", retry) : retry.slice(0, 5);
+        state.catalog.lastList = shown;
+        const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return ["Estos son los que encontré (máx. 5):", "", lines, "", "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre."].join("\n");
       }
       const menu = await getSuggestedCatalogTypes("CL", state.catalog.filters.modalidad);
@@ -3513,7 +3610,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       : "Por ahora no encontré productos con esos filtros. ¿Quieres hacer una nueva búsqueda o volver al menú?";
   }
 
-  const lines = products.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+  const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", products) : products.slice(0, 5);
+  state.catalog.lastList = shown;
+  const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
     "Estos son los que encontré (máx. 5):",
     "",
@@ -3634,11 +3733,11 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       q.data.ciudad = parsed.ciudad;
       q.data.region = parsed.region;
       q.step = "final";
-      state.catalog.status = "wait_finish_cotizacion";
       state.catalog.quote = q;
       if (q.data.nombre) state.userName = q.data.nombre.split(" ")[0]?.trim() || state.userName;
       await upsertUserProfile(userPhone, q.data);
-      return await finalizeCotizacion(state, userPhone);
+      state.catalog.reviewMode = "cotizacion";
+      return await buildCotizacionProfileReviewMessage(state);
     }
   }
 
@@ -3806,7 +3905,6 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   const products = await queryProductsUY(state.catalog.filters);
-  state.catalog.lastList = products;
 
   if (!products.length) {
     const missingLabel = (() => {
@@ -3825,8 +3923,9 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (!keepRental && !isRadioEquipment) {
       const retry = await queryProductsUY(state.catalog.filters);
       if (retry.length) {
-        state.catalog.lastList = retry;
-        const lines = retry.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", retry) : retry.slice(0, 5);
+        state.catalog.lastList = shown;
+        const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return ["Estos son los que encontré (máx. 5):", "", lines, "", "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre."].join("\n");
       }
       const menu = await getSuggestedCatalogTypes("UY", state.catalog.filters.modalidad);
@@ -3849,7 +3948,9 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       : "Por ahora no encontré productos con esos filtros. ¿Quieres hacer una nueva búsqueda o volver al menú?";
   }
 
-  const lines = products.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+  const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", products) : products.slice(0, 5);
+  state.catalog.lastList = shown;
+  const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
     "Estos son los que encontré (máx. 5):",
     "",
