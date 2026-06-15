@@ -241,7 +241,7 @@ export default function Home() {
                   <select
                     value={flowFilter}
                     onChange={(e) => setFlowFilter(e.target.value)}
-                    className="h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none focus:border-cyan-400/40"
+                    className="dashboard-select h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none focus:border-cyan-400/40"
                   >
                     <option value="all">Todas</option>
                     {flowOptions.map((option) => (
@@ -257,7 +257,7 @@ export default function Home() {
                   <select
                     value={countryFilter}
                     onChange={(e) => setCountryFilter(e.target.value)}
-                    className="h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none focus:border-cyan-400/40"
+                    className="dashboard-select h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none focus:border-cyan-400/40"
                   >
                     <option value="all">Todos</option>
                     <option value="CL">CL</option>
