@@ -2532,7 +2532,23 @@ async function saveUyLead(payload: Record<string, unknown>) {
 }
 
 async function loadUserProfile(userPhone: string) {
-  const q = `users?select=nombre,telefono,email,empresa,direccion,ciudad,region&user_phone=eq.${encodeURIComponent(userPhone)}&limit=1`;
+  const raw = String(userPhone ?? "").trim();
+  const digits = raw.replace(/[^\d]/g, "");
+  const candidates = Array.from(
+    new Set(
+      [
+        raw,
+        digits,
+        digits ? `+${digits}` : "",
+        digits ? `${digits}@s.whatsapp.net` : "",
+        digits ? `${digits}@c.us` : "",
+      ].filter(Boolean),
+    ),
+  ).slice(0, 5);
+  const or = candidates.length
+    ? `&or=(${candidates.map((c) => `user_phone.eq.${encodeURIComponent(c)}`).join(",")})`
+    : `&user_phone=eq.${encodeURIComponent(raw)}`;
+  const q = `users?select=nombre,telefono,email,empresa,direccion,ciudad,region${or}&limit=1`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return null;
   const row = (res.data as unknown[])[0];
@@ -3207,7 +3223,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       q.step = !q.data.nombre ? "nombre" : !q.data.telefono ? "telefono" : !q.data.email ? "email" : "final";
       state.catalog.quote = q;
       if (q.step === "final") {
-        return await completeCatalogQuote(state, userPhone, input);
+        await upsertUserProfile(userPhone, q.data);
+        state.catalog.reviewMode = "arriendo";
+        return await buildArriendoProfileReviewMessage(state);
       }
       return getRentalPromptForStep(q.step, "CL");
     }
@@ -3233,7 +3251,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         q.data.email = input.trim();
         q.step = "final";
         state.catalog.quote = q;
-        return await completeCatalogQuote(state, userPhone, input);
+        await upsertUserProfile(userPhone, q.data);
+        state.catalog.reviewMode = "arriendo";
+        return await buildArriendoProfileReviewMessage(state);
       }
       setAndNext("email", input.trim(), "empresa");
       return "¿Para qué empresa es la cotización? Si es para ti, escribe: Particular";
