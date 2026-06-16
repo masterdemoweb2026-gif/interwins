@@ -632,7 +632,9 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   if (detail.fichaUrl) bodyLines.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
   const body = bodyLines.filter(Boolean).join("\n");
   const primaryAction = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
-  const actions = ["¿Qué deseas hacer ahora?", "", primaryAction, "Volver a la lista", "Volver al menú", "Hacer una nueva búsqueda"].join("\n");
+  const actions = ["¿Qué deseas hacer ahora?", "", primaryAction, "Volver a la lista de productos", "Volver al menú", "Hacer una nueva búsqueda"].join(
+    "\n",
+  );
 
   const out: Array<string | OutboundMessage> = [header];
   if (detail.imageUrl) out.push({ type: "image", imageUrl: detail.imageUrl });
