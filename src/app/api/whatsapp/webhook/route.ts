@@ -33,6 +33,161 @@ function shouldAutoReply() {
   return true;
 }
 
+type SheetsLeadRow = {
+  createdAt: string;
+  country: Country;
+  flowKey: string;
+  flowLabel: string;
+  userPhone: string;
+  nombre: string;
+  empresa: string;
+  telefono: string;
+  email: string;
+  direccion: string;
+  producto: string;
+  mensaje: string;
+};
+
+let googleSheetsTokenCache: { token: string; expMs: number } | null = null;
+
+function getGoogleSheetsClientEmail() {
+  return String(process.env.GSHEETS_CLIENT_EMAIL ?? "").trim();
+}
+
+function getGoogleSheetsPrivateKey() {
+  const raw = String(process.env.GSHEETS_PRIVATE_KEY ?? "").trim();
+  return raw ? raw.replace(/\\n/g, "\n") : "";
+}
+
+function base64UrlEncode(input: Buffer | string) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function googleJwtSign(payload: Record<string, unknown>, privateKeyPem: string) {
+  const header = { alg: "RS256", typ: "JWT" };
+  const part1 = base64UrlEncode(JSON.stringify(header));
+  const part2 = base64UrlEncode(JSON.stringify(payload));
+  const data = `${part1}.${part2}`;
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(data);
+  signer.end();
+  const sig = signer.sign(privateKeyPem);
+  return `${data}.${base64UrlEncode(sig)}`;
+}
+
+async function getGoogleSheetsAccessToken() {
+  const now = Date.now();
+  if (googleSheetsTokenCache && googleSheetsTokenCache.expMs - 30_000 > now) {
+    return googleSheetsTokenCache.token;
+  }
+  const email = getGoogleSheetsClientEmail();
+  const key = getGoogleSheetsPrivateKey();
+  if (!email || !key) return "";
+  const iat = Math.floor(now / 1000);
+  const exp = iat + 3600;
+  const assertion = googleJwtSign(
+    {
+      iss: email,
+      scope: "https://www.googleapis.com/auth/spreadsheets",
+      aud: "https://oauth2.googleapis.com/token",
+      iat,
+      exp,
+    },
+    key,
+  );
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion,
+  });
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = JSON.parse(text);
+  } catch {}
+  const token = typeof (data as Record<string, unknown>)?.access_token === "string" ? ((data as Record<string, unknown>).access_token as string) : "";
+  const expiresIn = Number((data as Record<string, unknown>)?.expires_in ?? 0);
+  if (!token) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: "", text: `[DEBUG] sheets token failed status=${res.status}` });
+    return "";
+  }
+  googleSheetsTokenCache = { token, expMs: now + (Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn * 1000 : 3600_000) };
+  return token;
+}
+
+function getSheetTabName() {
+  return (process.env.GSHEETS_TAB_NAME ?? "Whatsapp Leads").trim() || "Whatsapp Leads";
+}
+
+function resolveSheetsTarget(country: Country, flowKey: string) {
+  const tab = getSheetTabName();
+  if (country === "UY") {
+    const spreadsheetId =
+      (process.env.GSHEET_UY_ID ?? "").trim() || "1cc7sxuaf6aCEXxT1S9b4f3zHQvzfYuAqPmwVmdkINog";
+    return spreadsheetId ? { spreadsheetId, tab } : null;
+  }
+  const key = normalizeText(flowKey);
+  if (key.includes("servicio") || key.includes("sam")) {
+    const spreadsheetId = (process.env.GSHEET_CL_SAM_ID ?? "").trim() || "17boi45yM9hZtnEAg3-YsKrbdi7-OVvuuD4tJVrapyEg";
+    return spreadsheetId ? { spreadsheetId, tab } : null;
+  }
+  if (key.includes("arriendo") || key.includes("dealer")) {
+    const spreadsheetId = (process.env.GSHEET_CL_ARRIENDO_ID ?? "").trim() || "1yUIwrMQ8DZZ12Z5nH45JBQOXhdr1GKHMbdCSit757nQ";
+    return spreadsheetId ? { spreadsheetId, tab } : null;
+  }
+  const spreadsheetId = (process.env.GSHEET_CL_COMPRAS_ID ?? "").trim() || "1WKR_sctuGrxe_6ImpAyDeTnjtCOtE9zFNQdocRNHXvs";
+  return spreadsheetId ? { spreadsheetId, tab } : null;
+}
+
+async function appendLeadToGoogleSheet(row: SheetsLeadRow) {
+  const email = getGoogleSheetsClientEmail();
+  const key = getGoogleSheetsPrivateKey();
+  if (!email || !key) return;
+  const target = resolveSheetsTarget(row.country, row.flowKey);
+  if (!target) return;
+  const token = await getGoogleSheetsAccessToken();
+  if (!token) return;
+  const values = [
+    row.nombre,
+    row.empresa,
+    row.telefono,
+    row.email,
+    row.direccion,
+    row.producto,
+    row.mensaje,
+    row.createdAt,
+    row.country,
+    row.flowKey,
+    row.flowLabel,
+    row.userPhone,
+  ];
+  const range = encodeURIComponent(`${target.tab}!A1`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(target.spreadsheetId)}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ values: [values] }),
+  });
+  if (!res.ok) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: row.userPhone, text: `[DEBUG] sheets append failed status=${res.status}` });
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number) {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeout = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(undefined as T), ms);
+  });
+  const result = await Promise.race([promise, timeout]);
+  if (timeoutId) clearTimeout(timeoutId);
+  return result;
+}
+
 function toBasicAuthHeader(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -3060,6 +3215,26 @@ async function finalizeCotizacion(state: UserState, userPhone: string): Promise<
   if (state.catalog.quote?.data) {
     await upsertUserProfile(userPhone, state.catalog.quote.data);
   }
+  try {
+    const country = state.country ?? "CL";
+    const detail = await loadProductDetailByCountry(country, state.catalog.selectedProductId ?? "");
+    const q = state.catalog.quote?.data ?? {};
+    const sheetRow: SheetsLeadRow = {
+      createdAt: new Date().toISOString(),
+      country,
+      flowKey: isRentalFlow ? "arriendo" : "cotizacion",
+      flowLabel: isRentalFlow ? "Arriendo" : "Cotización",
+      userPhone,
+      nombre: q.nombre ?? "",
+      empresa: q.empresa ?? "",
+      telefono: q.telefono ?? "",
+      email: q.email ?? "",
+      direccion: [q.direccion, q.ciudad, q.region].filter(Boolean).join(", "),
+      producto: detail?.nombre ? cleanProductName(detail.nombre) : state.catalog.selectedProductId ?? "",
+      mensaje: (q as Record<string, unknown>)?.mensaje ? String((q as Record<string, unknown>).mensaje ?? "") : "",
+    };
+    void withTimeout(appendLeadToGoogleSheet(sheetRow), 2500);
+  } catch {}
   if (isRentalFlow) {
     const forceAskAll = state.catalog.forceAskAll;
     state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
@@ -4429,6 +4604,36 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
   } else {
     await saveClContactLead(userPhone, form);
   }
+  try {
+    const country = getContactFormCountry(form.kind);
+    const kind = normalizeText(form.kind);
+    const flowKey = kind.includes("servicio_tecnico") ? "servicio_tecnico" : kind.includes("proyectos") ? "proyectos" : kind.includes("dealer") ? "arriendo" : kind.includes("cambium") ? "cambium" : "cotizacion";
+    const flowLabel =
+      flowKey === "servicio_tecnico"
+        ? "Servicio técnico"
+        : flowKey === "proyectos"
+          ? "Asesoría en proyectos"
+          : flowKey === "arriendo"
+            ? "Arriendo"
+            : flowKey === "cambium"
+              ? "Cambium"
+              : "Cotización";
+    const sheetRow: SheetsLeadRow = {
+      createdAt: new Date().toISOString(),
+      country,
+      flowKey,
+      flowLabel,
+      userPhone,
+      nombre: form.data.nombre ?? "",
+      empresa: form.data.empresa ?? "",
+      telefono: form.data.telefono ?? "",
+      email: form.data.correo ?? "",
+      direccion: form.data.direccion ?? "",
+      producto: form.data.producto ?? "",
+      mensaje: form.data.mensaje ?? "",
+    };
+    void withTimeout(appendLeadToGoogleSheet(sheetRow), 2500);
+  } catch {}
 
   state.contactForm = undefined;
   state.activeBranch = "menu";
