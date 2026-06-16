@@ -34,7 +34,7 @@ function shouldAutoReply() {
 }
 
 type SheetsLeadRow = {
-  createdAt: string;
+  fecha: string;
   country: Country;
   flowKey: string;
   flowLabel: string;
@@ -46,6 +46,7 @@ type SheetsLeadRow = {
   direccion: string;
   producto: string;
   mensaje: string;
+  ciudad: string;
 };
 
 let googleSheetsTokenCache: { token: string; expMs: number } | null = null;
@@ -160,11 +161,8 @@ async function appendLeadToGoogleSheet(row: SheetsLeadRow) {
     row.direccion,
     row.producto,
     row.mensaje,
-    row.createdAt,
-    row.country,
-    row.flowKey,
-    row.flowLabel,
-    row.userPhone,
+    row.ciudad,
+    row.fecha,
   ];
   const range = encodeURIComponent(`${target.tab}!A1`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(target.spreadsheetId)}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
@@ -3220,7 +3218,7 @@ async function finalizeCotizacion(state: UserState, userPhone: string): Promise<
     const detail = await loadProductDetailByCountry(country, state.catalog.selectedProductId ?? "");
     const q = state.catalog.quote?.data ?? {};
     const sheetRow: SheetsLeadRow = {
-      createdAt: new Date().toISOString(),
+      fecha: new Date().toISOString(),
       country,
       flowKey: isRentalFlow ? "arriendo" : "cotizacion",
       flowLabel: isRentalFlow ? "Arriendo" : "Cotización",
@@ -3232,6 +3230,7 @@ async function finalizeCotizacion(state: UserState, userPhone: string): Promise<
       direccion: [q.direccion, q.ciudad, q.region].filter(Boolean).join(", "),
       producto: detail?.nombre ? cleanProductName(detail.nombre) : state.catalog.selectedProductId ?? "",
       mensaje: (q as Record<string, unknown>)?.mensaje ? String((q as Record<string, unknown>).mensaje ?? "") : "",
+      ciudad: q.ciudad ?? "",
     };
     void withTimeout(appendLeadToGoogleSheet(sheetRow), 2500);
   } catch {}
@@ -4619,7 +4618,7 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
               ? "Cambium"
               : "Cotización";
     const sheetRow: SheetsLeadRow = {
-      createdAt: new Date().toISOString(),
+      fecha: new Date().toISOString(),
       country,
       flowKey,
       flowLabel,
@@ -4631,6 +4630,7 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
       direccion: form.data.direccion ?? "",
       producto: form.data.producto ?? "",
       mensaje: form.data.mensaje ?? "",
+      ciudad: "",
     };
     void withTimeout(appendLeadToGoogleSheet(sheetRow), 2500);
   } catch {}
