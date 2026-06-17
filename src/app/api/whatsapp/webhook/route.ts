@@ -819,6 +819,7 @@ type ProductDetail = {
   productId: string;
   nombre: string;
   shortFinal?: string;
+  fullDescription?: string;
   imageUrl?: string;
   fichaUrl?: string;
   precio?: string;
@@ -842,10 +843,8 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   if (!detail) return [];
   const title = cleanProductName(detail.nombre || "");
   const header = title ? `*${title}*` : "*Producto*";
-  const bodyLines: string[] = [];
-  if (detail.shortFinal) bodyLines.push(detail.shortFinal);
-  if (detail.fichaUrl) bodyLines.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
-  const body = bodyLines.filter(Boolean).join("\n");
+  const descriptionText = detail.fullDescription?.trim() || detail.shortFinal?.trim() || "";
+  const descriptionChunks = descriptionText ? chunkText(descriptionText, 900) : [];
   const primaryAction = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
   const actions = ["¿Qué deseas hacer ahora?", "", primaryAction, "Volver a la lista de productos", "Volver al menú", "Hacer una nueva búsqueda"].join(
     "\n",
@@ -853,7 +852,8 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
 
   const out: Array<string | OutboundMessage> = [header];
   if (detail.imageUrl) out.push({ type: "image", imageUrl: detail.imageUrl });
-  if (body.trim()) out.push(body);
+  out.push(...descriptionChunks);
+  if (detail.fichaUrl) out.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
   out.push(actions);
   return out;
 }
@@ -1736,6 +1736,10 @@ function removeNectarShortcodesRaw(text: string) {
   return text.replace(/\[nectar_btn[^\]]*\]/gi, "");
 }
 
+function removeWordpressShortcodesRaw(text: string) {
+  return text.replace(/\[(?:\/)?[a-zA-Z_][^\]]*\]/g, " ");
+}
+
 function decodeHtmlEntities(text: string) {
   return text
     .replace(/&nbsp;/gi, " ")
@@ -1765,7 +1769,7 @@ function decodeHtmlEntities(text: string) {
 }
 
 function htmlToParagraphText(html: string) {
-  const raw = removeNectarShortcodesRaw(html || "");
+  const raw = removeWordpressShortcodesRaw(removeNectarShortcodesRaw(html || ""));
   if (!raw.trim()) return "";
 
   let s = raw;
@@ -2678,11 +2682,12 @@ async function loadProductDetail(productId: string) {
     .map((s: string) => s.trim())
     .filter(Boolean)[0];
   const fichaUrl = extractFichaTecnicaUrl(`${descCorta}\n${desc}`);
-  const descPlano = htmlToParagraphText(`${descCorta}\n${desc}`);
+  const descCompleta = htmlToParagraphText(`${descCorta}\n${desc}`);
+  const descPlano = htmlToParagraphText(desc || descCorta);
   const shortText = descCorta.trim() ? htmlToParagraphText(descCorta).slice(0, 600).trim() : descPlano.slice(0, 600).trim();
   const shortFinal = shortText.length >= 590 ? `${shortText.slice(0, 590).trim()}...` : shortText;
 
-  return { productId, nombre, shortFinal, imageUrl, fichaUrl, precio };
+  return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
 }
 
 function getUyProductsTable() {
@@ -2743,10 +2748,11 @@ async function loadProductDetailUY(productId: string) {
   const imageUrl = toTrimmedString(getRecordValue(row, "image_url"));
   const precio = toTrimmedString(getRecordValue(row, "precio"));
   const fichaUrl = extractFichaTecnicaUrl(`${descCorta}\n${desc}`);
-  const descPlano = htmlToParagraphText(`${descCorta}\n${desc}`);
+  const descCompleta = htmlToParagraphText(`${descCorta}\n${desc}`);
+  const descPlano = htmlToParagraphText(desc || descCorta);
   const shortText = descCorta.trim() ? htmlToParagraphText(descCorta).slice(0, 600).trim() : descPlano.slice(0, 600).trim();
   const shortFinal = shortText.length >= 590 ? `${shortText.slice(0, 590).trim()}...` : shortText;
-  return { productId, nombre, shortFinal, imageUrl, fichaUrl, precio };
+  return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
 }
 
 async function loadProductDetailByCountry(country: Country, productId: string): Promise<ProductDetail | null> {
