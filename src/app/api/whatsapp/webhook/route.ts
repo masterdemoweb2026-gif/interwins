@@ -137,7 +137,7 @@ function resolveSheetsTarget(country: Country, flowKey: string) {
     const spreadsheetId = (process.env.GSHEET_CL_SAM_ID ?? "").trim() || "17boi45yM9hZtnEAg3-YsKrbdi7-OVvuuD4tJVrapyEg";
     return spreadsheetId ? { spreadsheetId, tab } : null;
   }
-  if (key.includes("arriendo") || key.includes("dealer")) {
+  if (key.includes("arriendo")) {
     const spreadsheetId = (process.env.GSHEET_CL_ARRIENDO_ID ?? "").trim() || "1yUIwrMQ8DZZ12Z5nH45JBQOXhdr1GKHMbdCSit757nQ";
     return spreadsheetId ? { spreadsheetId, tab } : null;
   }
@@ -5101,12 +5101,23 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
   try {
     const country = getContactFormCountry(form.kind);
     const kind = normalizeText(form.kind);
-    const flowKey = kind.includes("servicio_tecnico") ? "servicio_tecnico" : kind.includes("proyectos") ? "proyectos" : kind.includes("dealer") ? "arriendo" : kind.includes("cambium") ? "cambium" : "cotizacion";
+    const flowKey =
+      kind.includes("servicio_tecnico")
+        ? "servicio_tecnico"
+        : kind.includes("proyectos")
+          ? "proyectos"
+          : kind.includes("dealer")
+            ? "dealer"
+            : kind.includes("cambium")
+              ? "cambium"
+              : "cotizacion";
     const flowLabel =
       flowKey === "servicio_tecnico"
         ? "Servicio técnico"
         : flowKey === "proyectos"
           ? "Asesoría en proyectos"
+          : flowKey === "dealer"
+            ? "Dealer"
           : flowKey === "arriendo"
             ? "Arriendo"
             : flowKey === "cambium"

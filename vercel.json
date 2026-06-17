@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/catalog/sync/chile?mode=sync",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}
