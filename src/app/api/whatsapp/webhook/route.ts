@@ -413,6 +413,7 @@ type CatalogState = {
   pending?: CatalogPendingOptions;
   skipRadioTechFrequency?: boolean;
   lastList?: Array<{ product_id: string; nombre: string }>;
+  returnList?: Array<{ product_id: string; nombre: string }>;
   selectedProductId?: string;
   quote?: CatalogQuote;
   requestKind?: CatalogRequestKind;
@@ -763,11 +764,15 @@ function encodeIlikePattern(pattern: string) {
 
 function buildCatalogNameSearchPatterns(query: string) {
   const compact = normalizeText(query).replace(/[^a-z0-9]+/g, "");
-  if (compact.length < 3) return [];
+  if (compact.length < 2) return [];
   const withStars = compact.replace(/([a-z])(\d)/g, "$1*$2").replace(/(\d)([a-z])/g, "$1*$2");
   const patterns = [`*${compact}*`];
   if (withStars !== compact) patterns.push(`*${withStars}*`);
   return Array.from(new Set(patterns));
+}
+
+function compactCatalogModelText(value: string) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, "");
 }
 
 function extractCatalogModelQuery(text: string) {
@@ -809,7 +814,14 @@ function extractCatalogModelQuery(text: string) {
     "volver",
     "lista",
   ]);
-  const filtered = tokens.filter((x) => x.length >= 3 && !banned.has(x));
+  const filtered = tokens.filter((x) => ((/\d/.test(x) && x.length >= 2) || x.length >= 3) && !banned.has(x));
+  for (let i = 0; i < filtered.length - 1; i += 1) {
+    const current = filtered[i]!;
+    const next = filtered[i + 1]!;
+    if (/^[a-z]{2,}$/.test(current) && /^\d{1,4}[a-z]?$/.test(next)) {
+      return `${current}${next}`;
+    }
+  }
   const withDigits = filtered.find((x) => /\d/.test(x));
   if (withDigits) return withDigits;
   return "";
@@ -977,6 +989,16 @@ function isExitConversationCommand(text: string) {
   if (t === "terminar") return true;
   if (t.includes("terminar") && (t.includes("convers") || t.includes("chat"))) return true;
   if (t.includes("final") && t.includes("convers")) return true;
+  return false;
+}
+
+function isBackToProductsListCommand(text: string) {
+  const t = normalizeText(text);
+  if (!t) return false;
+  if (t === "lista") return true;
+  if (t.includes("ver lista")) return true;
+  if (t === "volver") return true;
+  if (t.includes("lista") && (t.includes("volver") || t.includes("volv") || t.includes("regresar") || t.includes("regresa"))) return true;
   return false;
 }
 
@@ -1715,6 +1737,7 @@ function applyCatalogPendingSelection(state: UserState, pending: CatalogPendingO
   if (pending.attr === "tipo_producto") {
     state.catalog.selectedProductId = undefined;
     state.catalog.lastList = undefined;
+    state.catalog.returnList = undefined;
     state.catalog.filters.frecuencia = undefined;
     state.catalog.filters.tecnologia = undefined;
     state.catalog.filters.portabilidad = undefined;
@@ -2586,6 +2609,53 @@ async function queryProductsByNameBroad(
     }))
     .filter((r) => r.product_id && r.nombre)
     .slice(0, 25);
+}
+
+async function tryDirectCatalogModelLookup(state: UserState, country: Country, input: string): Promise<Reply | null> {
+  const modelQuery = extractCatalogModelQuery(input);
+  if (!modelQuery) return null;
+
+  const strictFound = state.catalog.filters.tipo_producto ? await (country === "UY" ? queryProductsByNameUY(state.catalog.filters, modelQuery) : queryProductsByName(state.catalog.filters, modelQuery)) : [];
+  const relaxedFound =
+    strictFound.length || !state.catalog.filters.tipo_producto
+      ? strictFound
+      : await (country === "UY"
+          ? queryProductsByNameUY({ ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined }, modelQuery)
+          : queryProductsByName({ ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined }, modelQuery));
+  const found = relaxedFound.length ? relaxedFound : await queryProductsByNameBroad(country, state.catalog.filters.modalidad, modelQuery);
+
+  if (!found.length) {
+    return [`No encontré "${modelQuery.toUpperCase()}" en el catálogo.`, "Si quieres, dime otro modelo o haz una nueva búsqueda."].join("\n");
+  }
+
+  const shown =
+    state.catalog.filters.tipo_producto && isBodycamTipoProducto(state.catalog.filters.tipo_producto)
+      ? await pickBestBodycamList(country, found)
+      : found.slice(0, CATALOG_MAX_LIST_ITEMS);
+  const compactQuery = compactCatalogModelText(modelQuery);
+  const exactMatches = shown.filter((p) => compactCatalogModelText(`${p.product_id} ${p.nombre}`).includes(compactQuery));
+  const chosen = exactMatches.length === 1 ? exactMatches[0]! : shown.length === 1 ? shown[0]! : null;
+
+  if (chosen) {
+    const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
+    state.catalog.selectedProductId = chosen.product_id;
+    state.catalog.lastList = shown;
+    state.catalog.returnList = previousList?.length ? previousList : undefined;
+    const detail = await loadProductDetailByCountry(country, chosen.product_id);
+    if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
+    return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind });
+  }
+
+  state.catalog.lastList = shown;
+  state.catalog.returnList = undefined;
+  const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+  return [
+    `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
+    "",
+    lines,
+    "",
+    "Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.",
+  ].join("\n");
 }
 
 async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
@@ -3618,6 +3688,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         ]);
   }
 
+  const directModelReply = await tryDirectCatalogModelLookup(state, "CL", input);
+  if (directModelReply) return directModelReply;
+
   if (state.catalog.arriendoStage === "landing") {
     state.catalog.arriendoStage = "product_menu";
     return buildArriendoLandingMessage();
@@ -3913,9 +3986,14 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       markMenuShown(state);
       return buildMainMenuText("CL", "return");
     }
-    if (t === "volver a la lista" || (t.includes("volver") && t.includes("lista")) || t === "lista" || t.includes("ver lista") || t === "volver") {
+    if (isBackToProductsListCommand(input)) {
+      const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
       state.catalog.selectedProductId = undefined;
-      if (state.catalog.lastList?.length) return buildProductsListMessage(state.catalog.lastList, "Motorola DP250");
+      state.catalog.returnList = undefined;
+      if (sourceList?.length) {
+        state.catalog.lastList = sourceList;
+        return buildProductsListMessage(sourceList, "Motorola DP250");
+      }
       return "Perfecto. Indícame el número del producto que quieres ver o escribe Nueva búsqueda.";
     }
     if (isStockQuestion(input)) {
@@ -3927,6 +4005,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
+      state.catalog.returnList = undefined;
       state.catalog.filters = { modalidad: keepRental ? "Arriendo" : "Venta" };
       state.catalog.pending = undefined;
       state.catalog.skipRadioTechFrequency = undefined;
@@ -3983,12 +4062,19 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
         if (shown.length === 1) {
           const only = shown[0]!;
+          const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
           state.catalog.selectedProductId = only.product_id;
-          state.catalog.lastList = shown;
+          if (previousList?.length) {
+            state.catalog.returnList = previousList;
+          } else {
+            state.catalog.lastList = shown;
+            state.catalog.returnList = undefined;
+          }
           const detail = await loadProductDetail(only.product_id);
           if (detail) return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind });
         }
         state.catalog.lastList = shown;
+        state.catalog.returnList = undefined;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return [
           `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
@@ -4029,6 +4115,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       if (retry.length) {
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", retry) : retry.slice(0, CATALOG_MAX_LIST_ITEMS);
         state.catalog.lastList = shown;
+        state.catalog.returnList = undefined;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return [
           `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
@@ -4062,6 +4149,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     ? await pickBestBodycamList("CL", products)
     : products.slice(0, CATALOG_MAX_LIST_ITEMS);
   state.catalog.lastList = shown;
+  state.catalog.returnList = undefined;
   const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
     `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
@@ -4108,6 +4196,9 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
     ]);
   }
+
+  const directModelReply = await tryDirectCatalogModelLookup(state, "UY", input);
+  if (directModelReply) return directModelReply;
 
   if (state.catalog.quote) {
     const q = state.catalog.quote;
@@ -4308,9 +4399,14 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       markMenuShown(state);
       return buildMainMenuText("UY", "return");
     }
-    if (t === "volver a la lista" || (t.includes("volver") && t.includes("lista")) || t === "lista" || t.includes("ver lista") || t === "volver") {
+    if (isBackToProductsListCommand(input)) {
+      const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
       state.catalog.selectedProductId = undefined;
-      if (state.catalog.lastList?.length) return buildProductsListMessage(state.catalog.lastList, "DEP250");
+      state.catalog.returnList = undefined;
+      if (sourceList?.length) {
+        state.catalog.lastList = sourceList;
+        return buildProductsListMessage(sourceList, "DEP250");
+      }
       return "Perfecto. Indícame el número del producto que quieres ver o escribe Nueva búsqueda.";
     }
     if (isStockQuestion(input)) {
@@ -4321,6 +4417,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
+      state.catalog.returnList = undefined;
       state.catalog.filters = { modalidad: "Venta" };
       state.catalog.pending = undefined;
       state.catalog.skipRadioTechFrequency = undefined;
@@ -4375,12 +4472,19 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
         if (shown.length === 1) {
           const only = shown[0]!;
+          const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
           state.catalog.selectedProductId = only.product_id;
-          state.catalog.lastList = shown;
+          if (previousList?.length) {
+            state.catalog.returnList = previousList;
+          } else {
+            state.catalog.lastList = shown;
+            state.catalog.returnList = undefined;
+          }
           const detail = await loadProductDetailByCountry("UY", only.product_id);
           if (detail) return buildProductFichaMessages(detail);
         }
         state.catalog.lastList = shown;
+        state.catalog.returnList = undefined;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return [
           `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
@@ -4421,6 +4525,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       if (retry.length) {
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", retry) : retry.slice(0, CATALOG_MAX_LIST_ITEMS);
         state.catalog.lastList = shown;
+        state.catalog.returnList = undefined;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return [
           `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
@@ -4454,6 +4559,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     ? await pickBestBodycamList("UY", products)
     : products.slice(0, CATALOG_MAX_LIST_ITEMS);
   state.catalog.lastList = shown;
+  state.catalog.returnList = undefined;
   const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
     `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
