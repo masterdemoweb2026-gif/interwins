@@ -6013,6 +6013,8 @@ export async function POST(request: Request) {
             }
           } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "proyectos") {
             reply = country === "UY" ? await handleProjectsUY(state, inboundText, userKey) : await handleProjects(state, inboundText, userKey);
+          } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "servicio_tecnico") {
+            reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText, userKey) : await handleServicioTecnico(state, inboundText, userKey);
           } else {
           if (state.activeBranch === "catalogo") {
             reply = country === "UY" ? await handleCatalogUY(state, inboundText, userKey) : await handleCatalog(state, inboundText, userKey);
