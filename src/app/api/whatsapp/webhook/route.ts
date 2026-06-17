@@ -5828,6 +5828,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true }, { status: 200 });
       }
 
+      {
+        const toAdd = inboundKeys.length ? inboundKeys : [derivedInboundKey];
+        const keep = (state.recentInboundIds ?? []).filter((x) => !toAdd.includes(x));
+        state.recentInboundIds = [...toAdd, ...keep].slice(0, 25);
+      }
+      await saveUserState(userKey, state);
+
       await sendChatPresence(replyTo, "start");
       startedPresence = true;
 
@@ -6124,13 +6131,6 @@ export async function POST(request: Request) {
           }
           }
         }
-      }
-
-      {
-        const prev = state.recentInboundIds ?? [];
-        const toAdd = inboundKeys.length ? inboundKeys : [derivedInboundKey];
-        const keep = prev.filter((x) => !toAdd.includes(x));
-        state.recentInboundIds = [...toAdd, ...keep].slice(0, 25);
       }
 
       await saveUserState(userKey, state);
