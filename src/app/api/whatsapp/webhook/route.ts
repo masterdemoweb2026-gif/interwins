@@ -506,6 +506,8 @@ type UserState = {
   recentInboundHashes?: Array<{ h: string; ts: number }>;
   serviceTech?: {
     lastProducto?: string;
+    lastQuestionHash?: string;
+    lastQuestionAt?: number;
   };
   catalog: CatalogState;
   projects: ProjectsState;
@@ -953,6 +955,7 @@ function buildInboundDedupeKey(from: string, text: string, tsMs: number) {
 function shouldUseServiceTechOpeningPrompt(text: string) {
   const t = normalizeText(text);
   if (!t) return true;
+  if (isServiceTechFormIntent(text)) return false;
   if (t === "2") return true;
   if (t === "servicio tecnico" || t === "servicio técnico") return true;
   if (t === "soporte tecnico" || t === "soporte técnico") return true;
@@ -960,6 +963,34 @@ function shouldUseServiceTechOpeningPrompt(text: string) {
   if (t.includes("servicio tecnico") || t.includes("servicio técnico")) return t.length <= 28;
   if (t.includes("soporte tecnico") || t.includes("soporte técnico")) return t.length <= 26;
   return false;
+}
+
+function isServiceTechFormIntent(text: string) {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    t.includes("solicit") ||
+    t.includes("agendar") ||
+    t.includes("formulario") ||
+    t.includes("contact") ||
+    t.includes("derivar") ||
+    t.includes("ingresar solicitud") ||
+    t.includes("ingresar una solicitud")
+  );
+}
+
+function isRepeatedServiceTechQuestion(state: UserState, text: string, nowMs = Date.now()) {
+  state.serviceTech ??= {};
+  const normalized = normalizeText(text).replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  const hash = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+  const repeated =
+    state.serviceTech.lastQuestionHash === hash &&
+    Number.isFinite(state.serviceTech.lastQuestionAt) &&
+    nowMs - Number(state.serviceTech.lastQuestionAt) < 3 * 60 * 1000;
+  state.serviceTech.lastQuestionHash = hash;
+  state.serviceTech.lastQuestionAt = nowMs;
+  return repeated;
 }
 
 function isMenuCommand(text: string) {
@@ -5247,9 +5278,18 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
   const opening = "🔧 ¡Buenas! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
   if (!input) return `${opening}\n\n${getServiceCtaText()}`;
 
-  if (t.includes("solicit") || t.includes("agendar") || t.includes("formulario") || t.includes("contact")) {
+  if (isServiceTechFormIntent(input)) {
     const producto = extractLikelyProductModel(input) || state.serviceTech?.lastProducto || "";
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy routed to form producto=${producto}` });
     return await startContactForm(state, userPhone, "uy_servicio_tecnico", producto ? { presetData: { producto } } : undefined);
+  }
+
+  state.serviceTech ??= {};
+  const detected = extractLikelyProductModel(input);
+  if (detected) state.serviceTech.lastProducto = detected;
+  if (isRepeatedServiceTechQuestion(state, input)) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy duplicate ignored text=${input}` });
+    return "";
   }
 
   const st = loadUyServicioTecnicoText();
@@ -5265,6 +5305,7 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
     getNaturalMenuReminderText(),
   ].join("\n");
 
+  inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy reply generated ai=${Boolean(ai)} model=${state.serviceTech?.lastProducto ?? ""}` });
   return [ai || opening, "", tail].join("\n");
 }
 
@@ -5497,14 +5538,19 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
   const cta = getServiceCtaText();
   if (!q) return [opening, "", cta].join("\n");
 
-  if (t.includes("solicit") || t.includes("agendar") || t.includes("formulario") || t.includes("contact")) {
+  if (isServiceTechFormIntent(q)) {
     const producto = extractLikelyProductModel(q) || state.serviceTech?.lastProducto || "";
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl routed to form producto=${producto}` });
     return await startContactForm(state, userPhone, "cl_servicio_tecnico", producto ? { presetData: { producto } } : undefined);
   }
 
   state.serviceTech ??= {};
   const detected = extractLikelyProductModel(q);
   if (detected) state.serviceTech.lastProducto = detected;
+  if (isRepeatedServiceTechQuestion(state, q)) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl duplicate ignored text=${q}` });
+    return "";
+  }
 
   const hits = (await answerServicioTecnico(q)) ?? [];
   const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge: hits.map((h) => ({ tema: h.tema, info: h.info })) });
@@ -5533,6 +5579,12 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
     aiNorm.includes("reparacion") ||
     aiNorm.includes("mesa central") ||
     aiNorm.includes("sam:");
+  inboxAdd({
+    source: "gowa",
+    signatureValid: null,
+    from: userPhone,
+    text: `[DEBUG] service-tech cl reply generated ai=${Boolean(ai)} hits=${hits.length} footer=${alreadyHasFooter} model=${state.serviceTech?.lastProducto ?? ""}`,
+  });
   return alreadyHasFooter ? ai : [ai, "", servicios].join("\n");
 }
 
