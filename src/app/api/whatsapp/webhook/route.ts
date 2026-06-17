@@ -148,10 +148,107 @@ function resolveSheetsTarget(country: Country, flowKey: string) {
 async function appendLeadToGoogleSheet(row: SheetsLeadRow) {
   const email = getGoogleSheetsClientEmail();
   const key = getGoogleSheetsPrivateKey();
+  // #region debug-point S1:sheets-entry
+  (() => {
+    try {
+      const p = ".dbg/sheets-service-tech.env";
+      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
+      try {
+        const e = fs.readFileSync(p, "utf8");
+        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+      } catch {}
+      fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: s,
+          runId: "pre-fix",
+          hypothesisId: "A",
+          location: "webhook/route.ts:appendLeadToGoogleSheet(entry)",
+          msg: "[DEBUG] sheets append entry",
+          data: {
+            country: row.country,
+            flowKey: row.flowKey,
+            flowLabel: row.flowLabel,
+            userPhone: row.userPhone,
+            hasClientEmail: Boolean(email),
+            hasPrivateKey: Boolean(key),
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {}
+  })();
+  // #endregion
   if (!email || !key) return;
   const target = resolveSheetsTarget(row.country, row.flowKey);
+  // #region debug-point S2:sheets-target
+  (() => {
+    try {
+      const p = ".dbg/sheets-service-tech.env";
+      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
+      try {
+        const e = fs.readFileSync(p, "utf8");
+        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+      } catch {}
+      fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: s,
+          runId: "pre-fix",
+          hypothesisId: "B",
+          location: "webhook/route.ts:appendLeadToGoogleSheet(target)",
+          msg: "[DEBUG] sheets target resolved",
+          data: {
+            country: row.country,
+            flowKey: row.flowKey,
+            spreadsheetId: target?.spreadsheetId ?? "",
+            tab: target?.tab ?? "",
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {}
+  })();
+  // #endregion
   if (!target) return;
   const token = await getGoogleSheetsAccessToken();
+  // #region debug-point S3:sheets-token
+  (() => {
+    try {
+      const p = ".dbg/sheets-service-tech.env";
+      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
+      try {
+        const e = fs.readFileSync(p, "utf8");
+        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+      } catch {}
+      fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: s,
+          runId: "pre-fix",
+          hypothesisId: "C",
+          location: "webhook/route.ts:appendLeadToGoogleSheet(token)",
+          msg: "[DEBUG] sheets token status",
+          data: {
+            hasToken: Boolean(token),
+            country: row.country,
+            flowKey: row.flowKey,
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {}
+  })();
+  // #endregion
   if (!token) return;
   const values = [
     row.nombre,
@@ -171,6 +268,40 @@ async function appendLeadToGoogleSheet(row: SheetsLeadRow) {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ values: [values] }),
   });
+  // #region debug-point S4:sheets-append-result
+  (() => {
+    try {
+      const p = ".dbg/sheets-service-tech.env";
+      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
+      try {
+        const e = fs.readFileSync(p, "utf8");
+        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+      } catch {}
+      fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: s,
+          runId: "pre-fix",
+          hypothesisId: "D",
+          location: "webhook/route.ts:appendLeadToGoogleSheet(result)",
+          msg: "[DEBUG] sheets append result",
+          data: {
+            ok: res.ok,
+            status: res.status,
+            country: row.country,
+            flowKey: row.flowKey,
+            spreadsheetId: target.spreadsheetId,
+            tab: target.tab,
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {}
+  })();
+  // #endregion
   if (!res.ok) {
     inboxAdd({ source: "gowa", signatureValid: null, from: row.userPhone, text: `[DEBUG] sheets append failed status=${res.status}` });
   }
@@ -5112,6 +5243,40 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
       mensaje: form.data.mensaje ?? "",
       ciudad: "",
     };
+    // #region debug-point S5:contact-form-sheet-dispatch
+    (() => {
+      try {
+        const p = ".dbg/sheets-service-tech.env";
+        let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+        let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
+        try {
+          const e = fs.readFileSync(p, "utf8");
+          u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+          s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+        } catch {}
+        fetch(u, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: s,
+            runId: "pre-fix",
+            hypothesisId: "E",
+            location: "webhook/route.ts:finalizeContactForm(sheet-dispatch)",
+            msg: "[DEBUG] dispatching row to sheets",
+            data: {
+              formKind: form.kind,
+              country,
+              flowKey,
+              userPhone,
+              producto: sheetRow.producto,
+              mensajeLen: sheetRow.mensaje.length,
+            },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+      } catch {}
+    })();
+    // #endregion
     void withTimeout(appendLeadToGoogleSheet(sheetRow), 2500);
   } catch {}
 
