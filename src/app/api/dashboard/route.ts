@@ -86,6 +86,13 @@ function normalizeText(value: string) {
     .toLowerCase();
 }
 
+function detectCountryFromPhone(phone: string) {
+  const digits = String(phone ?? "").replace(/[^\d]/g, "");
+  if (digits.startsWith("598")) return "UY";
+  if (digits.startsWith("56")) return "CL";
+  return "CL";
+}
+
 function parseDate(value: string) {
   if (!value) return 0;
   const time = Date.parse(value);
@@ -319,6 +326,14 @@ async function loadDashboardData() {
     return acc;
   }, {});
 
+  const conversationCountryCounts = messageRows.reduce<Record<string, number>>((acc, row) => {
+    const phone = toText(row.user_phone);
+    if (!phone) return acc;
+    const key = detectCountryFromPhone(phone);
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
   const uniqueConversationUsers = new Set(messageRows.map((row) => toText(row.user_phone)).filter(Boolean)).size;
   const uniqueRequestUsers = new Set(requests.map((row) => row.userPhone).filter(Boolean)).size;
 
@@ -330,6 +345,7 @@ async function loadDashboardData() {
       totalRequests: requests.length,
       flowCounts,
       countryCounts,
+      conversationCountryCounts,
       lastUpdatedAt: new Date().toISOString(),
     },
     requests,

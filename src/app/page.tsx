@@ -29,11 +29,14 @@ type DashboardResponse = {
     totalRequests: number;
     flowCounts: Record<string, number>;
     countryCounts: Record<string, number>;
+    conversationCountryCounts: Record<string, number>;
     lastUpdatedAt: string;
   };
   requests: DashboardRequest[];
   warnings: string[];
 };
+
+type CountryFilter = "all" | "CL" | "UY";
 
 function formatDate(value: string) {
   if (!value) return "Sin fecha";
@@ -67,7 +70,7 @@ export default function Home() {
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState("");
   const [flowFilter, setFlowFilter] = useState("all");
-  const [countryFilter, setCountryFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState<CountryFilter>("all");
   const [search, setSearch] = useState("");
 
   async function refreshDashboard() {
@@ -110,14 +113,18 @@ export default function Home() {
     return Array.from(unique.entries()).map(([value, label]) => ({ value, label }));
   }, [dashboard]);
 
-  const filteredRequests = useMemo(() => {
+  const countryScopedRequests = useMemo(() => {
     const items = dashboard?.requests ?? [];
+    if (countryFilter === "all") return items;
+    return items.filter((item) => item.country === countryFilter);
+  }, [dashboard, countryFilter]);
+
+  const filteredRequests = useMemo(() => {
+    const items = countryScopedRequests;
     const query = search.trim().toLowerCase();
     return items.filter((item) => {
       const byFlow = flowFilter === "all" || item.flowKey === flowFilter;
       if (!byFlow) return false;
-      const byCountry = countryFilter === "all" || item.country === countryFilter;
-      if (!byCountry) return false;
       if (!query) return true;
       const haystack = [
         item.flowLabel,
@@ -135,39 +142,54 @@ export default function Home() {
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [dashboard, countryFilter, flowFilter, search]);
+  }, [countryScopedRequests, flowFilter, search]);
 
   const summary = dashboard?.summary;
+  const countryScopedFlowCounts = useMemo(
+    () =>
+      countryScopedRequests.reduce<Record<string, number>>((acc, item) => {
+        acc[item.flowKey] = (acc[item.flowKey] ?? 0) + 1;
+        return acc;
+      }, {}),
+    [countryScopedRequests],
+  );
+  const countryScopedUniqueRequestUsers = useMemo(
+    () => new Set(countryScopedRequests.map((item) => item.userPhone).filter(Boolean)).size,
+    [countryScopedRequests],
+  );
+  const countryScopedUniqueConversationUsers =
+    countryFilter === "all" ? (summary?.uniqueConversationUsers ?? 0) : (summary?.conversationCountryCounts[countryFilter] ?? 0);
   const supportCount =
-    (summary?.flowCounts.servicio_tecnico ?? 0) + (summary?.flowCounts.proyectos ?? 0) + (summary?.flowCounts.cambium ?? 0);
+    (countryScopedFlowCounts.servicio_tecnico ?? 0) + (countryScopedFlowCounts.proyectos ?? 0) + (countryScopedFlowCounts.cambium ?? 0);
+  const activeCountryLabel = countryFilter === "CL" ? "Chile" : countryFilter === "UY" ? "Uruguay" : "General";
   const cards = [
     {
       label: "Usuarios en flujo",
-      value: summary?.uniqueConversationUsers ?? 0,
-      detail: "Personas que ya interactuaron por WhatsApp",
+      value: countryScopedUniqueConversationUsers,
+      detail: `Personas que ya interactuaron por WhatsApp en ${activeCountryLabel.toLowerCase()}`,
       accent: "from-emerald-500/20 to-emerald-500/5",
     },
     {
       label: "Usuarios con solicitud",
-      value: summary?.uniqueRequestUsers ?? 0,
-      detail: "Contactos que ya dejaron formulario",
+      value: countryScopedUniqueRequestUsers,
+      detail: `Contactos que ya dejaron formulario en ${activeCountryLabel.toLowerCase()}`,
       accent: "from-sky-500/20 to-sky-500/5",
     },
     {
       label: "Solicitudes totales",
-      value: summary?.totalRequests ?? 0,
-      detail: "Registros consolidados del panel",
+      value: countryScopedRequests.length,
+      detail: `Registros consolidados de ${activeCountryLabel.toLowerCase()}`,
       accent: "from-violet-500/20 to-violet-500/5",
     },
     {
       label: "Cotizaciones",
-      value: summary?.flowCounts.cotizacion ?? 0,
+      value: countryScopedFlowCounts.cotizacion ?? 0,
       detail: "Solicitudes de compra o catálogo",
       accent: "from-emerald-400/20 to-emerald-400/5",
     },
     {
       label: "Arriendos",
-      value: summary?.flowCounts.arriendo ?? 0,
+      value: countryScopedFlowCounts.arriendo ?? 0,
       detail: "Solicitudes de arriendo registradas",
       accent: "from-cyan-400/20 to-cyan-400/5",
     },
@@ -212,6 +234,43 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4 shadow-xl shadow-black/10 backdrop-blur">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-xs font-medium uppercase tracking-[0.24em] text-zinc-500">Vista por país</div>
+              <p className="mt-1 text-sm text-zinc-400">Activa un país para ver solo sus cuadrantes y registros. Sin selección, la vista es general.</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {[
+                { value: "CL" as const, label: "Chile" },
+                { value: "UY" as const, label: "Uruguay" },
+              ].map((option) => {
+                const isActive = countryFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setCountryFilter((current) => (current === option.value ? "all" : option.value))}
+                    className={[
+                      "inline-flex h-11 items-center rounded-2xl border px-5 text-sm font-semibold transition",
+                      isActive
+                        ? "border-cyan-300/50 bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
+                        : "border-white/10 bg-white/5 text-zinc-200 hover:border-cyan-400/30 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+
+              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-zinc-300">
+                Vista actual: <span className="font-semibold text-white">{activeCountryLabel}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {cards.map((card) => (
             <article
@@ -235,7 +294,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2 lg:min-w-[520px] xl:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2 lg:min-w-[380px] xl:grid-cols-2">
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Tipo de solicitud</label>
                   <select
@@ -249,19 +308,6 @@ export default function Home() {
                         {option.label}
                       </option>
                     ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">País</label>
-                  <select
-                    value={countryFilter}
-                    onChange={(e) => setCountryFilter(e.target.value)}
-                    className="dashboard-select h-11 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none focus:border-cyan-400/40"
-                  >
-                    <option value="all">Todos</option>
-                    <option value="CL">CL</option>
-                    <option value="UY">URU</option>
                   </select>
                 </div>
 
@@ -302,7 +348,7 @@ export default function Home() {
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Fuentes activas</div>
-                <div className="mt-2 text-2xl font-semibold">{dashboard ? new Set(dashboard.requests.map((item) => item.source)).size : 0}</div>
+                <div className="mt-2 text-2xl font-semibold">{new Set(countryScopedRequests.map((item) => item.source)).size}</div>
               </div>
             </div>
 
