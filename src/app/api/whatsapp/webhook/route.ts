@@ -6028,6 +6028,8 @@ export async function POST(request: Request) {
               reply = await handlePoints(state, inboundText, userKey);
             }
           } else if (state.activeBranch === "servicio_tecnico") {
+            // Este caso solo se ejecuta si intent.branch !== "servicio_tecnico"
+            // Es decir, el usuario está en servicio_tecnico pero el mensaje no fue reconocido como intent de servicio técnico
             reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText, userKey) : await handleServicioTecnico(state, inboundText, userKey);
           } else if (state.activeBranch === "cambium") {
             reply = await handleCambium(state, inboundText, userKey);
