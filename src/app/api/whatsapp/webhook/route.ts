@@ -5536,6 +5536,38 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
   const t = normalizeText(q);
   const opening = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
   const cta = getServiceCtaText();
+  // #region debug-point D:service-tech-entry
+  (() => {
+    try {
+      const p = ".dbg/whatsapp-service-tech-dup.env";
+      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+      let s = process.env.DEBUG_SESSION_ID || "whatsapp-service-tech-dup";
+      try {
+        const e = fs.readFileSync(p, "utf8");
+        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+      } catch {}
+      fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: s,
+          runId: "pre-fix",
+          hypothesisId: "D",
+          location: "webhook/route.ts:handleServicioTecnico(entry)",
+          msg: "[DEBUG] handleServicioTecnico invoked",
+          data: {
+            userPhone,
+            q,
+            activeBranch: state.activeBranch,
+            hasServiceTechState: Boolean(state.serviceTech),
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {}
+  })();
+  // #endregion
   if (!q) return [opening, "", cta].join("\n");
 
   if (isServiceTechFormIntent(q)) {
@@ -6001,6 +6033,33 @@ export async function POST(request: Request) {
                 reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
               } else if (intent.branch === "servicio_tecnico") {
                 const stInput = shouldUseServiceTechOpeningPrompt(inboundText) ? "" : inboundText;
+                // #region debug-point E:service-tech-route-switch
+                (() => {
+                  try {
+                    const p = ".dbg/whatsapp-service-tech-dup.env";
+                    let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+                    let s = process.env.DEBUG_SESSION_ID || "whatsapp-service-tech-dup";
+                    try {
+                      const e = fs.readFileSync(p, "utf8");
+                      u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+                      s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+                    } catch {}
+                    fetch(u, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        sessionId: s,
+                        runId: "pre-fix",
+                        hypothesisId: "E",
+                        location: "webhook/route.ts:route(service-tech-switch)",
+                        msg: "[DEBUG] routing to servicio_tecnico from branch switch",
+                        data: { userKey, inboundText, previousBranch: previous, nextBranch: intent.branch, stInput },
+                        ts: Date.now(),
+                      }),
+                    }).catch(() => {});
+                  } catch {}
+                })();
+                // #endregion
                 reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
               } else if (intent.branch === "cambium") {
                 reply = await handleCambium(state, "", userKey);
@@ -6015,6 +6074,33 @@ export async function POST(request: Request) {
             reply = country === "UY" ? await handleProjectsUY(state, inboundText, userKey) : await handleProjects(state, inboundText, userKey);
           } else if (state.activeBranch === "servicio_tecnico") {
             // Usuario está en servicio_tecnico - procesar mensaje UNA SOLA VEZ
+            // #region debug-point E:service-tech-route-active
+            (() => {
+              try {
+                const p = ".dbg/whatsapp-service-tech-dup.env";
+                let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+                let s = process.env.DEBUG_SESSION_ID || "whatsapp-service-tech-dup";
+                try {
+                  const e = fs.readFileSync(p, "utf8");
+                  u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+                  s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+                } catch {}
+                fetch(u, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    sessionId: s,
+                    runId: "pre-fix",
+                    hypothesisId: "E",
+                    location: "webhook/route.ts:route(service-tech-active)",
+                    msg: "[DEBUG] routing to servicio_tecnico from active branch",
+                    data: { userKey, inboundText, activeBranch: state.activeBranch, intentBranch: intent.branch ?? "" },
+                    ts: Date.now(),
+                  }),
+                }).catch(() => {});
+              } catch {}
+            })();
+            // #endregion
             reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText, userKey) : await handleServicioTecnico(state, inboundText, userKey);
           } else {
           if (state.activeBranch === "catalogo") {
@@ -6049,6 +6135,38 @@ export async function POST(request: Request) {
 
       await saveUserState(userKey, state);
       const messages = Array.isArray(reply) ? reply : [reply];
+      // #region debug-point F:reply-batch
+      (() => {
+        try {
+          const p = ".dbg/whatsapp-service-tech-dup.env";
+          let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
+          let s = process.env.DEBUG_SESSION_ID || "whatsapp-service-tech-dup";
+          try {
+            const e = fs.readFileSync(p, "utf8");
+            u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
+            s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
+          } catch {}
+          fetch(u, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: s,
+              runId: "pre-fix",
+              hypothesisId: "F",
+              location: "webhook/route.ts:reply(messages)",
+              msg: "[DEBUG] outbound message batch prepared",
+              data: {
+                userKey,
+                inboundText,
+                messageCount: messages.length,
+                messageTypes: messages.map((m) => (typeof m === "string" ? "string" : m?.type ?? typeof m)),
+              },
+              ts: Date.now(),
+            }),
+          }).catch(() => {});
+        } catch {}
+      })();
+      // #endregion
       const hasProductFicha =
         messages.some((m) => m && typeof m === "object" && "type" in m && (m as OutboundMessage).type === "image") ||
         messages.some((m) => typeof m === "string" && (m.includes("📄 Ficha técnica") || m.includes("¿Qué deseas hacer ahora?")));
