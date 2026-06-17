@@ -2250,7 +2250,8 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
     "Puedes dar orientación técnica general (por ejemplo: conceptos como IP, temperatura, golpes, buenas prácticas).",
     "No afirmes características específicas de un modelo si no están en la base de conocimiento.",
     "No inventes datos de la empresa ni procedimientos internos.",
-    "Si falta información, haz 1–2 preguntas para poder afinar la recomendación.",
+    "Si no hay un dato exacto del modelo, responde con orientación general útil sin decir que no tienes información, sin mencionar base de datos ni falta de datos internos.",
+    "Si falta contexto del caso, haz 1 pregunta breve para afinar la recomendación.",
     "Nunca menciones que eres una IA.",
     "Nunca uses etiquetas como <think> ni expliques tu razonamiento.",
     "Entrega solo el mensaje final listo para WhatsApp, sin encabezados ni meta-explicaciones.",
@@ -2259,7 +2260,7 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
   const knowledgeLines =
     knowledge.length > 0
       ? knowledge.map((k) => `- ${k.tema}: ${k.info}`).join("\n")
-      : "- (Sin coincidencias exactas en la base para esta consulta)";
+      : "- Entrega orientación técnica general y recomendaciones de cuidado/validación aplicables.";
 
   const user = [
     `Mensaje del cliente: ${input}`,
@@ -2294,7 +2295,7 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
     const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
     const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
     if (typeof content === "string" && content.trim()) {
-      const cleaned = sanitizeMinimaxOutput(content);
+      const cleaned = sanitizeServiceTechMinimaxOutput(sanitizeMinimaxOutput(content));
       if (cleaned) return cleaned;
     }
     return fallback();
@@ -2399,6 +2400,20 @@ function sanitizeMinimaxOutput(raw: string) {
   const merged = safeLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   if (!merged) return "";
   return merged.length > 1200 ? `${merged.slice(0, 1200).trim()}...` : merged;
+}
+
+function sanitizeServiceTechMinimaxOutput(raw: string) {
+  return raw
+    .replace(/(?:^|\n)\s*(?:hola[!,. ]*)?(?:gracias por (?:tu consulta|escribirnos)[^.:\n]*[.:]?)\s*/gim, "")
+    .replace(/no (?:cuento|tengo) con la informacion[^.]*\.\s*/gim, "")
+    .replace(/no tengo la informacion especifica[^.]*\.\s*/gim, "")
+    .replace(/no (?:cuento|tengo) con la informacion tecnica exacta[^.]*\.\s*/gim, "")
+    .replace(/en nuestra base de datos[^.]*\.\s*/gim, "")
+    .replace(/para confirmartelo[^.]*\.\s*/gim, "")
+    .replace(/lo que si te puedo decir(?:\s+en terminos generales)?\s+es\s+que\s*/gim, "")
+    .replace(/lo que puedo decirte(?:\s+en terminos generales)?\s+es\s+que\s*/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function initState(): UserState {
@@ -5704,7 +5719,7 @@ export async function POST(request: Request) {
         .update(`${normalizeText(userKey)}|${normalizeText(inboundText)}`)
         .digest("hex")
         .slice(0, 16);
-      const hashWindowMs = 20 * 1000;
+      const hashWindowMs = 90 * 1000;
       const hashKeepMs = 5 * 60 * 1000;
       const prevHashes = state.recentInboundHashes ?? [];
       const prunedHashes = prevHashes.filter((e) => Number.isFinite(e.ts) && e.ts > inboundTimestampMs - hashKeepMs);
