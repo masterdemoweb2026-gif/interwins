@@ -843,7 +843,6 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   const title = cleanProductName(detail.nombre || "");
   const header = title ? `*${title}*` : "*Producto*";
   const bodyLines: string[] = [];
-  if (detail.precio) bodyLines.push(`💰 Precio: ${detail.precio}`);
   if (detail.shortFinal) bodyLines.push(detail.shortFinal);
   if (detail.fichaUrl) bodyLines.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
   const body = bodyLines.filter(Boolean).join("\n");
@@ -3976,6 +3975,13 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         : await queryProductsByNameBroad("CL", state.catalog.filters.modalidad, modelQuery);
       if (found.length) {
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
+        if (shown.length === 1) {
+          const only = shown[0]!;
+          state.catalog.selectedProductId = only.product_id;
+          state.catalog.lastList = shown;
+          const detail = await loadProductDetail(only.product_id);
+          if (detail) return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind });
+        }
         state.catalog.lastList = shown;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return [
@@ -4361,6 +4367,13 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         : await queryProductsByNameBroad("UY", state.catalog.filters.modalidad, modelQuery);
       if (found.length) {
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
+        if (shown.length === 1) {
+          const only = shown[0]!;
+          state.catalog.selectedProductId = only.product_id;
+          state.catalog.lastList = shown;
+          const detail = await loadProductDetailByCountry("UY", only.product_id);
+          if (detail) return buildProductFichaMessages(detail);
+        }
         state.catalog.lastList = shown;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
         return [
@@ -5858,7 +5871,7 @@ export async function POST(request: Request) {
       const messages = Array.isArray(reply) ? reply : [reply];
       const hasProductFicha =
         messages.some((m) => m && typeof m === "object" && "type" in m && (m as OutboundMessage).type === "image") ||
-        messages.some((m) => typeof m === "string" && (m.includes("📄 Ficha técnica") || m.includes("💰 Precio") || m.includes("¿Qué deseas hacer ahora?")));
+        messages.some((m) => typeof m === "string" && (m.includes("📄 Ficha técnica") || m.includes("¿Qué deseas hacer ahora?")));
       if (hasProductFicha) await sleep(700);
       for (const m of messages) {
         if (typeof m === "string") {
