@@ -148,107 +148,10 @@ function resolveSheetsTarget(country: Country, flowKey: string) {
 async function appendLeadToGoogleSheet(row: SheetsLeadRow) {
   const email = getGoogleSheetsClientEmail();
   const key = getGoogleSheetsPrivateKey();
-  // #region debug-point S1:sheets-entry
-  (() => {
-    try {
-      const p = ".dbg/sheets-service-tech.env";
-      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
-      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
-      try {
-        const e = fs.readFileSync(p, "utf8");
-        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
-        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
-      } catch {}
-      fetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: s,
-          runId: "pre-fix",
-          hypothesisId: "A",
-          location: "webhook/route.ts:appendLeadToGoogleSheet(entry)",
-          msg: "[DEBUG] sheets append entry",
-          data: {
-            country: row.country,
-            flowKey: row.flowKey,
-            flowLabel: row.flowLabel,
-            userPhone: row.userPhone,
-            hasClientEmail: Boolean(email),
-            hasPrivateKey: Boolean(key),
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-    } catch {}
-  })();
-  // #endregion
   if (!email || !key) return;
   const target = resolveSheetsTarget(row.country, row.flowKey);
-  // #region debug-point S2:sheets-target
-  (() => {
-    try {
-      const p = ".dbg/sheets-service-tech.env";
-      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
-      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
-      try {
-        const e = fs.readFileSync(p, "utf8");
-        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
-        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
-      } catch {}
-      fetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: s,
-          runId: "pre-fix",
-          hypothesisId: "B",
-          location: "webhook/route.ts:appendLeadToGoogleSheet(target)",
-          msg: "[DEBUG] sheets target resolved",
-          data: {
-            country: row.country,
-            flowKey: row.flowKey,
-            spreadsheetId: target?.spreadsheetId ?? "",
-            tab: target?.tab ?? "",
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-    } catch {}
-  })();
-  // #endregion
   if (!target) return;
   const token = await getGoogleSheetsAccessToken();
-  // #region debug-point S3:sheets-token
-  (() => {
-    try {
-      const p = ".dbg/sheets-service-tech.env";
-      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
-      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
-      try {
-        const e = fs.readFileSync(p, "utf8");
-        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
-        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
-      } catch {}
-      fetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: s,
-          runId: "pre-fix",
-          hypothesisId: "C",
-          location: "webhook/route.ts:appendLeadToGoogleSheet(token)",
-          msg: "[DEBUG] sheets token status",
-          data: {
-            hasToken: Boolean(token),
-            country: row.country,
-            flowKey: row.flowKey,
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-    } catch {}
-  })();
-  // #endregion
   if (!token) return;
   const values = [
     row.nombre,
@@ -268,40 +171,6 @@ async function appendLeadToGoogleSheet(row: SheetsLeadRow) {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ values: [values] }),
   });
-  // #region debug-point S4:sheets-append-result
-  (() => {
-    try {
-      const p = ".dbg/sheets-service-tech.env";
-      let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
-      let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
-      try {
-        const e = fs.readFileSync(p, "utf8");
-        u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
-        s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
-      } catch {}
-      fetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: s,
-          runId: "pre-fix",
-          hypothesisId: "D",
-          location: "webhook/route.ts:appendLeadToGoogleSheet(result)",
-          msg: "[DEBUG] sheets append result",
-          data: {
-            ok: res.ok,
-            status: res.status,
-            country: row.country,
-            flowKey: row.flowKey,
-            spreadsheetId: target.spreadsheetId,
-            tab: target.tab,
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-    } catch {}
-  })();
-  // #endregion
   if (!res.ok) {
     inboxAdd({ source: "gowa", signatureValid: null, from: row.userPhone, text: `[DEBUG] sheets append failed status=${res.status}` });
   }
@@ -2328,8 +2197,10 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
   const baseUrl = getMinimaxBaseUrl();
   const system = [
     "Eres un asesor humano de ventas y soporte para una empresa chilena de telecomunicaciones y radiocomunicación.",
-    "Hablas en español chileno, tono cordial, profesional y cercano.",
+    "Hablas en español chileno, tono cordial, profesional y claro.",
     "Sé breve, claro y sin redundancias.",
+    "Evita modismos o expresiones demasiado coloquiales como 'bacán', 'cachai', 'al tiro', 'altiro', 'dale', 'te leo' o similares.",
+    "Prefiere un vocabulario profesional, natural y respetuoso.",
     "Nunca menciones que eres una IA.",
     "Nunca uses etiquetas como <think> ni expliques tu razonamiento.",
     "Entrega solo el mensaje final para WhatsApp, sin encabezados ni meta-explicaciones.",
@@ -2390,10 +2261,10 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
         .slice(0, 2)
         .map((k) => [`*${k.tema}*`, k.info].filter(Boolean).join("\n"))
         .join("\n\n");
-      return blocks.trim() ? blocks : "Ya. ¿Me cuentas un poquito más para ayudarte bien?";
+      return blocks.trim() ? blocks : "¿Podrías darme un poco más de contexto para orientarte mejor?";
     }
     return [
-      "🔧 Te ayudo feliz. Para cachar bien:",
+      "🔧 Con gusto te ayudo. Para orientarte mejor:",
       "1) ¿Qué equipo/modelo es?",
       "2) ¿Qué está pasando exactamente y desde cuándo?",
       "",
@@ -2407,8 +2278,10 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
   const baseUrl = getMinimaxBaseUrl();
   const system = [
     "Eres un asesor humano de soporte técnico para una empresa de radiocomunicación.",
-    "Hablas en español chileno, tono cordial, profesional y cercano.",
+    "Hablas en español chileno, tono cordial, profesional y claro.",
     "Entrega una respuesta útil y concreta.",
+    "Evita modismos o expresiones demasiado coloquiales como 'bacán', 'cachai', 'al tiro', 'altiro', 'dale', 'te leo' o similares.",
+    "Prefiere un vocabulario profesional, natural y respetuoso.",
     "Puedes dar orientación técnica general (por ejemplo: conceptos como IP, temperatura, golpes, buenas prácticas).",
     "No afirmes características específicas de un modelo si no están en la base de conocimiento.",
     "No inventes datos de la empresa ni procedimientos internos.",
@@ -2477,8 +2350,10 @@ async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium";
   const baseUrl = getMinimaxBaseUrl();
   const systemBase = [
     "Eres un asesor humano para una empresa de telecomunicaciones y radiocomunicación.",
-    "Hablas en español, tono cordial, profesional y cercano.",
+    "Hablas en español, tono cordial, profesional y claro.",
     "Sé breve, claro y sin redundancias.",
+    "Evita modismos o expresiones demasiado coloquiales como 'bacán', 'cachai', 'al tiro', 'altiro', 'dale', 'te leo' o similares.",
+    "Prefiere un vocabulario profesional, natural y respetuoso.",
     "No inventes datos: si no está en la base, dilo y pide un dato.",
     "Nunca menciones que eres una IA.",
     "Nunca uses etiquetas como <think> ni expliques tu razonamiento.",
@@ -2559,7 +2434,16 @@ function sanitizeMinimaxOutput(raw: string) {
     .map((l) => l.replace(forbidden, "").trim())
     .filter(Boolean);
 
-  const merged = safeLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const merged = safeLines
+    .join("\n")
+    .replace(/\b[Bb]acán\b/g, "excelente")
+    .replace(/\b[Cc]achai\b/g, "comprendes")
+    .replace(/\b[Aa]l\s+tiro\b/g, "de inmediato")
+    .replace(/\b[Aa]ltiro\b/g, "de inmediato")
+    .replace(/\b[Tt]e leo\b/g, "Quedo atento")
+    .replace(/\b[Dd]ale\b/g, "Perfecto")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (!merged) return "";
   return merged.length > 1200 ? `${merged.slice(0, 1200).trim()}...` : merged;
 }
@@ -3771,7 +3655,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       return await minimaxRewrite({
         kind: "empatia",
         input,
-        facts: ["Dale, dejamos los recomendados fuera.", "¿Quieres terminar o cancelar la cotización?", "Responde: Terminar / Cancelar."],
+        facts: ["Perfecto, dejamos los recomendados fuera.", "¿Quieres terminar o cancelar la cotización?", "Responde: Terminar / Cancelar."],
       });
     }
 
@@ -3878,7 +3762,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     if (choice) {
       return await startDirectRentalForm(state, userPhone, choice);
     }
-    return "Cuéntame si quieres Cotizar Arriendo de Radios o prefieres Más Información.";
+    return "Indícame si deseas cotizar arriendo de radios o si prefieres más información.";
   }
 
   if (state.catalog.arriendoStage === "product_menu") {
@@ -4062,14 +3946,14 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       const match = matchPendingOption(input, pending.options);
       if (match.value) {
         const selected = pending.options.find((o) => o.value === match.value);
-        if (!selected) return `Dale. Responde con un número (1–${pending.options.length}) o escríbeme la opción (como la ves en la lista).`;
+        if (!selected) return `Por favor, responde con un número (1–${pending.options.length}) o escribe la opción tal como aparece en la lista.`;
         selectedPendingOption = selected;
         applyCatalogPendingSelection(state, pending, selected);
       } else {
         if (match.ambiguous) {
           return `Me quedaron 2 opciones parecidas. ¿Me respondes con el número (1–${pending.options.length}) para elegir bien?`;
         }
-        return `Dale. Responde con un número (1–${pending.options.length}) o escríbeme la opción (como la ves en la lista).`;
+        return `Por favor, responde con un número (1–${pending.options.length}) o escribe la opción tal como aparece en la lista.`;
       }
     }
   }
@@ -4475,14 +4359,14 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       const match = matchPendingOption(input, pending.options);
       if (match.value) {
         const selected = pending.options.find((o) => o.value === match.value);
-        if (!selected) return `Dale. Responde con un número (1–${pending.options.length}) o escríbeme la opción (como la ves en la lista).`;
+        if (!selected) return `Por favor, responde con un número (1–${pending.options.length}) o escribe la opción tal como aparece en la lista.`;
         selectedPendingOption = selected;
         applyCatalogPendingSelection(state, pending, selected);
       } else {
         if (match.ambiguous) {
           return `Me quedaron 2 opciones parecidas. ¿Me respondes con el número (1–${pending.options.length}) para elegir bien?`;
         }
-        return `Dale. Responde con un número (1–${pending.options.length}) o escríbeme la opción (como la ves en la lista).`;
+        return `Por favor, responde con un número (1–${pending.options.length}) o escribe la opción tal como aparece en la lista.`;
       }
     }
   }
@@ -5103,7 +4987,7 @@ function applyContactFieldValue(form: ContactFormState, field: Exclude<ContactFo
       form.optionalProductHandled = true;
       return null;
     }
-    if (input.trim().length < 2) return "Cuéntame el equipo o modelo. Si prefieres omitirlo, escribe: Omitir";
+    if (input.trim().length < 2) return "Indícame el equipo o modelo. Si prefieres omitirlo, escribe: Omitir";
     form.data.producto = input.trim();
     form.optionalProductHandled = true;
     return null;
@@ -5243,40 +5127,6 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
       mensaje: form.data.mensaje ?? "",
       ciudad: "",
     };
-    // #region debug-point S5:contact-form-sheet-dispatch
-    (() => {
-      try {
-        const p = ".dbg/sheets-service-tech.env";
-        let u = process.env.DEBUG_SERVER_URL || "http://127.0.0.1:7777/event";
-        let s = process.env.DEBUG_SESSION_ID || "sheets-service-tech";
-        try {
-          const e = fs.readFileSync(p, "utf8");
-          u = e.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || u;
-          s = e.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || s;
-        } catch {}
-        fetch(u, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: s,
-            runId: "pre-fix",
-            hypothesisId: "E",
-            location: "webhook/route.ts:finalizeContactForm(sheet-dispatch)",
-            msg: "[DEBUG] dispatching row to sheets",
-            data: {
-              formKind: form.kind,
-              country,
-              flowKey,
-              userPhone,
-              producto: sheetRow.producto,
-              mensajeLen: sheetRow.mensaje.length,
-            },
-            ts: Date.now(),
-          }),
-        }).catch(() => {});
-      } catch {}
-    })();
-    // #endregion
     void withTimeout(appendLeadToGoogleSheet(sheetRow), 2500);
   } catch {}
 
@@ -5440,7 +5290,7 @@ async function handleProjectsUY(state: UserState, text: string, userPhone: strin
 async function handleServicioTecnicoUY(state: UserState, text: string, userPhone: string): Promise<Reply> {
   const input = text.trim();
   const t = normalizeText(input);
-  const opening = "🔧 ¡Buenas! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
+  const opening = "🔧 Hola. Indícame tu duda técnica (equipo/modelo y lo que está ocurriendo) y con gusto la revisamos.";
   if (!input) return `${opening}\n\n${getServiceCtaText()}`;
 
   if (isServiceTechFormIntent(input)) {
@@ -5699,7 +5549,7 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
 async function handleServicioTecnico(state: UserState, text: string, userPhone: string) {
   const q = text.trim();
   const t = normalizeText(q);
-  const opening = "🔧 ¡Dale! Cuéntame tu duda técnica (equipo/modelo y qué te está pasando) y lo revisamos al tiro.";
+  const opening = "🔧 Hola. Indícame tu duda técnica (equipo/modelo y lo que está ocurriendo) y con gusto la revisamos.";
   const cta = getServiceCtaText();
   if (!q) return [opening, "", cta].join("\n");
 
@@ -6133,14 +5983,14 @@ export async function POST(request: Request) {
               facts:
                 country === "UY"
                   ? [
-                      "Te leo.",
+                      "Estoy atento a tu consulta.",
                       "Puedo ayudarte con compra de equipos y accesorios, servicio técnico, proyectos y soluciones Cambium.",
-                      "Cuéntame qué necesitas y te oriento.",
+                      "Indícame qué necesitas y con gusto te orientaré.",
                     ]
                   : [
-                      "Te leo.",
+                      "Estoy atento a tu consulta.",
                       "Puedo ayudarte con compra o arriendo de equipos, servicio técnico, proyectos y puntos de venta.",
-                      "Cuéntame qué necesitas y te oriento.",
+                      "Indícame qué necesitas y con gusto te orientaré.",
                     ],
             });
             reply = msg;
