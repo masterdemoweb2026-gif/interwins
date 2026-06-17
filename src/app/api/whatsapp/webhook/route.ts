@@ -141,6 +141,10 @@ function resolveSheetsTarget(country: Country, flowKey: string) {
     const spreadsheetId = (process.env.GSHEET_CL_ARRIENDO_ID ?? "").trim() || "1yUIwrMQ8DZZ12Z5nH45JBQOXhdr1GKHMbdCSit757nQ";
     return spreadsheetId ? { spreadsheetId, tab } : null;
   }
+  if (key.includes("proyectos")) {
+    const spreadsheetId = (process.env.GSHEET_CL_PROYECTOS_ID ?? "").trim() || "1RcRwH0TVZAl22zrO7ugF_I-AR8qpCLyhiJffggC58l4";
+    return spreadsheetId ? { spreadsheetId, tab } : null;
+  }
   const spreadsheetId = (process.env.GSHEET_CL_COMPRAS_ID ?? "").trim() || "1WKR_sctuGrxe_6ImpAyDeTnjtCOtE9zFNQdocRNHXvs";
   return spreadsheetId ? { spreadsheetId, tab } : null;
 }
@@ -5118,8 +5122,6 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
           ? "Asesoría en proyectos"
           : flowKey === "dealer"
             ? "Dealer"
-          : flowKey === "arriendo"
-            ? "Arriendo"
             : flowKey === "cambium"
               ? "Cambium"
               : "Cotización";
