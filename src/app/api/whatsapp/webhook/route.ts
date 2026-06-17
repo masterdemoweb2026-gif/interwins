@@ -1546,6 +1546,11 @@ function cleanProductName(rawName: string) {
   let name = rawName.trim().replace(/\s+/g, " ");
   const normalized = () => normalizeText(name);
   const prefixes = [
+    "arriendo",
+    "venta",
+    "cotizacion",
+    "cotización",
+    "cotizar",
     "equipos de radio",
     "equipo de radio",
     "equipo radio",
@@ -1553,6 +1558,15 @@ function cleanProductName(rawName: string) {
     "equipo",
     "equipos",
     "radio",
+    "analogo",
+    "análogo",
+    "analogico",
+    "analógico",
+    "digital",
+    "portatil",
+    "portátil",
+    "movil",
+    "móvil",
     "repetidor",
     "camara",
     "cámara",
@@ -1570,6 +1584,12 @@ function cleanProductName(rawName: string) {
         break;
       }
     }
+  }
+  const tokens = name.split(" ").filter(Boolean);
+  const brands = ["motorola", "hytera", "kenwood", "icom", "vertex", "cambium", "avigilon", "videobadge", "videotag"];
+  const idx = tokens.findIndex((t) => brands.includes(normalizeText(t)));
+  if (idx > 0) {
+    name = tokens.slice(idx).join(" ");
   }
   return name;
 }
