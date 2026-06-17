@@ -2550,6 +2550,41 @@ async function queryProductsByName(filters: CatalogFilters, query: string): Prom
     .filter((r) => r.product_id && r.nombre);
 }
 
+async function queryProductsByNameBroad(
+  country: Country,
+  modalidad: string | undefined,
+  query: string,
+): Promise<Array<{ product_id: string; nombre: string }>> {
+  const patterns = buildCatalogNameSearchPatterns(query);
+  if (!patterns.length) return [];
+  const pattern = patterns[patterns.length - 1]!;
+  const table = country === "UY" ? getUyProductsTable() : "inter_products";
+  const params: string[] = [
+    `select=product_id,nombre`,
+    `nombre=ilike.${encodeIlikePattern(pattern)}`,
+    `limit=25`,
+    `order=nombre.asc`,
+  ];
+  if (modalidad) {
+    const m = modalidad.trim();
+    if (normalizeText(m) === "venta") {
+      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
+    } else {
+      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
+    }
+  }
+  const q = `${table}?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[])
+    .map((r) => ({
+      product_id: toTrimmedString(getRecordValue(r, "product_id")),
+      nombre: toTrimmedString(getRecordValue(r, "nombre")),
+    }))
+    .filter((r) => r.product_id && r.nombre)
+    .slice(0, 25);
+}
+
 async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
   const table = getUyProductsTable();
@@ -2627,7 +2662,6 @@ async function queryProductsByNameUY(filters: CatalogFilters, query: string): Pr
     .slice(0, 25)
     .filter((r) => r.product_id && r.nombre);
 }
-
 async function loadProductDetail(productId: string) {
   const select = encodeURIComponent(`ID,Nombre,"Descripción corta","Descripción","Imágenes","Precio normal"`);
   const q = `inter_products_staging?select=${select}&ID=eq.${encodeURIComponent(productId)}&limit=1`;
@@ -3931,12 +3965,15 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
       const strictFound = await queryProductsByName(state.catalog.filters, modelQuery);
-      const found = strictFound.length
+      const relaxedFound = strictFound.length
         ? strictFound
         : await queryProductsByName(
             { ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined },
             modelQuery,
           );
+      const found = relaxedFound.length
+        ? relaxedFound
+        : await queryProductsByNameBroad("CL", state.catalog.filters.modalidad, modelQuery);
       if (found.length) {
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
         state.catalog.lastList = shown;
@@ -4313,12 +4350,15 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
       const strictFound = await queryProductsByNameUY(state.catalog.filters, modelQuery);
-      const found = strictFound.length
+      const relaxedFound = strictFound.length
         ? strictFound
         : await queryProductsByNameUY(
             { ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined },
             modelQuery,
           );
+      const found = relaxedFound.length
+        ? relaxedFound
+        : await queryProductsByNameBroad("UY", state.catalog.filters.modalidad, modelQuery);
       if (found.length) {
         const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
         state.catalog.lastList = shown;
@@ -5580,7 +5620,7 @@ export async function POST(request: Request) {
       if (!isFormLockActive(state) && pureGreeting) {
         returnToCasualState(state);
         reply = withMainMenu("", state, country, menuShownToday ? "return" : "welcome");
-      } else if (!isFormLockActive(state) && !menuShownToday && !casualChoice) {
+      } else if (!isFormLockActive(state) && state.activeBranch === "menu" && !menuShownToday && !casualChoice) {
         returnToCasualState(state);
         reply = withMainMenu("", state, country, "welcome");
       } else if (isFormLockActive(state)) {
