@@ -752,6 +752,69 @@ function extractChoiceNumberFromText(text: string, max: number) {
   return n;
 }
 
+const CATALOG_MAX_LIST_ITEMS = 8;
+
+function encodeIlikePattern(pattern: string) {
+  return pattern
+    .split("*")
+    .map((part) => encodeURIComponent(part))
+    .join("*");
+}
+
+function buildCatalogNameSearchPatterns(query: string) {
+  const compact = normalizeText(query).replace(/[^a-z0-9]+/g, "");
+  if (compact.length < 3) return [];
+  const withStars = compact.replace(/([a-z])(\d)/g, "$1*$2").replace(/(\d)([a-z])/g, "$1*$2");
+  const patterns = [`*${compact}*`];
+  if (withStars !== compact) patterns.push(`*${withStars}*`);
+  return Array.from(new Set(patterns));
+}
+
+function extractCatalogModelQuery(text: string) {
+  const t = normalizeText(text);
+  if (!t) return "";
+  const tokens = t
+    .split(/[^a-z0-9]+/g)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const banned = new Set([
+    "y",
+    "no",
+    "si",
+    "sí",
+    "tiene",
+    "tienen",
+    "tendran",
+    "tendrán",
+    "hay",
+    "modelo",
+    "equipo",
+    "equipos",
+    "radio",
+    "arriendo",
+    "arrendar",
+    "cotizar",
+    "cotizacion",
+    "cotización",
+    "precio",
+    "stock",
+    "finalizar",
+    "finalizo",
+    "terminar",
+    "termino",
+    "conversacion",
+    "conversación",
+    "menu",
+    "menú",
+    "volver",
+    "lista",
+  ]);
+  const filtered = tokens.filter((x) => x.length >= 3 && !banned.has(x));
+  const withDigits = filtered.find((x) => /\d/.test(x));
+  if (withDigits) return withDigits;
+  return "";
+}
+
 type ProductDetail = {
   productId: string;
   nombre: string;
@@ -763,11 +826,11 @@ type ProductDetail = {
 
 function buildProductsListMessage(products: Array<{ product_id: string; nombre: string }>, example: string) {
   const lines = products
-    .slice(0, 5)
+    .slice(0, CATALOG_MAX_LIST_ITEMS)
     .map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`)
     .join("\n");
   return [
-    "Estos son los que encontré (máx. 5):",
+    `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
     "",
     lines,
     "",
@@ -901,6 +964,21 @@ function isMenuCommand(text: string) {
     t === "volver al menu principal" ||
     t === "volver al menú principal"
   );
+}
+
+function isExitConversationCommand(text: string) {
+  const t = normalizeText(text);
+  if (!t) return false;
+  if (isMenuCommand(text)) return true;
+  if (t.includes("finalizar")) return true;
+  if (t.includes("salir")) return true;
+  if (t.includes("cancel")) return true;
+  if (t.includes("anular")) return true;
+  if (t.includes("dejar hasta aqui") || t.includes("dejar hasta acá")) return true;
+  if (t === "terminar") return true;
+  if (t.includes("terminar") && (t.includes("convers") || t.includes("chat"))) return true;
+  if (t.includes("final") && t.includes("convers")) return true;
+  return false;
 }
 
 function isProjectsIntentNormalized(t: string) {
@@ -1565,7 +1643,9 @@ async function pickBestBodycamList(country: Country, candidates: Array<{ product
   );
   const all = [...enriched, ...rest].sort((a, b) => b.score - a.score || a.nombre.localeCompare(b.nombre, "es"));
   const good = all.filter((p) => p.score > 0);
-  const pool = (good.length >= 3 ? good : all).slice(0, 5).map((p) => ({ product_id: p.product_id, nombre: p.nombre }));
+  const pool = (good.length >= 3 ? good : all)
+    .slice(0, CATALOG_MAX_LIST_ITEMS)
+    .map((p) => ({ product_id: p.product_id, nombre: p.nombre }));
   return pool.filter((p) => p.product_id && p.nombre);
 }
 
@@ -2410,6 +2490,46 @@ async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_i
     .filter((r) => r.product_id && r.nombre);
 }
 
+async function queryProductsByName(filters: CatalogFilters, query: string): Promise<Array<{ product_id: string; nombre: string }>> {
+  if (!filters.tipo_producto) return [];
+  const patterns = buildCatalogNameSearchPatterns(query);
+  if (!patterns.length) return [];
+  const pattern = patterns[patterns.length - 1]!;
+  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
+  const queryLimit = isBodycam ? 60 : filters.tecnologia ? 60 : 25;
+  const params: string[] = [
+    `select=product_id,nombre,tecnologia,frecuencia`,
+    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
+    `nombre=ilike.${encodeIlikePattern(pattern)}`,
+    `limit=${queryLimit}`,
+    `order=nombre.asc`,
+  ];
+  if (filters.modalidad) {
+    const m = filters.modalidad.trim();
+    if (normalizeText(m) === "venta") {
+      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
+    } else {
+      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
+    }
+  }
+  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
+  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
+  const q = `inter_products?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[])
+    .map((r) => ({
+      product_id: toTrimmedString(getRecordValue(r, "product_id")),
+      nombre: toTrimmedString(getRecordValue(r, "nombre")),
+      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
+    }))
+    .filter((r) => r.product_id && r.nombre)
+    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
+    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
+    .slice(0, 25)
+    .filter((r) => r.product_id && r.nombre);
+}
+
 async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
   const table = getUyProductsTable();
@@ -2418,6 +2538,47 @@ async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product
   const params: string[] = [
     `select=product_id,nombre,tecnologia,frecuencia`,
     `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
+    `limit=${queryLimit}`,
+    `order=nombre.asc`,
+  ];
+  if (filters.modalidad) {
+    const m = filters.modalidad.trim();
+    if (normalizeText(m) === "venta") {
+      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
+    } else {
+      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
+    }
+  }
+  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
+  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
+  const q = `${table}?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[])
+    .map((r) => ({
+      product_id: toTrimmedString(getRecordValue(r, "product_id")),
+      nombre: toTrimmedString(getRecordValue(r, "nombre")),
+      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
+    }))
+    .filter((r) => r.product_id && r.nombre)
+    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
+    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
+    .slice(0, 25)
+    .filter((r) => r.product_id && r.nombre);
+}
+
+async function queryProductsByNameUY(filters: CatalogFilters, query: string): Promise<Array<{ product_id: string; nombre: string }>> {
+  if (!filters.tipo_producto) return [];
+  const patterns = buildCatalogNameSearchPatterns(query);
+  if (!patterns.length) return [];
+  const pattern = patterns[patterns.length - 1]!;
+  const table = getUyProductsTable();
+  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
+  const queryLimit = isBodycam ? 60 : filters.tecnologia ? 60 : 25;
+  const params: string[] = [
+    `select=product_id,nombre,tecnologia,frecuencia`,
+    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
+    `nombre=ilike.${encodeIlikePattern(pattern)}`,
     `limit=${queryLimit}`,
     `order=nombre.asc`,
   ];
@@ -3376,6 +3537,12 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     return "Para cerrar la cotización responde: Terminar / Cancelar.";
   }
 
+  if (isExitConversationCommand(input)) {
+    returnToCasualState(state);
+    markMenuShown(state);
+    return ["Listo, vuelvo al menú.", "", buildMainMenuText(state.country ?? "CL", "return")].join("\n");
+  }
+
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
     const keepRental = rentalRequest;
     state.catalog = {
@@ -3578,7 +3745,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (state.catalog.pending) {
     const pending = state.catalog.pending;
-    const n = isNumericChoice(t, pending.options.length);
+    const n = isNumericChoice(t, pending.options.length) ?? extractChoiceNumberFromText(input, pending.options.length);
     if (n) {
       selectedPendingOption = pending.options[n - 1]!;
       applyCatalogPendingSelection(state, pending, selectedPendingOption);
@@ -3716,7 +3883,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (state.catalog.lastList && state.catalog.lastList.length) {
-    const max = Math.min(5, state.catalog.lastList.length);
+    const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
     const n = isNumericChoice(t, max) ?? extractChoiceNumberFromText(input, max);
     if (n) {
       const chosen = state.catalog.lastList[n - 1];
@@ -3740,6 +3907,36 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     if (match.ambiguous) {
       return `Me quedaron 2 opciones parecidas. ¿Me dices el número (1–${max}) para elegir bien?`;
     }
+
+    const modelQuery = extractCatalogModelQuery(input);
+    if (modelQuery) {
+      const strictFound = await queryProductsByName(state.catalog.filters, modelQuery);
+      const found = strictFound.length
+        ? strictFound
+        : await queryProductsByName(
+            { ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined },
+            modelQuery,
+          );
+      if (found.length) {
+        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
+        state.catalog.lastList = shown;
+        const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+        return [
+          `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
+          "",
+          lines,
+          "",
+          `Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.`,
+        ].join("\n");
+      }
+      return [
+        `No encontré "${modelQuery.toUpperCase()}" en el catálogo.`,
+        `Puedes elegir un número (1–${max}) de la lista o decirme otro modelo.`,
+        `También puedes escribir: Nueva búsqueda o Menú.`,
+      ].join("\n");
+    }
+
+    return `Indícame el número (1–${max}) o el nombre del producto/modelo (ej: TLK100).`;
   }
 
   const products = await queryProducts(state.catalog.filters);
@@ -3761,10 +3958,16 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     if (!keepRental && !isRadioEquipment) {
       const retry = await queryProducts(state.catalog.filters);
       if (retry.length) {
-        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", retry) : retry.slice(0, 5);
+        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", retry) : retry.slice(0, CATALOG_MAX_LIST_ITEMS);
         state.catalog.lastList = shown;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
-        return ["Estos son los que encontré (máx. 5):", "", lines, "", "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre."].join("\n");
+        return [
+          `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
+          "",
+          lines,
+          "",
+          "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre.",
+        ].join("\n");
       }
       const menu = await getSuggestedCatalogTypes("CL", state.catalog.filters.modalidad);
       const top = menu.length
@@ -3786,11 +3989,13 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       : "Por ahora no encontré productos con esos filtros. ¿Quieres hacer una nueva búsqueda o volver al menú?";
   }
 
-  const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", products) : products.slice(0, 5);
+  const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto)
+    ? await pickBestBodycamList("CL", products)
+    : products.slice(0, CATALOG_MAX_LIST_ITEMS);
   state.catalog.lastList = shown;
   const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
-    "Estos son los que encontré (máx. 5):",
+    `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
     "",
     lines,
     "",
@@ -3818,6 +4023,12 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       return await finalizeCotizacion(state, userPhone);
     }
     return "Para cerrar la cotización responde: Terminar / Cancelar.";
+  }
+
+  if (isExitConversationCommand(input)) {
+    returnToCasualState(state);
+    markMenuShown(state);
+    return ["Listo, vuelvo al menú.", "", buildMainMenuText(state.country ?? "UY", "return")].join("\n");
   }
 
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
@@ -3919,7 +4130,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
   if (state.catalog.pending) {
     const pending = state.catalog.pending;
-    const n = isNumericChoice(t, pending.options.length);
+    const n = isNumericChoice(t, pending.options.length) ?? extractChoiceNumberFromText(input, pending.options.length);
     if (n) {
       selectedPendingOption = pending.options[n - 1]!;
       applyCatalogPendingSelection(state, pending, selectedPendingOption);
@@ -4054,7 +4265,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (state.catalog.lastList?.length) {
-    const max = Math.min(5, state.catalog.lastList.length);
+    const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
     const n = isNumericChoice(t, max) ?? extractChoiceNumberFromText(input, max);
     if (n) {
       const chosen = state.catalog.lastList[n - 1];
@@ -4078,6 +4289,36 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (match.ambiguous) {
       return `Me quedaron 2 opciones parecidas. ¿Me dices el número (1–${max}) para elegir bien?`;
     }
+
+    const modelQuery = extractCatalogModelQuery(input);
+    if (modelQuery) {
+      const strictFound = await queryProductsByNameUY(state.catalog.filters, modelQuery);
+      const found = strictFound.length
+        ? strictFound
+        : await queryProductsByNameUY(
+            { ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined },
+            modelQuery,
+          );
+      if (found.length) {
+        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
+        state.catalog.lastList = shown;
+        const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
+        return [
+          `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
+          "",
+          lines,
+          "",
+          `Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.`,
+        ].join("\n");
+      }
+      return [
+        `No encontré "${modelQuery.toUpperCase()}" en el catálogo.`,
+        `Puedes elegir un número (1–${max}) de la lista o decirme otro modelo.`,
+        `También puedes escribir: Nueva búsqueda o Menú.`,
+      ].join("\n");
+    }
+
+    return `Indícame el número (1–${max}) o el nombre del producto/modelo (ej: TLK100).`;
   }
 
   const products = await queryProductsUY(state.catalog.filters);
@@ -4099,10 +4340,16 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (!keepRental && !isRadioEquipment) {
       const retry = await queryProductsUY(state.catalog.filters);
       if (retry.length) {
-        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", retry) : retry.slice(0, 5);
+        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", retry) : retry.slice(0, CATALOG_MAX_LIST_ITEMS);
         state.catalog.lastList = shown;
         const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
-        return ["Estos son los que encontré (máx. 5):", "", lines, "", "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre."].join("\n");
+        return [
+          `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
+          "",
+          lines,
+          "",
+          "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre.",
+        ].join("\n");
       }
       const menu = await getSuggestedCatalogTypes("UY", state.catalog.filters.modalidad);
       const top = menu.length
@@ -4124,11 +4371,13 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       : "Por ahora no encontré productos con esos filtros. ¿Quieres hacer una nueva búsqueda o volver al menú?";
   }
 
-  const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", products) : products.slice(0, 5);
+  const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto)
+    ? await pickBestBodycamList("UY", products)
+    : products.slice(0, CATALOG_MAX_LIST_ITEMS);
   state.catalog.lastList = shown;
   const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
-    "Estos son los que encontré (máx. 5):",
+    `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
     "",
     lines,
     "",
