@@ -6013,7 +6013,8 @@ export async function POST(request: Request) {
             }
           } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "proyectos") {
             reply = country === "UY" ? await handleProjectsUY(state, inboundText, userKey) : await handleProjects(state, inboundText, userKey);
-          } else if (intent.branch && intent.branch === state.activeBranch && state.activeBranch === "servicio_tecnico") {
+          } else if (state.activeBranch === "servicio_tecnico") {
+            // Usuario está en servicio_tecnico - procesar mensaje UNA SOLA VEZ
             reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText, userKey) : await handleServicioTecnico(state, inboundText, userKey);
           } else {
           if (state.activeBranch === "catalogo") {
@@ -6027,10 +6028,6 @@ export async function POST(request: Request) {
             } else {
               reply = await handlePoints(state, inboundText, userKey);
             }
-          } else if (state.activeBranch === "servicio_tecnico") {
-            // Este caso solo se ejecuta si intent.branch !== "servicio_tecnico"
-            // Es decir, el usuario está en servicio_tecnico pero el mensaje no fue reconocido como intent de servicio técnico
-            reply = country === "UY" ? await handleServicioTecnicoUY(state, inboundText, userKey) : await handleServicioTecnico(state, inboundText, userKey);
           } else if (state.activeBranch === "cambium") {
             reply = await handleCambium(state, inboundText, userKey);
           } else {
