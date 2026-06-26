@@ -609,6 +609,45 @@ function isGreetingMessage(text: string) {
   return greetings.has(t);
 }
 
+function sanitizeInboundWebsitePrefill(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+
+  const normalized = normalizeText(raw)
+    .replace(/[^a-z0-9\s:/.-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return raw;
+
+  const hasGreeting =
+    normalized.startsWith("hola") ||
+    normalized.startsWith("buenas") ||
+    normalized.startsWith("buen dia") ||
+    normalized.startsWith("buenos dias") ||
+    normalized.startsWith("buenas tardes") ||
+    normalized.startsWith("buenas noches");
+  const hasPrefillIntent =
+    normalized.includes("necesito mas informacion") ||
+    normalized.includes("quiero mas informacion") ||
+    normalized.includes("deseo mas informacion") ||
+    normalized.includes("mas informacion sobre");
+  const hasSiteLink =
+    /https?:\/\/\S+/i.test(raw) ||
+    normalized.includes("www.interwins.cl") ||
+    normalized.includes("interwins.cl") ||
+    normalized.includes("interwins.com.uy");
+  const looksLikeWidgetPrefill =
+    hasGreeting &&
+    hasPrefillIntent &&
+    hasSiteLink &&
+    (normalized.includes("interwins") || normalized.includes("motorola") || normalized.includes("equipos radiocomunicaciones"));
+
+  if (looksLikeWidgetPrefill) return "Hola";
+
+  const withoutLinks = raw.replace(/https?:\/\/\S+/gi, " ").replace(/\s+/g, " ").trim();
+  return withoutLinks || raw;
+}
+
 function getAvailableBranches(country: Country): Branch[] {
   if (country === "UY") return ["catalogo", "servicio_tecnico", "proyectos", "cambium"];
   return ["catalogo", "servicio_tecnico", "proyectos", "puntos_venta"];
@@ -5766,7 +5805,7 @@ export async function POST(request: Request) {
       } catch {}
     })();
     // #endregion
-    const inboundText = String(text ?? "").trim();
+    const inboundText = sanitizeInboundWebsitePrefill(String(text ?? "").trim());
     if (!from) {
       inboxAdd({ source: "gowa", signatureValid: null, from: "", text: "[DEBUG] IN gate=true but from is empty" });
       return NextResponse.json({ ok: true }, { status: 200 });
