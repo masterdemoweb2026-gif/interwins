@@ -1584,12 +1584,100 @@ function parseMenuChoice(text: string, country: Country): Branch | null {
   const t = normalizeText(text);
   if (t === "1" || t.includes("catalogo") || t.includes("catálogo") || t.includes("cotizar") || t.includes("cotizacion") || t.includes("cotización"))
     return "catalogo";
-  if (t === "2" || t.includes("servicio") || t.includes("tecnico") || t.includes("técnico")) return "servicio_tecnico";
+  if ((country === "UY" && t === "2") || t.includes("servicio") || t.includes("tecnico") || t.includes("técnico")) return "servicio_tecnico";
   if (t === "3" || isProjectsIntentNormalized(t)) return "proyectos";
-  if (t === "4") return country === "UY" ? "cambium" : "puntos_venta";
-  if (country !== "UY" && isPuntosVentaIntentNormalized(t)) return "puntos_venta";
+  if (t === "4") return country === "UY" ? "cambium" : "servicio_tecnico";
+  if (country !== "UY" && (t === "5" || isPuntosVentaIntentNormalized(t))) return "puntos_venta";
   if (t.includes("cambium") || t.includes("cnmaestro")) return "cambium";
   return null;
+}
+
+type MainMenuAction = Branch | "arriendo";
+
+function parseMainMenuAction(text: string, country: Country): MainMenuAction | null {
+  const t = normalizeText(text);
+  if (country !== "UY") {
+    if (t === "1") return "catalogo";
+    if (t === "2") return "arriendo";
+    if (t === "3") return "proyectos";
+    if (t === "4") return "servicio_tecnico";
+    if (t === "5") return "puntos_venta";
+    if (isRentalIntent(text)) return "arriendo";
+  } else {
+    if (t === "1") return "catalogo";
+    if (t === "2") return "servicio_tecnico";
+    if (t === "3") return "proyectos";
+    if (t === "4") return "cambium";
+  }
+  return parseMenuChoice(text, country) ?? classifyFreeText(text, country);
+}
+
+function prependReplyContext(reply: Reply, intro: string): Reply {
+  const text = intro.trim();
+  if (!text) return reply;
+  if (typeof reply === "string") return `${text}\n\n${reply}`;
+  if (Array.isArray(reply)) return [text, "", ...reply];
+  if (reply.type === "text") return { ...reply, text: `${text}\n\n${reply.text}` };
+  return [{ type: "text", text }, "", reply];
+}
+
+function buildMainMenuEntryIntro(action: MainMenuAction, country: Country) {
+  if (action === "catalogo") {
+    return "Perfecto. Ingresaste a Compra de equipos y accesorios. Ahora te ayudaré a elegir el tipo de producto para continuar.";
+  }
+  if (action === "arriendo") {
+    return "Perfecto. Ingresaste a Arriendo de equipos de radiocomunicación. Ahora te mostraré las alternativas disponibles para avanzar.";
+  }
+  if (action === "proyectos") {
+    return "Perfecto. Ingresaste a Asesoría en Proyectos. Ahora te mostraré las opciones disponibles para que continúes.";
+  }
+  if (action === "servicio_tecnico") {
+    return "Perfecto. Ingresaste a Servicio Técnico. Ahora puedes contarme tu duda o indicarme el equipo para orientarte.";
+  }
+  if (action === "puntos_venta") {
+    return "Perfecto. Ingresaste a Direcciones y Puntos de Venta. Ahora te ayudaré a encontrar la ubicación o el contacto que necesitas.";
+  }
+  if (country === "UY") {
+    return "Perfecto. Ingresaste a Soluciones Cambium Networks. Ahora te mostraré las categorías disponibles para continuar.";
+  }
+  return "Perfecto. Ingresaste a esta sección. Ahora te mostraré las opciones disponibles para continuar.";
+}
+
+async function runMainMenuAction(state: UserState, userKey: string, action: MainMenuAction, text: string): Promise<Reply> {
+  const country = state.country ?? "CL";
+  let reply: Reply = "";
+
+  if (action === "arriendo") {
+    reply = await startArriendoFlow(state, userKey);
+    return prependReplyContext(reply, buildMainMenuEntryIntro(action, country));
+  }
+
+  state.activeBranch = action;
+  resetBranchState(state, action);
+
+  if (!isBranchAvailable(country, action)) {
+    state.activeBranch = "menu";
+    markMenuShown(state);
+    return buildMainMenuText(country, "return");
+  }
+
+  if (action === "catalogo") {
+    reply = await startCatalogIntentFlow(state, userKey, text);
+  } else if (action === "servicio_tecnico") {
+    const stInput = shouldUseServiceTechOpeningPrompt(text) ? "" : text;
+    reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
+  } else if (action === "proyectos") {
+    reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
+  } else if (action === "cambium") {
+    reply = await handleCambium(state, "", userKey);
+  } else if (action === "puntos_venta") {
+    reply = await handlePoints(state, "", userKey);
+  } else {
+    markMenuShown(state);
+    reply = buildMainMenuText(country, "return");
+  }
+
+  return prependReplyContext(reply, buildMainMenuEntryIntro(action, country));
 }
 
 function classifyFreeText(text: string, country: Country): Branch | null {
@@ -5904,7 +5992,7 @@ export async function POST(request: Request) {
         state.activeBranch === "catalogo" && isRentalRequest(state) && rawBranchIntent.branch === "puntos_venta"
           ? { ...rawBranchIntent, branch: null as Branch | null }
           : rawBranchIntent;
-      const casualChoice = parseMenuChoice(inboundText, country) ?? classifyFreeText(inboundText, country) ?? branchIntent.branch;
+      const casualChoice = parseMainMenuAction(inboundText, country) ?? branchIntent.branch;
       const pureGreeting = isGreetingMessage(inboundText);
       const menuShownToday = state.lastMenuDate === todayKey;
 
@@ -6028,31 +6116,11 @@ export async function POST(request: Request) {
         } else
         if (state.activeBranch === "menu") {
           if (detectQuoteIntent(inboundText)) {
-            reply = await startCatalogIntentFlow(state, userKey, inboundText);
+            reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
           const choice = casualChoice;
           if (choice) {
-            state.activeBranch = choice;
-            resetBranchState(state, choice);
-            if (!isBranchAvailable(country, choice)) {
-              state.activeBranch = "menu";
-              markMenuShown(state);
-              reply = buildMainMenuText(country, "return");
-            } else if (choice === "catalogo") {
-              reply = await startCatalogIntentFlow(state, userKey, inboundText);
-            } else if (choice === "servicio_tecnico") {
-              const stInput = shouldUseServiceTechOpeningPrompt(inboundText) ? "" : inboundText;
-              reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
-            } else if (choice === "proyectos") {
-              reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
-            } else if (choice === "cambium") {
-              reply = await handleCambium(state, "", userKey);
-            } else if (choice === "puntos_venta") {
-              reply = await handlePoints(state, "", userKey);
-            } else {
-              markMenuShown(state);
-              reply = buildMainMenuText(country, "return");
-            }
+            reply = await runMainMenuAction(state, userKey, choice, inboundText);
           } else {
             const msg = await minimaxRewrite({
               kind: "fuera_menu",
