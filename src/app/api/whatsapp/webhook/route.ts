@@ -1493,18 +1493,12 @@ async function startCatalogIntentFlow(state: UserState, userKey: string, text: s
 }
 
 function buildMainMenuText(country: Country, variant: "welcome" | "return" = "return") {
-  const introsWelcomeCL = [
-    "¡Hola! Bienvenido al asistente virtual de InterWins.",
-    "¡Hola! Qué bueno tenerte por aquí.",
-  ];
+  const introsWelcomeCL = ["¡Hola! Bienvenido al asistente virtual de InterWins. ¿En qué te puedo ayudar hoy?"];
   const introsReturnCL = [
     "Si quieres, también te puedo ayudar con esto:",
     "Seguimos cuando quieras. También puedo ayudarte con:",
   ];
-  const introsWelcomeUY = [
-    "¡Hola! Bienvenido al asistente virtual de InterWins.",
-    "¡Hola! Encantado de ayudarte.",
-  ];
+  const introsWelcomeUY = ["¡Hola! Bienvenido al asistente virtual de InterWins. ¿En qué te puedo ayudar hoy?"];
   const introsReturnUY = [
     "Si quieres, también te puedo ayudar con esto:",
     "Seguimos por aquí. También puedo ayudarte con:",
@@ -1519,6 +1513,20 @@ function buildMainMenuText(country: Country, variant: "welcome" | "return" = "re
         : introsReturnCL;
   const intro = introList[crypto.randomInt(0, introList.length)];
   if (country === "UY") {
+    if (variant === "welcome") {
+      return [
+        intro,
+        "Selecciona una opción o escribe el número:",
+        "",
+        "1. 🛒 Comprar equipos o accesorios (Venta)",
+        "",
+        "2. 🔧 Servicio Técnico",
+        "",
+        "3. 📊 Asesoría en Proyectos",
+        "",
+        "4. 🌐 Soluciones Cambium Networks",
+      ].join("\n");
+    }
     return [
       intro,
       "",
@@ -1528,6 +1536,23 @@ function buildMainMenuText(country: Country, variant: "welcome" | "return" = "re
       "🔧 Servicio Técnico",
       "📊 Asesoría en Proyectos",
       "🌐 Soluciones Cambium Networks",
+    ].join("\n");
+  }
+
+  if (variant === "welcome") {
+    return [
+      intro,
+      "Selecciona una opción o escribe el número:",
+      "",
+      "1. 🛒 Comprar equipos o accesorios (Venta)",
+      "",
+      "2. ⏱️ Arrendar equipos de radiocomunicación",
+      "",
+      "3. 📊 Asesoría en Proyectos",
+      "",
+      "4. 🔧 Servicio Técnico",
+      "",
+      "5. 📍 Direcciones y Puntos de Venta",
     ].join("\n");
   }
 
