@@ -3394,6 +3394,81 @@ function splitForWhatsapp(text: string, chunkSize = 900, maxParts = 3) {
   return [...head, last].slice(0, maxParts);
 }
 
+function extractCatalogComparisonTags(detail: ProductDetail) {
+  const hay = normalizeText([detail.nombre, detail.shortFinal, detail.fullDescription].filter(Boolean).join(" "));
+  if (!hay) return [] as string[];
+
+  const tags: string[] = [];
+  const push = (t: string) => {
+    if (!t) return;
+    if (!tags.includes(t)) tags.push(t);
+  };
+
+  if (hay.includes("vhf")) push("VHF");
+  if (hay.includes("uhf")) push("UHF");
+  if (hay.includes("analog") || hay.includes("análogo") || hay.includes("analogo")) push("Análogo");
+  if (hay.includes("digital")) push("Digital");
+  if (hay.includes("dmr")) push("DMR");
+  if (hay.includes("tetra")) push("TETRA");
+  if (hay.includes("p25")) push("P25");
+  if (hay.includes("lte")) push("LTE");
+  if (hay.includes("poc") || hay.includes("push to talk")) push("PoC");
+  if (hay.includes("gps")) push("GPS");
+  if (hay.includes("bluetooth") || hay.includes("bt")) push("Bluetooth");
+  if (hay.includes("wifi") || hay.includes("wi-fi")) push("Wi‑Fi");
+
+  const ip = (detail.fullDescription || detail.shortFinal || "").match(/\bip\s?-?\s?([0-9]{2})\b/i);
+  if (ip?.[1]) push(`IP${ip[1]}`);
+  const mah = (detail.fullDescription || detail.shortFinal || "").match(/\b(\d{4,5})\s?mah\b/i);
+  if (mah?.[1]) push(`${mah[1]}mAh`);
+
+  return tags.slice(0, 5);
+}
+
+function summarizeForComparison(detail: ProductDetail) {
+  const raw = String(detail.shortFinal || detail.fullDescription || "").replace(/\s+/g, " ").trim();
+  if (!raw) return "Sin detalle suficiente para resumir en este momento.";
+  return raw.length > 170 ? `${raw.slice(0, 167).trim()}...` : raw;
+}
+
+function buildCatalogComparisonReply(args: {
+  country: Country;
+  requestKind?: CatalogRequestKind;
+  max: number;
+  selectedNumbers: number[];
+  products: ProductDetail[];
+}) {
+  const picked = args.products.slice(0, 3);
+  const intro = "🆚 Diferencias clave (rápidas)";
+  const blocks = picked.map((p, idx) => {
+    const n = idx + 1;
+    const name = cleanProductName(p.nombre);
+    const price = formatFriendlyPrice(p.precio ?? "", args.country);
+    const tags = extractCatalogComparisonTags(p);
+    const summary = summarizeForComparison(p);
+    const tagLine = tags.length ? `- Enfoque: ${tags.join(" · ")}` : "";
+    return [
+      `*${n}) ${name}*`,
+      price || "💰 Precio referencial: Por confirmar",
+      tagLine,
+      `- Resumen: ${summary}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  });
+
+  const questions = [
+    "❓Pregunta rápida para afinar la recomendación:",
+    "- ¿Será para interior/urbano o exterior/abierto?",
+    "- ¿Ya tienes radios (y cuáles modelos) para asegurar compatibilidad?",
+  ].join("\n");
+
+  const range = args.selectedNumbers.length ? args.selectedNumbers.join(", ") : `1–${args.max}`;
+  const next = `Para ver la ficha completa, indícame el número (${range}) o el nombre del producto.`;
+
+  return [[intro, "", ...blocks].join("\n"), [questions, "", next].join("\n")].filter((x) => x.trim());
+}
+
 async function buildCatalogAdviceReply(args: {
   input: string;
   country: Country;
@@ -3449,6 +3524,16 @@ async function buildCatalogAdviceReply(args: {
     );
   }
 
+  if (isCatalogComparisonRequest(args.input)) {
+    return buildCatalogComparisonReply({
+      country: args.country,
+      requestKind: args.requestKind,
+      max,
+      selectedNumbers: referencedNumbers,
+      products: describedDetails,
+    });
+  }
+
   const advice = await minimaxCatalogAdvisor({
     input: args.input,
     country: args.country,
@@ -3459,7 +3544,7 @@ async function buildCatalogAdviceReply(args: {
 
   const footer = `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
   const adviceText = String(advice || "").trim();
-  const parts = splitForWhatsapp(adviceText, 900, 3);
+  const parts = splitForWhatsapp(adviceText, 650, 4);
   const hasFooterAlready = normalizeText(adviceText).includes(normalizeText(footer).slice(0, 24));
   return [...(parts.length ? parts : [adviceText || ""]), ...(hasFooterAlready ? [] : [footer])].filter((x) => String(x).trim());
 }
