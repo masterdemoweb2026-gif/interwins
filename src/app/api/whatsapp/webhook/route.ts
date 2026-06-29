@@ -2733,11 +2733,6 @@ async function minimaxCatalogAdvisor(args: {
     "Si el cliente pide recomendación, sugiere 1 o 2 opciones y explica brevemente por qué.",
     "Si el cliente pide diferencias, compara de forma breve y útil las opciones relevantes.",
     "No uses tablas ni markdown complejo; la respuesta debe quedar lista para WhatsApp.",
-    "Mantén la respuesta corta: idealmente menos de 850 caracteres.",
-    "Usa viñetas o numeración simple en pocas líneas (máximo 10 líneas).",
-    "Formato obligatorio:",
-    "Si Modo=recomendar: incluye '✅ Recomendación 1', opcional '✅ Recomendación 2', opcional '🔎 Alternativa', y termina con '❓Pregunta rápida'.",
-    "Si Modo=comparar: incluye '🆚 Diferencias clave (rápidas)' y termina con '❓Pregunta rápida'.",
     "No incluyas instrucciones de navegación como 'elige un número' o 'indícame el número'; eso lo agrega el sistema.",
     "Nunca menciones que eres una IA.",
   ].join(" ");
@@ -2779,8 +2774,8 @@ async function minimaxCatalogAdvisor(args: {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: 0.3,
-        max_tokens: 280,
+        temperature: 0.45,
+        max_tokens: 900,
       }),
     });
     if (!res.ok) return fallback();
@@ -2906,7 +2901,7 @@ function sanitizeMinimaxOutput(raw: string) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!merged) return "";
-  return merged.length > 1200 ? `${merged.slice(0, 1200).trim()}...` : merged;
+  return merged.length > 6000 ? `${merged.slice(0, 6000).trim()}...` : merged;
 }
 
 function sanitizeServiceTechMinimaxOutput(raw: string) {
@@ -3522,16 +3517,6 @@ async function buildCatalogAdviceReply(args: {
       "Si me dices el uso que necesitas, por ejemplo terreno, vehículo, base fija, repetición o presupuesto, te propongo las alternativas más convenientes.",
       ].join("\n"),
     );
-  }
-
-  if (isCatalogComparisonRequest(args.input)) {
-    return buildCatalogComparisonReply({
-      country: args.country,
-      requestKind: args.requestKind,
-      max,
-      selectedNumbers: referencedNumbers,
-      products: describedDetails,
-    });
   }
 
   const advice = await minimaxCatalogAdvisor({
