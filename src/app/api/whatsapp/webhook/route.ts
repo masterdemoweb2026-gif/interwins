@@ -2794,7 +2794,8 @@ function sanitizeMinimaxOutput(raw: string) {
     .replace(/\b[Aa]l\s+tiro\b/g, "de inmediato")
     .replace(/\b[Aa]ltiro\b/g, "de inmediato")
     .replace(/\b[Tt]e leo\b/g, "Quedo atento")
-    .replace(/\b[Dd]ale\b/g, "Perfecto")
+    .replace(/\b[Dd]ale\b/g, "Muy bien")
+    .replace(/\b[Pp]erfecto\b/g, "Muy bien")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!merged) return "";
@@ -4740,7 +4741,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.filters.tipo_producto = undefined;
       state.catalog.pending = { attr: "tipo_producto", options: top };
       const intro = missingLabel ? `Por ahora no encontré opciones para ${missingLabel}. Probemos con otra categoría:` : "Por ahora no encontré opciones para esa categoría. Probemos con otra:";
-      return [intro, "", top.map((o) => o.label).join("\n"), "También puedes escribir el nombre del producto (ej: DP50)."].join("\n");
+      return [intro, "", renderNumberedOptionLabels(top).join("\n"), "También puedes escribir el nombre del producto (ej: DP50)."].join("\n");
     }
     return keepRental
       ? "No encontré equipos de arriendo con esos filtros. Probemos otra vez y te ayudo a encontrar una alternativa."
@@ -5164,7 +5165,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       state.catalog.filters.tipo_producto = undefined;
       state.catalog.pending = { attr: "tipo_producto", options: top };
       const intro = missingLabel ? `Por ahora no encontré opciones para ${missingLabel}. Probemos con otra categoría:` : "Por ahora no encontré opciones para esa categoría. Probemos con otra:";
-      return [intro, "", top.map((o) => o.label).join("\n"), "También puedes escribir el nombre del producto."].join("\n");
+      return [intro, "", renderNumberedOptionLabels(top).join("\n"), "También puedes escribir el nombre del producto."].join("\n");
     }
     return keepRental
       ? "No encontré equipos de arriendo con esos filtros. Probemos otra vez y te ayudo a encontrar una alternativa."
