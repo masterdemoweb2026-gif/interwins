@@ -2680,21 +2680,43 @@ async function minimaxCatalogAdvisor(args: {
   mode: "recommend" | "compare";
 }) {
   const fallback = () => {
-    const intro =
-      args.mode === "compare"
-        ? "Puedo ayudarte con una comparación breve de estas opciones:"
-        : "Puedo orientarte con estas alternativas para que elijas mejor:";
-    const lines = args.products.slice(0, 3).map((product, index) => {
-      const summary = (product.shortFinal || product.fullDescription || "Sin descripción disponible.").replace(/\s+/g, " ").trim();
-      const shortSummary = summary.length > 180 ? `${summary.slice(0, 177).trim()}...` : summary;
-      const price = formatFriendlyPrice(product.precio ?? "", args.country);
-      return [`${index + 1}. ${cleanProductName(product.nombre)}`, price, shortSummary].filter(Boolean).join("\n");
+    const top = args.products.slice(0, 3);
+    const names = top.map((p) => cleanProductName(p.nombre)).filter(Boolean);
+    const pick = (p: ProductDetail) => {
+      const summary = (p.shortFinal || p.fullDescription || "").replace(/\s+/g, " ").trim();
+      const shortSummary = summary.length > 140 ? `${summary.slice(0, 137).trim()}...` : summary;
+      const price = formatFriendlyPrice(p.precio ?? "", args.country);
+      return {
+        name: cleanProductName(p.nombre),
+        price,
+        summary: shortSummary || "Sin detalle suficiente para resumir en este momento.",
+      };
+    };
+    const bullets = top.map(pick);
+    if (args.mode === "compare") {
+      const sectionA = bullets[0] ? [`1) ${bullets[0].name}`, bullets[0].price].filter(Boolean).join("\n") : "";
+      const sectionB = bullets[1] ? [`2) ${bullets[1].name}`, bullets[1].price].filter(Boolean).join("\n") : "";
+      const diffs = [
+        "🆚 Diferencias clave (rápidas)",
+        "",
+        "1) Uso/entorno: dime si será interior/urbano o exterior/abierto.",
+        "2) Flota actual: dime si ya tienes radios y qué tecnología usan.",
+        "3) Prioridad: audio, alcance, accesorios o presupuesto.",
+      ].join("\n");
+      const question = "❓Pregunta rápida: ¿los usarás en terreno, vehículo o base fija?";
+      return [sectionA, sectionB, diffs, "", question].filter(Boolean).join("\n\n");
+    }
+    const recommended = bullets.slice(0, 2);
+    const recLines = recommended.map((b, idx) => {
+      const head = `✅ Recomendación ${idx + 1}: ${b.name}`;
+      const reason = `- Por qué: ${b.summary}`;
+      const price = b.price ? `- ${b.price}` : "";
+      return [head, reason, price].filter(Boolean).join("\n");
     });
-    const closing =
-      args.mode === "compare"
-        ? "Si quieres, dime cuál de estas opciones te interesa más y te muestro su ficha completa."
-        : "Si me indicas si lo usarás en terreno, vehículo, base fija o el presupuesto que manejas, puedo orientarte mejor.";
-    return [intro, "", ...lines, "", closing].join("\n");
+    const alt = bullets[2] ? [`🔎 Alternativa: ${bullets[2].name}`, `- ${bullets[2].summary}`].join("\n") : "";
+    const context = args.requestKind === "arriendo" ? "📌 Contexto: arriendo" : "📌 Contexto: compra/cotización";
+    const question = "❓Pregunta rápida: ¿los usarás en terreno, vehículo o base fija?";
+    return [context, ...recLines, alt, question].filter(Boolean).join("\n\n");
   };
 
   const key = getMinimaxApiKey();
@@ -2711,6 +2733,12 @@ async function minimaxCatalogAdvisor(args: {
     "Si el cliente pide recomendación, sugiere 1 o 2 opciones y explica brevemente por qué.",
     "Si el cliente pide diferencias, compara de forma breve y útil las opciones relevantes.",
     "No uses tablas ni markdown complejo; la respuesta debe quedar lista para WhatsApp.",
+    "Mantén la respuesta corta: idealmente menos de 850 caracteres.",
+    "Usa viñetas o numeración simple en pocas líneas (máximo 10 líneas).",
+    "Formato obligatorio:",
+    "Si Modo=recomendar: incluye '✅ Recomendación 1', opcional '✅ Recomendación 2', opcional '🔎 Alternativa', y termina con '❓Pregunta rápida'.",
+    "Si Modo=comparar: incluye '🆚 Diferencias clave (rápidas)' y termina con '❓Pregunta rápida'.",
+    "No incluyas instrucciones de navegación como 'elige un número' o 'indícame el número'; eso lo agrega el sistema.",
     "Nunca menciones que eres una IA.",
   ].join(" ");
 
@@ -2752,7 +2780,7 @@ async function minimaxCatalogAdvisor(args: {
           { role: "user", content: user },
         ],
         temperature: 0.3,
-        max_tokens: 420,
+        max_tokens: 280,
       }),
     });
     if (!res.ok) return fallback();
@@ -3355,12 +3383,23 @@ async function loadProductDetailByCountry(country: Country, productId: string): 
   };
 }
 
+function splitForWhatsapp(text: string, chunkSize = 900, maxParts = 3) {
+  const chunks = chunkText(String(text || ""), chunkSize);
+  if (!chunks.length) return [] as string[];
+  if (chunks.length <= maxParts) return chunks;
+  const head = chunks.slice(0, Math.max(1, maxParts - 1));
+  const tail = chunks.slice(head.length).join("\n\n").trim();
+  if (!tail) return head;
+  const last = tail.length > chunkSize ? `${tail.slice(0, Math.max(1, chunkSize - 3)).trim()}...` : tail;
+  return [...head, last].slice(0, maxParts);
+}
+
 async function buildCatalogAdviceReply(args: {
   input: string;
   country: Country;
   requestKind?: CatalogRequestKind;
   list: Array<{ product_id: string; nombre: string }>;
-}) {
+}): Promise<Reply> {
   const max = Math.min(CATALOG_MAX_LIST_ITEMS, args.list.length);
   const referencedNumbers = extractReferencedChoiceNumbers(args.input, max);
   const picked = referencedNumbers.length
@@ -3397,7 +3436,8 @@ async function buildCatalogAdviceReply(args: {
 
   if (!describedDetails.length) {
     const visibleOptions = picked.map((item, index) => `${index + 1}. ${cleanProductName(item.nombre)}`);
-    return [
+    return splitForWhatsapp(
+      [
       "Puedo orientarte con la lista activa sin obligarte a elegir a ciegas.",
       "En este momento no tengo suficiente detalle técnico cargado para comparar esos modelos con precisión.",
       "",
@@ -3405,7 +3445,8 @@ async function buildCatalogAdviceReply(args: {
       ...visibleOptions,
       "",
       "Si me dices el uso que necesitas, por ejemplo terreno, vehículo, base fija, repetición o presupuesto, te propongo las alternativas más convenientes.",
-    ].join("\n");
+      ].join("\n"),
+    );
   }
 
   const advice = await minimaxCatalogAdvisor({
@@ -3416,11 +3457,11 @@ async function buildCatalogAdviceReply(args: {
     mode: isCatalogComparisonRequest(args.input) ? "compare" : "recommend",
   });
 
-  return [
-    advice,
-    "",
-    `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`,
-  ].join("\n");
+  const footer = `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
+  const adviceText = String(advice || "").trim();
+  const parts = splitForWhatsapp(adviceText, 900, 3);
+  const hasFooterAlready = normalizeText(adviceText).includes(normalizeText(footer).slice(0, 24));
+  return [...(parts.length ? parts : [adviceText || ""]), ...(hasFooterAlready ? [] : [footer])].filter((x) => String(x).trim());
 }
 
 async function listProjects(offset: number) {
