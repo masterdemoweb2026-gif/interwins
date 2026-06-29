@@ -4199,7 +4199,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         state.catalog.recommended.mode = "detail";
         const d = await loadProductDetail(id);
         if (!d) return "No pude cargar ese recomendado. Indícame otra opción o responde Terminar.";
-        const base = buildProductFichaMessages(d, { requestKind: state.catalog.requestKind, country });
+        const base = buildProductFichaMessages(d, { requestKind: state.catalog.requestKind, country: state.country ?? "CL" });
         return [
           ...base,
           "",
