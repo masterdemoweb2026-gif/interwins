@@ -1037,6 +1037,14 @@ function buildInboundDedupeKey(from: string, text: string, tsMs: number) {
   return `t${ts}:${h}`;
 }
 
+function shouldSkipHashDedupe(text: string) {
+  const t = normalizeText(text);
+  if (!t) return true;
+  if (/^\d+$/.test(t)) return true;
+  if (t.length <= 3) return true;
+  return ["si", "sí", "no", "ok", "menu", "menú", "volver", "cancelar"].includes(t);
+}
+
 function shouldUseServiceTechOpeningPrompt(text: string) {
   const t = normalizeText(text);
   if (!t) return true;
@@ -6362,21 +6370,24 @@ export async function POST(request: Request) {
         await markMessageRead(inboundId, replyTo);
       }
 
-      const inboundHash = crypto
-        .createHash("sha256")
-        .update(`${normalizeText(userKey)}|${normalizeText(inboundText)}`)
-        .digest("hex")
-        .slice(0, 16);
       const hashWindowMs = 90 * 1000;
       const hashKeepMs = 5 * 60 * 1000;
       const prevHashes = state.recentInboundHashes ?? [];
       const prunedHashes = prevHashes.filter((e) => Number.isFinite(e.ts) && e.ts > inboundTimestampMs - hashKeepMs);
-      const isHashDuplicate = prunedHashes.some((e) => e.h === inboundHash && inboundTimestampMs - e.ts < hashWindowMs);
-      state.recentInboundHashes = [{ h: inboundHash, ts: inboundTimestampMs }, ...prunedHashes.filter((e) => e.h !== inboundHash)].slice(0, 40);
-      if (isHashDuplicate) {
-        inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate hash=${inboundHash}` });
-        await saveUserState(userKey, state);
-        return NextResponse.json({ ok: true }, { status: 200 });
+      state.recentInboundHashes = prunedHashes;
+      if (!shouldSkipHashDedupe(inboundText)) {
+        const inboundHash = crypto
+          .createHash("sha256")
+          .update(`${normalizeText(userKey)}|${normalizeText(inboundText)}`)
+          .digest("hex")
+          .slice(0, 16);
+        const isHashDuplicate = prunedHashes.some((e) => e.h === inboundHash && inboundTimestampMs - e.ts < hashWindowMs);
+        state.recentInboundHashes = [{ h: inboundHash, ts: inboundTimestampMs }, ...prunedHashes.filter((e) => e.h !== inboundHash)].slice(0, 40);
+        if (isHashDuplicate) {
+          inboxAdd({ source: "gowa", signatureValid: null, from: userKey, text: `[DEBUG] Skipping reply: duplicate hash=${inboundHash}` });
+          await saveUserState(userKey, state);
+          return NextResponse.json({ ok: true }, { status: 200 });
+        }
       }
 
       const derivedInboundKey = buildInboundDedupeKey(userKey, inboundText, inboundDedupeTimestampMs);
