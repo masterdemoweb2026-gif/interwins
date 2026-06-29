@@ -943,6 +943,7 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   const descriptionText = detail.fullDescription?.trim() || detail.shortFinal?.trim() || "";
   const descriptionChunks = descriptionText ? chunkText(descriptionText, 900) : [];
   const priceLine = formatFriendlyPrice(detail.precio ?? "", options?.country ?? "CL");
+  const fallbackPriceLine = options?.requestKind === "arriendo" ? "💰 Precio referencial: Por confirmar" : "💰 Precio referencial: Por confirmar";
   const primaryAction = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
   const actions = ["¿Qué deseas hacer ahora?", "", primaryAction, "Volver a la lista de productos", "Volver al menú", "Hacer una nueva búsqueda"].join(
     "\n",
@@ -950,7 +951,7 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
 
   const out: Array<string | OutboundMessage> = [header];
   if (detail.imageUrl) out.push({ type: "image", imageUrl: detail.imageUrl });
-  if (priceLine) out.push(priceLine);
+  out.push(priceLine || fallbackPriceLine);
   out.push(...descriptionChunks);
   if (detail.fichaUrl) out.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
   out.push(actions);
@@ -2582,6 +2583,12 @@ function isCatalogAdviceRequest(text: string) {
     t.includes("me ayudas a elegir") ||
     t.includes("ayudame a elegir") ||
     t.includes("ayúdame a elegir") ||
+    t.includes("explic") ||
+    t.includes("explica") ||
+    t.includes("explicame") ||
+    t.includes("explícame") ||
+    t.includes("cuales son") ||
+    t.includes("cuáles son") ||
     t.includes("diferencia") ||
     t.includes("diferencias") ||
     t.includes("compar")
@@ -2592,6 +2599,70 @@ function isCatalogComparisonRequest(text: string) {
   const t = normalizeText(text);
   if (!t) return false;
   return t.includes("diferencia") || t.includes("diferencias") || t.includes("compar") || t.includes("versus") || t.includes("vs");
+}
+
+function buildCatalogPendingAdviceReply(args: { country: Country; pending: CatalogPendingOptions }) {
+  const n = args.pending.options.length;
+  const attr = String(args.pending.attr || "");
+  const explain = (() => {
+    if (attr === "portabilidad") {
+      return [
+        "Diferencias rápidas:",
+        "",
+        "1) 📻 Portátiles (Handy): para uso personal en terreno. Más compactos y fáciles de transportar.",
+        "2) 🚗 Móviles (vehículo/base): se instalan en vehículos o puestos fijos. Mayor potencia y mejor desempeño con antena externa.",
+        "3) 📡 Repetidores: amplían la cobertura y ayudan a comunicar a mayor distancia (infraestructura).",
+      ].join("\n");
+    }
+    if (attr === "frecuencia") {
+      return [
+        "Diferencias rápidas:",
+        "",
+        "- UHF: suele rendir mejor dentro de edificios y zonas urbanas.",
+        "- VHF: suele rendir mejor en espacios abiertos y largas distancias con menos obstáculos.",
+        "- ANÁLOGO: más simple, compatible y generalmente más económico.",
+        "- DIGITAL: mejor calidad/alcance percibido, funciones como llamadas privadas y mejor manejo de ruido (según estándar).",
+      ].join("\n");
+    }
+    if (attr === "tecnologia") {
+      return [
+        "Diferencias rápidas:",
+        "",
+        "- ANÁLOGO: simple y muy compatible, ideal si ya tienes una flota analógica.",
+        "- DIGITAL: mejor gestión de audio y funciones avanzadas (según estándar).",
+        "Si ya tienes equipos, dime el modelo o la tecnología actual y te guío para elegir compatible.",
+      ].join("\n");
+    }
+    if (attr === "modalidad") {
+      return [
+        "Diferencias rápidas:",
+        "",
+        "- Venta: compras el equipo, queda en propiedad.",
+        "- Arriendo: pago periódico y soporte según el plan; ideal para eventos o necesidades temporales.",
+      ].join("\n");
+    }
+    if (attr === "tipo_producto") {
+      return [
+        "Diferencias rápidas:",
+        "",
+        "- Equipos radio: radios portátiles o móviles para comunicación.",
+        "- Accesorios: baterías, cargadores, antenas, micrófonos, etc.",
+        "- Repetidores / infraestructura: para ampliar cobertura.",
+        "- Cámaras corporales: registro de video para seguridad/operación.",
+      ].join("\n");
+    }
+    return "Puedo explicarte las diferencias entre estas opciones antes de que elijas.";
+  })();
+
+  return [
+    explain,
+    "",
+    "Para continuar, elige una opción:",
+    "",
+    ...renderNumberedOptionLabels(args.pending.options),
+    "",
+    `Responde con un número (1–${n}) o escribe la opción.`,
+  ].join("\n");
 }
 
 function extractReferencedChoiceNumbers(input: string, max: number) {
@@ -4476,6 +4547,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (state.catalog.pending) {
     const pending = state.catalog.pending;
+    if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
+      return buildCatalogPendingAdviceReply({ country: "CL", pending });
+    }
     const n = isNumericChoice(t, pending.options.length) ?? extractChoiceNumberFromText(input, pending.options.length);
     if (n) {
       selectedPendingOption = pending.options[n - 1]!;
@@ -4625,7 +4699,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (state.catalog.lastList && state.catalog.lastList.length) {
     const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
-    if (isCatalogAdviceRequest(input)) {
+    if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
       return await buildCatalogAdviceReply({
         input,
         country: "CL",
@@ -4903,6 +4977,9 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
   if (state.catalog.pending) {
     const pending = state.catalog.pending;
+    if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
+      return buildCatalogPendingAdviceReply({ country: "UY", pending });
+    }
     const n = isNumericChoice(t, pending.options.length) ?? extractChoiceNumberFromText(input, pending.options.length);
     if (n) {
       selectedPendingOption = pending.options[n - 1]!;
@@ -5049,7 +5126,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
   if (state.catalog.lastList?.length) {
     const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
-    if (isCatalogAdviceRequest(input)) {
+    if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
       return await buildCatalogAdviceReply({
         input,
         country: "UY",
