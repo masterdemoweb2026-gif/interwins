@@ -225,6 +225,12 @@ export default function Home() {
                 Refrescar panel
               </button>
               <a
+                href="/catalog"
+                className="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-medium text-white transition hover:bg-white/10"
+              >
+                Catálogo
+              </a>
+              <a
                 href="/api/dashboard?format=csv"
                 className="inline-flex h-11 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
               >
