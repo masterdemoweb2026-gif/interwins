@@ -1541,13 +1541,13 @@ async function startCatalogIntentFlow(state: UserState, userKey: string, text: s
 function buildMainMenuText(country: Country, variant: "welcome" | "return" = "return") {
   const introsWelcomeCL = ["¡Hola! Bienvenido al asistente virtual de InterWins. ¿En qué te puedo ayudar hoy?"];
   const introsReturnCL = [
-    "Si quieres, también te puedo ayudar con esto:",
-    "Seguimos cuando quieras. También puedo ayudarte con:",
+    "Volvimos al menú principal. Indica la opción que necesitas:",
+    "Listo. Desde aquí puedes continuar con una de estas opciones:",
   ];
   const introsWelcomeUY = ["¡Hola! Bienvenido al asistente virtual de InterWins. ¿En qué te puedo ayudar hoy?"];
   const introsReturnUY = [
-    "Si quieres, también te puedo ayudar con esto:",
-    "Seguimos por aquí. También puedo ayudarte con:",
+    "Volvimos al menú principal. Indica la opción que necesitas:",
+    "Listo. Desde aquí puedes continuar con una de estas opciones:",
   ];
   const introList =
     country === "UY"
@@ -1559,59 +1559,33 @@ function buildMainMenuText(country: Country, variant: "welcome" | "return" = "re
         : introsReturnCL;
   const intro = introList[crypto.randomInt(0, introList.length)];
   if (country === "UY") {
-    if (variant === "welcome") {
-      return [
-        intro,
-        "Selecciona una opción o escribe el número:",
-        "",
-        "1. 🛒 Comprar equipos o accesorios (Venta)",
-        "",
-        "2. 🔧 Servicio Técnico",
-        "",
-        "3. 📊 Asesoría en Proyectos",
-        "",
-        "4. 🌐 Soluciones Cambium Networks",
-      ].join("\n");
-    }
     return [
       intro,
-      "",
-      "Estas son algunas de las cosas con las que te puedo apoyar hoy:",
-      "",
-      "🛒 Comprar equipos o accesorios",
-      "🔧 Servicio Técnico",
-      "📊 Asesoría en Proyectos",
-      "🌐 Soluciones Cambium Networks",
-    ].join("\n");
-  }
-
-  if (variant === "welcome") {
-    return [
-      intro,
-      "Selecciona una opción o escribe el número:",
+      variant === "welcome" ? "Selecciona una opción o escribe el número:" : "Selecciona una opción o escribe el número para continuar:",
       "",
       "1. 🛒 Comprar equipos o accesorios (Venta)",
       "",
-      "2. ⏱️ Arrendar equipos de radiocomunicación",
+      "2. 🔧 Servicio Técnico",
       "",
       "3. 📊 Asesoría en Proyectos",
       "",
-      "4. 🔧 Servicio Técnico",
-      "",
-      "5. 📍 Direcciones y Puntos de Venta",
+      "4. 🌐 Soluciones Cambium Networks",
     ].join("\n");
   }
 
   return [
     intro,
+    variant === "welcome" ? "Selecciona una opción o escribe el número:" : "Selecciona una opción o escribe el número para continuar:",
     "",
-    "Estas son algunas de las cosas con las que te puedo apoyar hoy:",
+    "1. 🛒 Comprar equipos o accesorios (Venta)",
     "",
-    "🛒 Comprar equipos o accesorios",
-    "⏱️ Arrendar equipos de radiocomunicación",
-    "📊 Asesoría en Proyectos",
-    "🔧 Servicio Técnico",
-    "📍 Direcciones y Puntos de Venta",
+    "2. ⏱️ Arrendar equipos de radiocomunicación",
+    "",
+    "3. 📊 Asesoría en Proyectos",
+    "",
+    "4. 🔧 Servicio Técnico",
+    "",
+    "5. 📍 Direcciones y Puntos de Venta",
   ].join("\n");
 }
 
@@ -5428,7 +5402,7 @@ function getCancelReminderText() {
 }
 
 function getCancelConfirmationText() {
-  return "Muy bien, cancelé esta solicitud. Si quieres, retomamos desde el menú.";
+  return "Muy bien, cancelé esta solicitud. Volvamos al menú principal.";
 }
 
 function getFormInProgressText() {
