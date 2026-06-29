@@ -4511,8 +4511,12 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "portabilidad", options };
       return isRadioEquipment
-        ? ["¿Qué formato necesitas?", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join("\n")
-        : ["¿Portátil o móvil?", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join("\n");
+        ? ["¿Qué formato necesitas?", "Responde con el número o escribe la opción.", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join(
+            "\n",
+          )
+        : ["¿Portátil o móvil?", "Responde con el número o escribe la opción.", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join(
+            "\n",
+          );
     }
   }
 
@@ -4934,8 +4938,12 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         : (opts as string[]).slice(0, 5).map((o) => ({ label: o, value: o }));
       state.catalog.pending = { attr: "portabilidad", options };
       return isRadioEquipment
-        ? ["¿Qué formato necesitas?", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join("\n")
-        : ["¿Portátil o móvil?", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join("\n");
+        ? ["¿Qué formato necesitas?", "Responde con el número o escribe la opción.", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join(
+            "\n",
+          )
+        : ["¿Portátil o móvil?", "Responde con el número o escribe la opción.", "", ...renderNumberedOptionLabels(state.catalog.pending.options)].join(
+            "\n",
+          );
     }
   }
 
