@@ -2550,6 +2550,10 @@ function isCatalogAdviceRequest(text: string) {
   if (!t) return false;
   return (
     t.includes("recomi") ||
+    t.includes("cual recomi") ||
+    t.includes("cual me recomi") ||
+    t.includes("que opcion me recomi") ||
+    t.includes("que opcion recomi") ||
     t.includes("propon") ||
     t.includes("propoc") ||
     t.includes("cual es mejor") ||
@@ -2557,11 +2561,17 @@ function isCatalogAdviceRequest(text: string) {
     t.includes("cuál es mejor") ||
     t.includes("cuál me conviene") ||
     t.includes("no conozco ninguno") ||
-    t.includes("no conozco ninguno") ||
+    t.includes("no conozco") ||
+    t.includes("no se cual") ||
+    t.includes("no sé cual") ||
+    t.includes("no se cuál") ||
+    t.includes("no sé cuál") ||
     t.includes("que me sugieres") ||
     t.includes("qué me sugieres") ||
     t.includes("que me aconsejas") ||
     t.includes("qué me aconsejas") ||
+    t.includes("me orientas") ||
+    t.includes("me ayudas a elegir") ||
     t.includes("ayudame a elegir") ||
     t.includes("ayúdame a elegir") ||
     t.includes("diferencia") ||
@@ -3282,21 +3292,47 @@ async function buildCatalogAdviceReply(args: {
       picked.map(async (item) => {
         if (!item?.product_id) return null;
         const detail = await loadProductDetailByCountry(args.country, item.product_id);
-        if (!detail) return null;
-        return { ...detail, nombre: detail.nombre || item.nombre };
+        if (detail) return { ...detail, nombre: detail.nombre || item.nombre };
+        const commercial = await loadCatalogProductCommercialData(item.product_id);
+        const fallbackDescription = htmlToParagraphText(`${commercial?.descripcionCorta ?? ""}\n${commercial?.descripcion ?? ""}`.trim());
+        return {
+          productId: item.product_id,
+          nombre: item.nombre,
+          shortFinal: fallbackDescription.slice(0, 590).trim(),
+          fullDescription: fallbackDescription,
+          imageUrl: commercial?.imageUrl,
+          fichaUrl: "",
+          precio: commercial?.precio || "",
+        } as ProductDetail;
       }),
     )
-  ).filter((detail): detail is ProductDetail => Boolean(detail));
+  )
+    .filter((detail): detail is ProductDetail => Boolean(detail))
+    .map((detail) => ({
+      ...detail,
+      nombre: detail.nombre || picked.find((item) => item.product_id === detail.productId)?.nombre || detail.productId,
+    }));
 
-  if (!details.length) {
-    return `Puedo orientarte, pero primero necesito que elijas una opción de la lista. Indícame el número (1–${max}) o el nombre del producto.`;
+  const describedDetails = details.filter((detail) => (detail.shortFinal || detail.fullDescription || detail.precio || "").trim());
+
+  if (!describedDetails.length) {
+    const visibleOptions = picked.map((item, index) => `${index + 1}. ${cleanProductName(item.nombre)}`);
+    return [
+      "Puedo orientarte con la lista activa sin obligarte a elegir a ciegas.",
+      "En este momento no tengo suficiente detalle técnico cargado para comparar esos modelos con precisión.",
+      "",
+      "Estas son las opciones que estás viendo:",
+      ...visibleOptions,
+      "",
+      "Si me dices el uso que necesitas, por ejemplo terreno, vehículo, base fija, repetición o presupuesto, te propongo las alternativas más convenientes.",
+    ].join("\n");
   }
 
   const advice = await minimaxCatalogAdvisor({
     input: args.input,
     country: args.country,
     requestKind: args.requestKind,
-    products: details,
+    products: describedDetails,
     mode: isCatalogComparisonRequest(args.input) ? "compare" : "recommend",
   });
 
