@@ -975,6 +975,66 @@ function isStockQuestion(text: string) {
   );
 }
 
+function isCatalogPriceRequest(text: string) {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    t.includes("precio") ||
+    t.includes("precios") ||
+    t.includes("cuanto sale") ||
+    t.includes("cuánto sale") ||
+    t.includes("cuanto cuest") ||
+    t.includes("cuánto cuest") ||
+    t.includes("cuanto val") ||
+    t.includes("cuánto val") ||
+    t.includes("valor") ||
+    t.includes("valen")
+  );
+}
+
+async function loadProductPriceByCountry(country: Country, productId: string) {
+  if (!productId) return "";
+  if (country === "UY") {
+    const table = getUyProductsTable();
+    const q = `${table}?select=precio&limit=1&product_id=eq.${encodeURIComponent(productId)}`;
+    const res = await supabaseFetch(q, { method: "GET" });
+    if (!res.ok || !Array.isArray(res.data)) return "";
+    const row = (res.data as unknown[])[0];
+    if (!row) return "";
+    return toTrimmedString(getRecordValue(row, "precio"));
+  }
+  const commercial = await loadCatalogProductCommercialData(productId);
+  if (commercial?.precio) return commercial.precio;
+  const select = encodeURIComponent(`"Precio normal"`);
+  const q = `inter_products_staging?select=${select}&ID=eq.${encodeURIComponent(productId)}&limit=1`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return "";
+  const row = (res.data as unknown[])[0];
+  if (!row) return "";
+  return toTrimmedString(getRecordValue(row, "Precio normal"));
+}
+
+async function buildCatalogPriceListReply(args: { country: Country; list: Array<{ product_id: string; nombre: string }> }) {
+  const max = Math.min(CATALOG_MAX_LIST_ITEMS, args.list.length);
+  const head = args.list.slice(0, max);
+  const rows = await Promise.all(
+    head.map(async (p, i) => {
+      const rawPrice = await loadProductPriceByCountry(args.country, p.product_id);
+      const pretty = formatFriendlyPrice(rawPrice, args.country);
+      const short = pretty ? pretty.replace(/^💰\s*Precio referencial:\s*/i, "").trim() : "Por confirmar";
+      const name = cleanProductName(p.nombre);
+      return `${i + 1}) ${name} — ${short}`;
+    }),
+  );
+  return [
+    "💰 Precios referenciales de la lista:",
+    "",
+    ...rows,
+    "",
+    `Si quieres ver la ficha, indícame el número (1–${max}) o el nombre del producto.`,
+  ].join("\n");
+}
+
 function parseCityRegionInput(input: string) {
   const normalized = input.replace(/\r\n/g, "\n").trim();
   if (!normalized) return null;
@@ -4810,6 +4870,9 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (state.catalog.lastList && state.catalog.lastList.length) {
     const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
+    if (isCatalogPriceRequest(input)) {
+      return await buildCatalogPriceListReply({ country: "CL", list: state.catalog.lastList });
+    }
     if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
       return await buildCatalogAdviceReply({
         input,
@@ -5237,6 +5300,9 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
   if (state.catalog.lastList?.length) {
     const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
+    if (isCatalogPriceRequest(input)) {
+      return await buildCatalogPriceListReply({ country: "UY", list: state.catalog.lastList });
+    }
     if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
       return await buildCatalogAdviceReply({
         input,
