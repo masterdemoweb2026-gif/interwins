@@ -156,6 +156,7 @@ export default function CatalogPage() {
   const [limit] = useState(50);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, CatalogRow>>({});
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Record<string, boolean>>({});
   const [priceEdits, setPriceEdits] = useState<Record<string, { precio_lista_clp: string; precio_lista_raw: string; dirty: boolean }>>(
     {},
   );
@@ -355,7 +356,7 @@ export default function CatalogPage() {
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(circle_at_top,#27272a_0%,#09090b_45%,#020617_100%)] font-sans text-zinc-50">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-8 md:px-8 lg:px-10">
+      <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-8 px-5 py-8 md:px-8 lg:px-10">
         <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur xl:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl space-y-3">
@@ -570,17 +571,17 @@ export default function CatalogPage() {
 
         <section className="overflow-hidden rounded-[28px] border border-white/10 bg-black/20 shadow-2xl shadow-black/10 backdrop-blur">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="min-w-[1480px] w-full text-left text-sm">
               <thead className="bg-white/5 text-xs uppercase tracking-[0.18em] text-zinc-500">
                 <tr>
-                  <th className="px-4 py-4 font-medium">ID</th>
+                  <th className="sticky left-0 z-20 bg-white/5 px-4 py-4 font-medium">ID</th>
                   <th className="px-4 py-4 font-medium">Producto</th>
                   <th className="px-4 py-4 font-medium">Modelo</th>
                   <th className="px-4 py-4 font-medium">Precio CLP</th>
                   <th className="px-4 py-4 font-medium">Precio raw</th>
                   <th className="px-4 py-4 font-medium">Descripción</th>
                   <th className="px-4 py-4 font-medium">Recomendados</th>
-                  <th className="px-4 py-4 font-medium">Acciones</th>
+                  <th className="sticky right-0 z-20 bg-white/5 px-4 py-4 font-medium">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -595,9 +596,11 @@ export default function CatalogPage() {
                     const isEditing = editingId === r.id;
                     const draft = isEditing ? drafts[r.id] ?? r : r;
                     const price = getPriceEdit(r.id, r);
+                    const expanded = Boolean(expandedDescriptions[r.id]);
+                    const shownDescription = (r.descripcion ?? "").trim();
                     return (
                       <tr key={r.id} className="align-top">
-                        <td className="px-4 py-4">
+                        <td className="sticky left-0 z-10 bg-black/30 px-4 py-4">
                           <div className="text-zinc-300">{r.id}</div>
                         </td>
                         <td className="px-4 py-4">
@@ -634,11 +637,38 @@ export default function CatalogPage() {
                                   [r.id]: { ...(prev[r.id] ?? r), descripcion: e.target.value },
                                 }))
                               }
-                              className="min-h-[90px] w-[420px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                              className="min-h-[140px] w-[620px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                               placeholder="descripcion"
                             />
                           ) : (
-                            <div className="max-w-[420px] whitespace-pre-wrap text-zinc-200">{r.descripcion || "—"}</div>
+                            <div className="w-[620px]">
+                              {shownDescription ? (
+                                <div className="space-y-2">
+                                  <div
+                                    className="whitespace-pre-wrap text-zinc-200"
+                                    style={{
+                                      maxHeight: expanded ? "none" : "5.4em",
+                                      overflow: expanded ? "visible" : "hidden",
+                                    }}
+                                  >
+                                    {shownDescription}
+                                  </div>
+                                  {shownDescription.length > 180 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedDescriptions((prev) => ({ ...prev, [r.id]: !Boolean(prev[r.id]) }))
+                                      }
+                                      className="inline-flex items-center rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/10"
+                                    >
+                                      {expanded ? "Ver menos" : "Leer más"}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <div className="text-zinc-400">—</div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-4">
@@ -658,9 +688,22 @@ export default function CatalogPage() {
                             <div className="max-w-[320px] break-words text-zinc-200">{r.recomendados || "—"}</div>
                           )}
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="sticky right-0 z-10 bg-black/30 px-4 py-4">
                           {isEditing ? (
                             <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={saving || !price.dirty}
+                                onClick={() => savePrices(r.id)}
+                                className={[
+                                  "inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition",
+                                  saving || !price.dirty
+                                    ? "border border-white/10 bg-white/5 text-zinc-500"
+                                    : "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
+                                ].join(" ")}
+                              >
+                                Guardar precios
+                              </button>
                               <button
                                 type="button"
                                 disabled={saving}
