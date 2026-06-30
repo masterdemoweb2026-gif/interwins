@@ -922,18 +922,33 @@ function buildProductsListMessage(products: Array<{ product_id: string; nombre: 
 function formatFriendlyPrice(price: string, country: Country = "CL") {
   const raw = String(price || "").trim();
   if (!raw) return "";
+  const locale = country === "UY" ? "es-UY" : "es-CL";
+  const currency = country === "UY" ? "UYU" : "CLP";
+
+  const numberParts = raw.match(/\d[\d.\s,]*/g) || [];
+  const nums = numberParts
+    .map((p) => Number(String(p).replace(/[^\d]/g, "")))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  const fmt = (amount: number) =>
+    new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+
+  if (nums.length >= 2) {
+    const min = Math.min(nums[0]!, nums[1]!);
+    const max = Math.max(nums[0]!, nums[1]!);
+    if (min === max) return `💰 Precio referencial: ${fmt(min)}`;
+    return `💰 Precio referencial: Desde ${fmt(min)} hasta ${fmt(max)}`;
+  }
+
   const numeric = raw.replace(/[^\d]/g, "");
   if (!numeric) return raw;
   const amount = Number(numeric);
   if (!Number.isFinite(amount) || amount <= 0) return "";
-  const locale = country === "UY" ? "es-UY" : "es-CL";
-  const currency = country === "UY" ? "UYU" : "CLP";
-  const formatted = new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
-  return `💰 Precio referencial: ${formatted}`;
+  return `💰 Precio referencial: ${fmt(amount)}`;
 }
 
 function buildProductFichaMessages(detail: ProductDetail | null, options?: { requestKind?: CatalogRequestKind; country?: Country }) {
@@ -3364,8 +3379,28 @@ async function loadCatalogProductCommercialData(args: { productId?: string; nomb
   if (!row) return null;
   const precioRaw = toTrimmedString(getRecordValue(row, "precio_lista_raw"));
   const precioClp = toTrimmedString(getRecordValue(row, "precio_lista_clp"));
+  let precio = precioRaw || precioClp;
+
+  if (!precio) {
+    const parent = toTrimmedString(getRecordValue(row, "producto")) || toTrimmedString(candidate);
+    if (parent) {
+      const vSelect = encodeURIComponent(`precio_lista_clp,precio_lista_raw`);
+      const vq = `catalogo_productos?select=${vSelect}&producto=eq.${encodeURIComponent(parent)}&record_type=eq.variant&precio_lista_clp=not.is.null&limit=100`;
+      const vres = await supabaseFetch(vq, { method: "GET" });
+      const variants = vres.ok && Array.isArray(vres.data) ? (vres.data as unknown[]) : [];
+      const prices = variants
+        .map((v) => toTrimmedString(getRecordValue(v, "precio_lista_clp")))
+        .map((p) => Number(String(p).replace(/[^\d]/g, "")))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (prices.length) {
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        precio = min === max ? String(min) : `${min}-${max}`;
+      }
+    }
+  }
   return {
-    precio: precioRaw || precioClp,
+    precio,
     descripcionCorta: toTrimmedString(getRecordValue(row, "caracteristicas")),
     descripcion: toTrimmedString(getRecordValue(row, "descripcion")),
     imageUrl: "",
