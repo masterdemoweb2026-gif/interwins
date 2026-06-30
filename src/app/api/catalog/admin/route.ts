@@ -57,6 +57,12 @@ function escapeCsv(value: string) {
   return s;
 }
 
+function formatClpRawFromNumber(amount: number) {
+  if (!Number.isFinite(amount) || amount <= 0) return "";
+  const formatted = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(amount);
+  return `$ ${formatted}`;
+}
+
 function toCsv(rows: CatalogProductRow[]) {
   const header = ["id", "producto", "nombre_modelo_especial", "precio_lista_clp", "precio_lista_raw", "modelo", "record_type", "tier", "descripcion", "caracteristicas", "recomendados"].join(
     ",",
@@ -141,7 +147,13 @@ async function upsertCatalogRows(rows: CatalogProductRow[]) {
     producto: row.producto || null,
     nombre_modelo_especial: row.nombre_modelo_especial || null,
     precio_lista_clp: row.precio_lista_clp ? Number(String(row.precio_lista_clp).replace(/[^\d]/g, "")) : null,
-    precio_lista_raw: row.precio_lista_raw ? String(row.precio_lista_raw).replace(/[^\d\s.,$]/g, "").trim() || null : null,
+    precio_lista_raw: (() => {
+      const clp = row.precio_lista_clp ? Number(String(row.precio_lista_clp).replace(/[^\d]/g, "")) : 0;
+      const raw = row.precio_lista_raw ? String(row.precio_lista_raw).replace(/[^\d\s.,$]/g, "").trim() : "";
+      if (raw) return raw;
+      const computed = formatClpRawFromNumber(clp);
+      return computed || null;
+    })(),
     modelo: row.modelo || null,
     record_type: row.record_type || null,
     tier: row.tier || null,
@@ -235,11 +247,14 @@ export async function PATCH(request: Request) {
 
   const update: Record<string, unknown> = {};
   if (body.precio_lista_clp != null && toText(body.precio_lista_clp).trim() !== "") {
-    update.precio_lista_clp = Number(toText(body.precio_lista_clp).replace(/[^\d]/g, ""));
+    const clp = Number(toText(body.precio_lista_clp).replace(/[^\d]/g, ""));
+    update.precio_lista_clp = clp;
+    const computed = formatClpRawFromNumber(clp);
+    if (computed) update.precio_lista_raw = computed;
   }
   if (body.precio_lista_raw != null && toText(body.precio_lista_raw).trim() !== "") {
     const rawPrice = toText(body.precio_lista_raw).replace(/[^\d\s.,$]/g, "").trim();
-    if (rawPrice) update.precio_lista_raw = rawPrice;
+    if (rawPrice && update.precio_lista_raw == null) update.precio_lista_raw = rawPrice;
   }
   if (!Object.keys(update).length) {
     return NextResponse.json({ ok: false, error: "No hay campos para actualizar." }, { status: 400 });

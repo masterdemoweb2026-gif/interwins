@@ -37,6 +37,14 @@ function sanitizePriceRaw(value: string) {
   return String(value ?? "").replace(/[^\d\s.,$]/g, "");
 }
 
+function formatClpRawFromDigits(digits: string) {
+  const cleaned = sanitizeDigits(digits);
+  const amount = Number(cleaned || "0");
+  if (!Number.isFinite(amount) || amount <= 0) return "";
+  const formatted = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(amount);
+  return `$ ${formatted}`;
+}
+
 function parseCsv(text: string) {
   const src = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const rows: string[][] = [];
@@ -199,7 +207,9 @@ export default function CatalogPage() {
         for (const r of json.rows ?? []) {
           const current = nextEdits[r.id];
           if (current?.dirty) continue;
-          nextEdits[r.id] = { precio_lista_clp: r.precio_lista_clp ?? "", precio_lista_raw: r.precio_lista_raw ?? "", dirty: false };
+          const clp = r.precio_lista_clp ?? "";
+          const raw = r.precio_lista_raw ?? "";
+          nextEdits[r.id] = { precio_lista_clp: clp, precio_lista_raw: raw || formatClpRawFromDigits(clp), dirty: false };
         }
         return nextEdits;
       });
@@ -250,7 +260,10 @@ export default function CatalogPage() {
     setPriceEdits((prev) => {
       const cur = prev[id] ?? { precio_lista_clp: "", precio_lista_raw: "", dirty: false };
       const next = { ...cur, ...patch };
-      if (patch.precio_lista_clp != null) next.precio_lista_clp = sanitizeDigits(next.precio_lista_clp);
+      if (patch.precio_lista_clp != null) {
+        next.precio_lista_clp = sanitizeDigits(next.precio_lista_clp);
+        next.precio_lista_raw = formatClpRawFromDigits(next.precio_lista_clp);
+      }
       if (patch.precio_lista_raw != null) next.precio_lista_raw = sanitizePriceRaw(next.precio_lista_raw);
       return { ...prev, [id]: { ...next, dirty: true } };
     });
@@ -483,7 +496,10 @@ export default function CatalogPage() {
               />
               <input
                 value={newRow.precio_lista_clp}
-                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_clp: sanitizeDigits(e.target.value) }))}
+                onChange={(e) => {
+                  const digits = sanitizeDigits(e.target.value);
+                  setNewRow((p) => ({ ...p, precio_lista_clp: digits, precio_lista_raw: formatClpRawFromDigits(digits) }));
+                }}
                 className="h-11 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                 placeholder="precio_lista_clp (ej: 199900)"
                 type="number"
@@ -493,11 +509,9 @@ export default function CatalogPage() {
               />
               <input
                 value={newRow.precio_lista_raw}
-                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_raw: sanitizePriceRaw(e.target.value) }))}
                 className="h-11 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                placeholder='precio_lista_raw (ej: "$ 126.339")'
-                inputMode="numeric"
-                pattern="[0-9\\s.,$]*"
+                placeholder='precio_lista_raw (auto)'
+                readOnly
               />
               <input
                 value={newRow.recomendados}
@@ -653,12 +667,10 @@ export default function CatalogPage() {
                         <td className="px-4 py-4">
                           <input
                             value={price.precio_lista_raw}
-                            onChange={(e) => setPriceEditValue(r.id, { precio_lista_raw: e.target.value })}
                             className="h-10 w-[160px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                             placeholder="precio_lista_raw"
                             disabled={saving}
-                            inputMode="numeric"
-                            pattern="[0-9\\s.,$]*"
+                            readOnly
                           />
                         </td>
                         <td className="px-4 py-4">
@@ -868,12 +880,10 @@ export default function CatalogPage() {
                         <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Precio raw</div>
                         <input
                           value={price.precio_lista_raw}
-                          onChange={(e) => setPriceEditValue(editingId, { precio_lista_raw: e.target.value })}
                           className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                           placeholder="precio_lista_raw"
                           disabled={saving}
-                          inputMode="numeric"
-                          pattern="[0-9\\s.,$]*"
+                          readOnly
                         />
                       </div>
                     </div>
