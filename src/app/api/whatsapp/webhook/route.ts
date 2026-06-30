@@ -992,7 +992,7 @@ function isCatalogPriceRequest(text: string) {
   );
 }
 
-async function loadProductPriceByCountry(country: Country, productId: string) {
+async function loadProductPriceByCountry(country: Country, productId: string, nombre?: string) {
   if (!productId) return "";
   if (country === "UY") {
     const table = getUyProductsTable();
@@ -1003,7 +1003,7 @@ async function loadProductPriceByCountry(country: Country, productId: string) {
     if (!row) return "";
     return toTrimmedString(getRecordValue(row, "precio"));
   }
-  const commercial = await loadCatalogProductCommercialData(productId);
+  const commercial = await loadCatalogProductCommercialData({ productId, nombre: toTrimmedString(nombre) });
   if (commercial?.precio) return commercial.precio;
   const select = encodeURIComponent(`"Precio normal"`);
   const q = `inter_products_staging?select=${select}&ID=eq.${encodeURIComponent(productId)}&limit=1`;
@@ -1019,7 +1019,7 @@ async function buildCatalogPriceListReply(args: { country: Country; list: Array<
   const head = args.list.slice(0, max);
   const rows = await Promise.all(
     head.map(async (p, i) => {
-      const rawPrice = await loadProductPriceByCountry(args.country, p.product_id);
+      const rawPrice = await loadProductPriceByCountry(args.country, p.product_id, p.nombre);
       const pretty = formatFriendlyPrice(rawPrice, args.country);
       const short = pretty ? pretty.replace(/^💰\s*Precio referencial:\s*/i, "").trim() : "Por confirmar";
       const name = cleanProductName(p.nombre);
@@ -3338,19 +3338,31 @@ async function loadProductDetail(productId: string) {
   return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
 }
 
-async function loadCatalogProductCommercialData(productId: string) {
-  if (!productId) return null;
-  const select = encodeURIComponent(`producto,precio,descripcion_corta,descripcion,image_url`);
-  const q = `catalogo_productos?select=${select}&limit=1&producto=eq.${encodeURIComponent(productId)}`;
+async function loadCatalogProductCommercialData(args: { productId?: string; nombre?: string }) {
+  const productId = toTrimmedString(args.productId);
+  const nombre = toTrimmedString(args.nombre);
+  const modelFromName = extractLikelyProductModel(nombre);
+  const candidate = modelFromName || productId;
+  if (!candidate) return null;
+
+  const compact = normalizeText(candidate).replace(/[^a-z0-9]+/g, "");
+  const like = encodeIlikePattern(`*${compact || candidate}*`);
+  const select = encodeURIComponent(
+    `id,producto,nombre_modelo_especial,modelo,precio_lista_clp,precio_lista_raw,descripcion,caracteristicas,recomendados`,
+  );
+  const q = `catalogo_productos?select=${select}&limit=1&or=(producto.ilike.${like},nombre_modelo_especial.ilike.${like},modelo.ilike.${like})`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return null;
   const row = (res.data as unknown[])[0];
   if (!row) return null;
+  const precioRaw = toTrimmedString(getRecordValue(row, "precio_lista_raw"));
+  const precioClp = toTrimmedString(getRecordValue(row, "precio_lista_clp"));
   return {
-    precio: toTrimmedString(getRecordValue(row, "precio")),
-    descripcionCorta: toTrimmedString(getRecordValue(row, "descripcion_corta")),
+    precio: precioRaw || precioClp,
+    descripcionCorta: toTrimmedString(getRecordValue(row, "caracteristicas")),
     descripcion: toTrimmedString(getRecordValue(row, "descripcion")),
-    imageUrl: toTrimmedString(getRecordValue(row, "image_url")),
+    imageUrl: "",
+    recomendados: getRecordValue(row, "recomendados"),
   };
 }
 
@@ -3423,7 +3435,7 @@ async function loadProductDetailByCountry(country: Country, productId: string): 
   if (!productId) return null;
   if (country === "UY") return (await loadProductDetailUY(productId)) as ProductDetail | null;
   const base = (await loadProductDetail(productId)) as ProductDetail | null;
-  const commercial = await loadCatalogProductCommercialData(productId);
+  const commercial = await loadCatalogProductCommercialData({ productId, nombre: base?.nombre ?? "" });
   if (!base && !commercial) return null;
   const fallbackDescription = htmlToParagraphText(`${commercial?.descripcionCorta ?? ""}\n${commercial?.descripcion ?? ""}`.trim());
   const fallbackShort = fallbackDescription ? fallbackDescription.slice(0, 590).trim() : "";
@@ -3542,7 +3554,7 @@ async function buildCatalogAdviceReply(args: {
         if (!item?.product_id) return null;
         const detail = await loadProductDetailByCountry(args.country, item.product_id);
         if (detail) return { ...detail, nombre: detail.nombre || item.nombre };
-        const commercial = await loadCatalogProductCommercialData(item.product_id);
+        const commercial = await loadCatalogProductCommercialData({ productId: item.product_id, nombre: item.nombre });
         const fallbackDescription = htmlToParagraphText(`${commercial?.descripcionCorta ?? ""}\n${commercial?.descripcion ?? ""}`.trim());
         return {
           productId: item.product_id,
@@ -5454,12 +5466,8 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
 async function tryLoadRecommendedIds(productId?: string) {
   if (!productId) return [];
-  const select = encodeURIComponent(`producto,recomendados`);
-  const q = `catalogo_productos?select=${select}&limit=1&producto=eq.${encodeURIComponent(productId)}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  const row = (res.data as unknown[])[0];
-  const raw = getRecordValue(row, "recomendados");
+  const commercial = await loadCatalogProductCommercialData({ productId, nombre: "" });
+  const raw = commercial?.recomendados;
   if (Array.isArray(raw)) return raw.map((x) => String(x)).filter(Boolean);
   if (typeof raw === "string") {
     return raw

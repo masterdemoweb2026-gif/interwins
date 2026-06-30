@@ -5,11 +5,16 @@ export const dynamic = "force-dynamic";
 type JsonRecord = Record<string, unknown>;
 
 type CatalogProductRow = {
+  id: string;
   producto: string;
-  precio: string;
-  descripcion_corta: string;
+  nombre_modelo_especial: string;
+  precio_lista_clp: string;
+  precio_lista_raw: string;
+  modelo: string;
+  record_type: string;
+  tier: string;
   descripcion: string;
-  image_url: string;
+  caracteristicas: string;
   recomendados: string;
 };
 
@@ -32,11 +37,16 @@ function toText(value: unknown) {
 function pickRow(value: unknown): CatalogProductRow {
   const row = asRecord(value);
   return {
+    id: toText(row.id).trim() || toText(row.idx).trim(),
     producto: toText(row.producto).trim(),
-    precio: toText(row.precio).trim(),
-    descripcion_corta: toText(row.descripcion_corta).trim(),
+    nombre_modelo_especial: toText(row.nombre_modelo_especial).trim(),
+    precio_lista_clp: toText(row.precio_lista_clp).trim(),
+    precio_lista_raw: toText(row.precio_lista_raw).trim(),
+    modelo: toText(row.modelo).trim(),
+    record_type: toText(row.record_type).trim(),
+    tier: toText(row.tier).trim(),
     descripcion: toText(row.descripcion).trim(),
-    image_url: toText(row.image_url).trim(),
+    caracteristicas: toText(row.caracteristicas).trim(),
     recomendados: Array.isArray(row.recomendados) ? row.recomendados.join(",") : toText(row.recomendados).trim(),
   };
 }
@@ -48,9 +58,25 @@ function escapeCsv(value: string) {
 }
 
 function toCsv(rows: CatalogProductRow[]) {
-  const header = ["producto", "precio", "descripcion_corta", "descripcion", "image_url", "recomendados"].join(",");
+  const header = ["id", "producto", "nombre_modelo_especial", "precio_lista_clp", "precio_lista_raw", "modelo", "record_type", "tier", "descripcion", "caracteristicas", "recomendados"].join(
+    ",",
+  );
   const lines = rows.map((r) =>
-    [r.producto, r.precio, r.descripcion_corta, r.descripcion, r.image_url, r.recomendados].map(escapeCsv).join(","),
+    [
+      r.id,
+      r.producto,
+      r.nombre_modelo_especial,
+      r.precio_lista_clp,
+      r.precio_lista_raw,
+      r.modelo,
+      r.record_type,
+      r.tier,
+      r.descripcion,
+      r.caracteristicas,
+      r.recomendados,
+    ]
+      .map(escapeCsv)
+      .join(","),
   );
   return [header, ...lines].join("\n");
 }
@@ -89,14 +115,14 @@ async function fetchAllCatalogRows(search: string) {
 
   for (let offset = 0; offset < 20000; offset += pageSize) {
     const params: string[] = [
-      `select=producto,precio,descripcion_corta,descripcion,image_url,recomendados`,
-      `order=producto.asc`,
+      `select=id,producto,nombre_modelo_especial,precio_lista_clp,precio_lista_raw,modelo,record_type,tier,descripcion,caracteristicas,recomendados`,
+      `order=id.desc`,
       `limit=${pageSize}`,
       `offset=${offset}`,
     ];
     if (search) {
       const like = encodeURIComponent(`*${search}*`);
-      params.push(`or=(producto.ilike.${like},descripcion_corta.ilike.${like})`);
+      params.push(`or=(producto.ilike.${like},nombre_modelo_especial.ilike.${like},modelo.ilike.${like})`);
     }
     const res = await supabaseFetch(`catalogo_productos?${params.join("&")}`, { method: "GET" });
     if (!res.ok) throw new Error(`No fue posible leer catalogo_productos (${res.status})`);
@@ -111,15 +137,22 @@ async function fetchAllCatalogRows(search: string) {
 
 async function upsertCatalogRows(rows: CatalogProductRow[]) {
   const payload = rows.map((row) => ({
-    producto: row.producto,
-    precio: row.precio || null,
-    descripcion_corta: row.descripcion_corta || null,
+    ...(row.id ? { id: Number(row.id) } : {}),
+    producto: row.producto || null,
+    nombre_modelo_especial: row.nombre_modelo_especial || null,
+    precio_lista_clp: row.precio_lista_clp ? Number(String(row.precio_lista_clp).replace(/[^\d]/g, "")) : null,
+    precio_lista_raw: row.precio_lista_raw || null,
+    modelo: row.modelo || null,
+    record_type: row.record_type || null,
+    tier: row.tier || null,
     descripcion: row.descripcion || null,
-    image_url: row.image_url || null,
+    caracteristicas: row.caracteristicas || null,
     recomendados: row.recomendados || null,
   }));
 
-  const res = await supabaseFetch(`catalogo_productos?on_conflict=producto`, {
+  const hasIds = rows.every((r) => Boolean(r.id));
+  const path = hasIds ? `catalogo_productos?on_conflict=id` : `catalogo_productos`;
+  const res = await supabaseFetch(path, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -156,14 +189,14 @@ export async function GET(request: Request) {
   }
 
   const params: string[] = [
-    `select=producto,precio,descripcion_corta,descripcion,image_url,recomendados`,
-    `order=producto.asc`,
+    `select=id,producto,nombre_modelo_especial,precio_lista_clp,precio_lista_raw,modelo,record_type,tier,descripcion,caracteristicas,recomendados`,
+    `order=id.desc`,
     `limit=${limit}`,
     `offset=${offset}`,
   ];
   if (search) {
     const like = encodeURIComponent(`*${search}*`);
-    params.push(`or=(producto.ilike.${like},descripcion_corta.ilike.${like})`);
+    params.push(`or=(producto.ilike.${like},nombre_modelo_especial.ilike.${like},modelo.ilike.${like})`);
   }
 
   const res = await supabaseFetch(`catalogo_productos?${params.join("&")}`, { method: "GET" });
@@ -190,6 +223,41 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  let raw: unknown = null;
+  try {
+    raw = (await request.json()) as unknown;
+  } catch {}
+
+  const body = asRecord(raw);
+  const id = toText(body.id).trim();
+  if (!id) return NextResponse.json({ ok: false, error: "Falta 'id'." }, { status: 400 });
+
+  const update: Record<string, unknown> = {};
+  if (body.precio_lista_clp != null && toText(body.precio_lista_clp).trim() !== "") {
+    update.precio_lista_clp = Number(toText(body.precio_lista_clp).replace(/[^\d]/g, ""));
+  }
+  if (body.precio_lista_raw != null && toText(body.precio_lista_raw).trim() !== "") {
+    update.precio_lista_raw = toText(body.precio_lista_raw).trim();
+  }
+  if (!Object.keys(update).length) {
+    return NextResponse.json({ ok: false, error: "No hay campos para actualizar." }, { status: 400 });
+  }
+
+  const res = await supabaseFetch(`catalogo_productos?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(update),
+  });
+
+  if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: res.status });
+  const row = Array.isArray(res.data) ? res.data.map(pickRow)[0] : null;
+  return NextResponse.json({ ok: true, row }, { status: 200 });
+}
+
 export async function PUT(request: Request) {
   let raw: unknown = null;
   try {
@@ -211,11 +279,10 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   const url = new URL(request.url);
-  const producto = (url.searchParams.get("producto") ?? "").trim();
-  if (!producto) return NextResponse.json({ ok: false, error: "Falta 'producto'." }, { status: 400 });
+  const id = (url.searchParams.get("id") ?? "").trim();
+  if (!id) return NextResponse.json({ ok: false, error: "Falta 'id'." }, { status: 400 });
 
-  const res = await supabaseFetch(`catalogo_productos?producto=eq.${encodeURIComponent(producto)}`, { method: "DELETE" });
+  const res = await supabaseFetch(`catalogo_productos?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: res.status });
   return NextResponse.json({ ok: true }, { status: 200 });
 }
-

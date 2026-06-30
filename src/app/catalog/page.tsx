@@ -3,11 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type CatalogRow = {
+  id: string;
   producto: string;
-  precio: string;
-  descripcion_corta: string;
+  nombre_modelo_especial: string;
+  precio_lista_clp: string;
+  precio_lista_raw: string;
+  modelo: string;
+  record_type: string;
+  tier: string;
   descripcion: string;
-  image_url: string;
+  caracteristicas: string;
   recomendados: string;
 };
 
@@ -91,11 +96,16 @@ function parseCsv(text: string) {
   const data = rows.slice(1);
   const idx = (name: string) => header.findIndex((h) => h === name);
 
+  const colId = idx("id");
   const colProducto = idx("producto");
-  const colPrecio = idx("precio");
-  const colDescCorta = idx("descripcion_corta");
+  const colNombreEspecial = idx("nombre_modelo_especial");
+  const colPrecioClp = idx("precio_lista_clp");
+  const colPrecioRaw = idx("precio_lista_raw");
+  const colModelo = idx("modelo");
+  const colRecordType = idx("record_type");
+  const colTier = idx("tier");
   const colDesc = idx("descripcion");
-  const colImage = idx("image_url");
+  const colCaract = idx("caracteristicas");
   const colRec = idx("recomendados");
 
   const parsed: CatalogRow[] = [];
@@ -103,11 +113,16 @@ function parseCsv(text: string) {
     const producto = toTrimmedString(r[colProducto] ?? "");
     if (!producto) continue;
     parsed.push({
+      id: toTrimmedString(r[colId] ?? ""),
       producto,
-      precio: toTrimmedString(r[colPrecio] ?? ""),
-      descripcion_corta: toTrimmedString(r[colDescCorta] ?? ""),
+      nombre_modelo_especial: toTrimmedString(r[colNombreEspecial] ?? ""),
+      precio_lista_clp: toTrimmedString(r[colPrecioClp] ?? ""),
+      precio_lista_raw: toTrimmedString(r[colPrecioRaw] ?? ""),
+      modelo: toTrimmedString(r[colModelo] ?? ""),
+      record_type: toTrimmedString(r[colRecordType] ?? ""),
+      tier: toTrimmedString(r[colTier] ?? ""),
       descripcion: toTrimmedString(r[colDesc] ?? ""),
-      image_url: toTrimmedString(r[colImage] ?? ""),
+      caracteristicas: toTrimmedString(r[colCaract] ?? ""),
       recomendados: toTrimmedString(r[colRec] ?? ""),
     });
   }
@@ -116,7 +131,19 @@ function parseCsv(text: string) {
 }
 
 function emptyRow(): CatalogRow {
-  return { producto: "", precio: "", descripcion_corta: "", descripcion: "", image_url: "", recomendados: "" };
+  return {
+    id: "",
+    producto: "",
+    nombre_modelo_especial: "",
+    precio_lista_clp: "",
+    precio_lista_raw: "",
+    modelo: "",
+    record_type: "",
+    tier: "",
+    descripcion: "",
+    caracteristicas: "",
+    recomendados: "",
+  };
 }
 
 export default function CatalogPage() {
@@ -129,6 +156,9 @@ export default function CatalogPage() {
   const [limit] = useState(50);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, CatalogRow>>({});
+  const [priceEdits, setPriceEdits] = useState<Record<string, { precio_lista_clp: string; precio_lista_raw: string; dirty: boolean }>>(
+    {},
+  );
   const [newRow, setNewRow] = useState<CatalogRow>(emptyRow());
   const [importRows, setImportRows] = useState<CatalogRow[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -155,6 +185,15 @@ export default function CatalogPage() {
         return;
       }
       setData(json);
+      setPriceEdits((prev) => {
+        const nextEdits: Record<string, { precio_lista_clp: string; precio_lista_raw: string; dirty: boolean }> = { ...prev };
+        for (const r of json.rows ?? []) {
+          const current = nextEdits[r.id];
+          if (current?.dirty) continue;
+          nextEdits[r.id] = { precio_lista_clp: r.precio_lista_clp ?? "", precio_lista_raw: r.precio_lista_raw ?? "", dirty: false };
+        }
+        return nextEdits;
+      });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -179,25 +218,65 @@ export default function CatalogPage() {
   const hasPrev = offset > 0;
   const hasNext = rows.length >= limit;
 
-  const currentDraft = (producto: string) => drafts[producto] ?? rows.find((r) => r.producto === producto) ?? emptyRow();
+  const currentDraft = (id: string) => drafts[id] ?? rows.find((r) => r.id === id) ?? emptyRow();
 
-  function startEdit(producto: string) {
-    setEditingId(producto);
-    setDrafts((prev) => ({ ...prev, [producto]: { ...currentDraft(producto) } }));
+  function startEdit(id: string) {
+    setEditingId(id);
+    setDrafts((prev) => ({ ...prev, [id]: { ...currentDraft(id) } }));
   }
 
   function cancelEdit() {
     setEditingId(null);
   }
 
-  async function saveRow(row: CatalogRow) {
+  function getPriceEdit(id: string, fallback: CatalogRow) {
+    return priceEdits[id] ?? { precio_lista_clp: fallback.precio_lista_clp ?? "", precio_lista_raw: fallback.precio_lista_raw ?? "", dirty: false };
+  }
+
+  function setPriceEditValue(id: string, patch: Partial<{ precio_lista_clp: string; precio_lista_raw: string }>) {
+    setPriceEdits((prev) => {
+      const cur = prev[id] ?? { precio_lista_clp: "", precio_lista_raw: "", dirty: false };
+      return { ...prev, [id]: { ...cur, ...patch, dirty: true } };
+    });
+  }
+
+  async function savePrices(id: string) {
+    const base = rows.find((r) => r.id === id);
+    if (!base) return;
+    const edit = getPriceEdit(id, base);
     setSaving(true);
     setError("");
     try {
       const res = await fetch("/api/catalog/admin", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, precio_lista_clp: edit.precio_lista_clp, precio_lista_raw: edit.precio_lista_raw }),
+      });
+      const json = (await res.json()) as { ok: boolean; row?: CatalogRow; error?: string };
+      if (!res.ok || !json?.ok) {
+        setError(json?.error || "No pude actualizar los precios.");
+        return;
+      }
+      setPriceEdits((prev) => ({ ...prev, [id]: { precio_lista_clp: edit.precio_lista_clp, precio_lista_raw: edit.precio_lista_raw, dirty: false } }));
+      await loadCatalog();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveRow(row: CatalogRow) {
+    setSaving(true);
+    setError("");
+    try {
+      const base = rows.find((r) => r.id === row.id);
+      const price = base ? getPriceEdit(row.id, base) : null;
+      const payload = price ? { ...row, precio_lista_clp: price.precio_lista_clp, precio_lista_raw: price.precio_lista_raw } : row;
+      const res = await fetch("/api/catalog/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(row),
+        body: JSON.stringify(payload),
       });
       const json = (await res.json()) as { ok: boolean; row?: CatalogRow; error?: string };
       if (!res.ok || !json?.ok) {
@@ -207,7 +286,7 @@ export default function CatalogPage() {
       setEditingId(null);
       setDrafts((prev) => {
         const next = { ...prev };
-        delete next[row.producto];
+        delete next[row.id];
         return next;
       });
       await loadCatalog({ offset: 0 });
@@ -229,11 +308,11 @@ export default function CatalogPage() {
     setNewRow(emptyRow());
   }
 
-  async function deleteRow(producto: string) {
+  async function deleteRow(id: string) {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`/api/catalog/admin?producto=${encodeURIComponent(producto)}`, { method: "DELETE" });
+      const res = await fetch(`/api/catalog/admin?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       const json = (await res.json()) as { ok: boolean; error?: string };
       if (!res.ok || !json?.ok) {
         setError(json?.error || "No pude eliminar el producto.");
@@ -377,26 +456,26 @@ export default function CatalogPage() {
           <div className="flex flex-col gap-4">
             <div>
               <h2 className="text-xl font-semibold tracking-tight">Agregar producto</h2>
-              <p className="mt-1 text-sm text-zinc-400">Crea o actualiza un producto por ID.</p>
+              <p className="mt-1 text-sm text-zinc-400">Crea un registro nuevo en catalogo_productos (precio referencial).</p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <input
                 value={newRow.producto}
                 onChange={(e) => setNewRow((p) => ({ ...p, producto: e.target.value }))}
                 className="h-11 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                placeholder="producto (ID)"
+                placeholder="producto (ej: VX-80, DEP250)"
               />
               <input
-                value={newRow.precio}
-                onChange={(e) => setNewRow((p) => ({ ...p, precio: e.target.value }))}
+                value={newRow.precio_lista_clp}
+                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_clp: e.target.value }))}
                 className="h-11 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                placeholder="precio (ej: 199900)"
+                placeholder="precio_lista_clp (ej: 199900)"
               />
               <input
-                value={newRow.image_url}
-                onChange={(e) => setNewRow((p) => ({ ...p, image_url: e.target.value }))}
+                value={newRow.precio_lista_raw}
+                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_raw: e.target.value }))}
                 className="h-11 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                placeholder="image_url"
+                placeholder='precio_lista_raw (ej: "$ 126.339")'
               />
               <input
                 value={newRow.recomendados}
@@ -405,10 +484,10 @@ export default function CatalogPage() {
                 placeholder="recomendados (separados por coma)"
               />
               <textarea
-                value={newRow.descripcion_corta}
-                onChange={(e) => setNewRow((p) => ({ ...p, descripcion_corta: e.target.value }))}
+                value={newRow.caracteristicas}
+                onChange={(e) => setNewRow((p) => ({ ...p, caracteristicas: e.target.value }))}
                 className="min-h-[88px] rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30 md:col-span-2"
-                placeholder="descripcion_corta"
+                placeholder="caracteristicas"
               />
               <textarea
                 value={newRow.descripcion}
@@ -443,7 +522,8 @@ export default function CatalogPage() {
             <div>
               <h2 className="text-xl font-semibold tracking-tight">Importar CSV</h2>
               <p className="mt-1 text-sm text-zinc-400">
-                Importa filas con encabezados: producto, precio, descripcion_corta, descripcion, image_url, recomendados.
+                Importa filas con encabezados: id, producto, nombre_modelo_especial, precio_lista_clp, precio_lista_raw, modelo, record_type, tier,
+                descripcion, caracteristicas, recomendados.
               </p>
             </div>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -493,10 +573,12 @@ export default function CatalogPage() {
             <table className="min-w-full text-left text-sm">
               <thead className="bg-white/5 text-xs uppercase tracking-[0.18em] text-zinc-500">
                 <tr>
+                  <th className="px-4 py-4 font-medium">ID</th>
                   <th className="px-4 py-4 font-medium">Producto</th>
-                  <th className="px-4 py-4 font-medium">Precio</th>
-                  <th className="px-4 py-4 font-medium">Imagen</th>
-                  <th className="px-4 py-4 font-medium">Descripción corta</th>
+                  <th className="px-4 py-4 font-medium">Modelo</th>
+                  <th className="px-4 py-4 font-medium">Precio CLP</th>
+                  <th className="px-4 py-4 font-medium">Precio raw</th>
+                  <th className="px-4 py-4 font-medium">Descripción</th>
                   <th className="px-4 py-4 font-medium">Recomendados</th>
                   <th className="px-4 py-4 font-medium">Acciones</th>
                 </tr>
@@ -504,72 +586,59 @@ export default function CatalogPage() {
               <tbody className="divide-y divide-white/5">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-zinc-400">
+                    <td colSpan={8} className="px-4 py-10 text-center text-zinc-400">
                       Cargando catálogo...
                     </td>
                   </tr>
                 ) : rows.length ? (
                   rows.map((r) => {
-                    const isEditing = editingId === r.producto;
-                    const draft = isEditing ? drafts[r.producto] ?? r : r;
+                    const isEditing = editingId === r.id;
+                    const draft = isEditing ? drafts[r.id] ?? r : r;
+                    const price = getPriceEdit(r.id, r);
                     return (
-                      <tr key={r.producto} className="align-top">
+                      <tr key={r.id} className="align-top">
+                        <td className="px-4 py-4">
+                          <div className="text-zinc-300">{r.id}</div>
+                        </td>
                         <td className="px-4 py-4">
                           <div className="font-semibold text-white">{r.producto}</div>
                         </td>
                         <td className="px-4 py-4">
-                          {isEditing ? (
-                            <input
-                              value={draft.precio}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [r.producto]: { ...(prev[r.producto] ?? r), precio: e.target.value },
-                                }))
-                              }
-                              className="h-10 w-40 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                              placeholder="precio"
-                            />
-                          ) : (
-                            <div className="text-zinc-200">{r.precio || "—"}</div>
-                          )}
+                          <div className="text-zinc-200">{r.modelo || r.nombre_modelo_especial || "—"}</div>
                         </td>
                         <td className="px-4 py-4">
-                          {isEditing ? (
-                            <input
-                              value={draft.image_url}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [r.producto]: { ...(prev[r.producto] ?? r), image_url: e.target.value },
-                                }))
-                              }
-                              className="h-10 w-[360px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                              placeholder="image_url"
-                            />
-                          ) : r.image_url ? (
-                            <a href={r.image_url} target="_blank" rel="noreferrer" className="text-cyan-200 hover:underline">
-                              Ver
-                            </a>
-                          ) : (
-                            "—"
-                          )}
+                          <input
+                            value={price.precio_lista_clp}
+                            onChange={(e) => setPriceEditValue(r.id, { precio_lista_clp: e.target.value })}
+                            className="h-10 w-40 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                            placeholder="precio_lista_clp"
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <input
+                            value={price.precio_lista_raw}
+                            onChange={(e) => setPriceEditValue(r.id, { precio_lista_raw: e.target.value })}
+                            className="h-10 w-[220px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                            placeholder="precio_lista_raw"
+                            disabled={saving}
+                          />
                         </td>
                         <td className="px-4 py-4">
                           {isEditing ? (
                             <textarea
-                              value={draft.descripcion_corta}
+                              value={draft.descripcion}
                               onChange={(e) =>
                                 setDrafts((prev) => ({
                                   ...prev,
-                                  [r.producto]: { ...(prev[r.producto] ?? r), descripcion_corta: e.target.value },
+                                  [r.id]: { ...(prev[r.id] ?? r), descripcion: e.target.value },
                                 }))
                               }
-                              className="min-h-[90px] w-[440px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                              placeholder="descripcion_corta"
+                              className="min-h-[90px] w-[420px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                              placeholder="descripcion"
                             />
                           ) : (
-                            <div className="max-w-[440px] whitespace-pre-wrap text-zinc-200">{r.descripcion_corta || "—"}</div>
+                            <div className="max-w-[420px] whitespace-pre-wrap text-zinc-200">{r.descripcion || "—"}</div>
                           )}
                         </td>
                         <td className="px-4 py-4">
@@ -579,7 +648,7 @@ export default function CatalogPage() {
                               onChange={(e) =>
                                 setDrafts((prev) => ({
                                   ...prev,
-                                  [r.producto]: { ...(prev[r.producto] ?? r), recomendados: e.target.value },
+                                  [r.id]: { ...(prev[r.id] ?? r), recomendados: e.target.value },
                                 }))
                               }
                               className="h-10 w-[320px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
@@ -595,7 +664,7 @@ export default function CatalogPage() {
                               <button
                                 type="button"
                                 disabled={saving}
-                                onClick={() => saveRow({ ...draft, producto: r.producto })}
+                                onClick={() => saveRow({ ...draft, id: r.id, producto: r.producto })}
                                 className="inline-flex h-10 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-70"
                               >
                                 Guardar
@@ -611,20 +680,35 @@ export default function CatalogPage() {
                               <button
                                 type="button"
                                 disabled={saving}
-                                onClick={() => deleteRow(r.producto)}
+                                onClick={() => deleteRow(r.id)}
                                 className="inline-flex h-10 items-center rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/15 disabled:opacity-70"
                               >
                                 Eliminar
                               </button>
                             </div>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => startEdit(r.producto)}
-                              className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
-                            >
-                              Editar
-                            </button>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={saving || !price.dirty}
+                                onClick={() => savePrices(r.id)}
+                                className={[
+                                  "inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition",
+                                  saving || !price.dirty
+                                    ? "border border-white/10 bg-white/5 text-zinc-500"
+                                    : "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
+                                ].join(" ")}
+                              >
+                                Guardar precios
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(r.id)}
+                                className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
+                              >
+                                Editar
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -632,7 +716,7 @@ export default function CatalogPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-zinc-400">
+                    <td colSpan={8} className="px-4 py-10 text-center text-zinc-400">
                       No hay productos para mostrar.
                     </td>
                   </tr>
