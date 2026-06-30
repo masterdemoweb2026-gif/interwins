@@ -593,8 +593,6 @@ export default function CatalogPage() {
                   </tr>
                 ) : rows.length ? (
                   rows.map((r) => {
-                    const isEditing = editingId === r.id;
-                    const draft = isEditing ? drafts[r.id] ?? r : r;
                     const price = getPriceEdit(r.id, r);
                     const expanded = Boolean(expandedDescriptions[r.id]);
                     const shownDescription = (r.descripcion ?? "").trim();
@@ -628,131 +626,59 @@ export default function CatalogPage() {
                           />
                         </td>
                         <td className="px-4 py-4">
-                          {isEditing ? (
-                            <textarea
-                              value={draft.descripcion}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [r.id]: { ...(prev[r.id] ?? r), descripcion: e.target.value },
-                                }))
-                              }
-                              className="min-h-[140px] w-[620px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                              placeholder="descripcion"
-                            />
-                          ) : (
-                            <div className="w-[620px]">
-                              {shownDescription ? (
-                                <div className="space-y-2">
-                                  <div
-                                    className="whitespace-pre-wrap text-zinc-200"
-                                    style={{
-                                      maxHeight: expanded ? "none" : "5.4em",
-                                      overflow: expanded ? "visible" : "hidden",
-                                    }}
-                                  >
-                                    {shownDescription}
-                                  </div>
-                                  {shownDescription.length > 180 ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setExpandedDescriptions((prev) => ({ ...prev, [r.id]: !Boolean(prev[r.id]) }))
-                                      }
-                                      className="inline-flex items-center rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/10"
-                                    >
-                                      {expanded ? "Ver menos" : "Leer más"}
-                                    </button>
-                                  ) : null}
+                          <div className="w-[620px]">
+                            {shownDescription ? (
+                              <div className="space-y-2">
+                                <div
+                                  className="whitespace-pre-wrap text-zinc-200"
+                                  style={{
+                                    maxHeight: expanded ? "none" : "5.4em",
+                                    overflow: expanded ? "visible" : "hidden",
+                                  }}
+                                >
+                                  {shownDescription}
                                 </div>
-                              ) : (
-                                <div className="text-zinc-400">—</div>
-                              )}
-                            </div>
-                          )}
+                                {shownDescription.length > 180 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedDescriptions((prev) => ({ ...prev, [r.id]: !Boolean(prev[r.id]) }))}
+                                    className="inline-flex items-center rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/10"
+                                  >
+                                    {expanded ? "Ver menos" : "Leer más"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div className="text-zinc-400">—</div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-4">
-                          {isEditing ? (
-                            <input
-                              value={draft.recomendados}
-                              onChange={(e) =>
-                                setDrafts((prev) => ({
-                                  ...prev,
-                                  [r.id]: { ...(prev[r.id] ?? r), recomendados: e.target.value },
-                                }))
-                              }
-                              className="h-10 w-[320px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
-                              placeholder="recomendados"
-                            />
-                          ) : (
-                            <div className="max-w-[320px] break-words text-zinc-200">{r.recomendados || "—"}</div>
-                          )}
+                          <div className="max-w-[320px] break-words text-zinc-200">{r.recomendados || "—"}</div>
                         </td>
                         <td className="sticky right-0 z-10 bg-black/30 px-4 py-4">
-                          {isEditing ? (
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                disabled={saving || !price.dirty}
-                                onClick={() => savePrices(r.id)}
-                                className={[
-                                  "inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition",
-                                  saving || !price.dirty
-                                    ? "border border-white/10 bg-white/5 text-zinc-500"
-                                    : "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
-                                ].join(" ")}
-                              >
-                                Guardar precios
-                              </button>
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => saveRow({ ...draft, id: r.id, producto: r.producto })}
-                                className="inline-flex h-10 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-70"
-                              >
-                                Guardar
-                              </button>
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={cancelEdit}
-                                className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-70"
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => deleteRow(r.id)}
-                                className="inline-flex h-10 items-center rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/15 disabled:opacity-70"
-                              >
-                                Eliminar
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                disabled={saving || !price.dirty}
-                                onClick={() => savePrices(r.id)}
-                                className={[
-                                  "inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition",
-                                  saving || !price.dirty
-                                    ? "border border-white/10 bg-white/5 text-zinc-500"
-                                    : "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
-                                ].join(" ")}
-                              >
-                                Guardar precios
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => startEdit(r.id)}
-                                className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
-                              >
-                                Editar
-                              </button>
-                            </div>
-                          )}
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={saving || !price.dirty}
+                              onClick={() => savePrices(r.id)}
+                              className={[
+                                "inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition",
+                                saving || !price.dirty
+                                  ? "border border-white/10 bg-white/5 text-zinc-500"
+                                  : "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
+                              ].join(" ")}
+                            >
+                              Guardar precios
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(r.id)}
+                              className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
+                            >
+                              Editar
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -769,6 +695,219 @@ export default function CatalogPage() {
           </div>
         </section>
       </main>
+
+      {editingId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) cancelEdit();
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-4xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl shadow-black/50">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 bg-white/5 px-6 py-5">
+              <div className="space-y-1">
+                <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Editar producto</div>
+                <div className="text-lg font-semibold text-white">
+                  {drafts[editingId]?.producto || rows.find((r) => r.id === editingId)?.producto || editingId}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="max-h-[72vh] overflow-y-auto px-6 py-5">
+              {(() => {
+                const base = rows.find((r) => r.id === editingId) ?? emptyRow();
+                const draft = drafts[editingId] ?? base;
+                const price = getPriceEdit(editingId, base);
+                return (
+                  <div className="space-y-5">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">ID</div>
+                        <div className="mt-1 text-sm font-semibold text-white">{editingId}</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Producto</div>
+                        <div className="mt-1 text-sm font-semibold text-white">{draft.producto || "—"}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Precio CLP</div>
+                        <input
+                          value={price.precio_lista_clp}
+                          onChange={(e) => setPriceEditValue(editingId, { precio_lista_clp: e.target.value })}
+                          className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                          placeholder="precio_lista_clp"
+                          disabled={saving}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Precio raw</div>
+                        <input
+                          value={price.precio_lista_raw}
+                          onChange={(e) => setPriceEditValue(editingId, { precio_lista_raw: e.target.value })}
+                          className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                          placeholder="precio_lista_raw"
+                          disabled={saving}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Modelo</div>
+                        <input
+                          value={draft.modelo}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({ ...prev, [editingId]: { ...(prev[editingId] ?? base), modelo: e.target.value } }))
+                          }
+                          className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                          placeholder="modelo"
+                          disabled={saving}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Nombre modelo especial</div>
+                        <input
+                          value={draft.nombre_modelo_especial}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [editingId]: { ...(prev[editingId] ?? base), nombre_modelo_especial: e.target.value },
+                            }))
+                          }
+                          className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                          placeholder="nombre_modelo_especial"
+                          disabled={saving}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Record type</div>
+                        <input
+                          value={draft.record_type}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [editingId]: { ...(prev[editingId] ?? base), record_type: e.target.value },
+                            }))
+                          }
+                          className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                          placeholder="record_type"
+                          disabled={saving}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Tier</div>
+                        <input
+                          value={draft.tier}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({ ...prev, [editingId]: { ...(prev[editingId] ?? base), tier: e.target.value } }))
+                          }
+                          className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                          placeholder="tier"
+                          disabled={saving}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Características</div>
+                      <textarea
+                        value={draft.caracteristicas}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [editingId]: { ...(prev[editingId] ?? base), caracteristicas: e.target.value },
+                          }))
+                        }
+                        className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                        placeholder="caracteristicas"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Descripción</div>
+                      <textarea
+                        value={draft.descripcion}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({ ...prev, [editingId]: { ...(prev[editingId] ?? base), descripcion: e.target.value } }))
+                        }
+                        className="min-h-[160px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                        placeholder="descripcion"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Recomendados</div>
+                      <input
+                        value={draft.recomendados}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [editingId]: { ...(prev[editingId] ?? base), recomendados: e.target.value },
+                          }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                        placeholder="recomendados"
+                        disabled={saving}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-white/5 px-6 py-5">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => editingId && deleteRow(editingId)}
+                className="inline-flex h-11 items-center rounded-2xl border border-rose-400/30 bg-rose-400/10 px-5 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/15 disabled:opacity-70"
+              >
+                Eliminar
+              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={cancelEdit}
+                  className="inline-flex h-11 items-center rounded-2xl border border-white/10 bg-white/5 px-5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-70"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    if (!editingId) return;
+                    const base = rows.find((r) => r.id === editingId) ?? emptyRow();
+                    const draft = drafts[editingId] ?? base;
+                    void saveRow({ ...draft, id: editingId, producto: base.producto || draft.producto });
+                  }}
+                  className="inline-flex h-11 items-center rounded-2xl bg-cyan-400 px-6 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-70"
+                >
+                  Guardar cambios
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
