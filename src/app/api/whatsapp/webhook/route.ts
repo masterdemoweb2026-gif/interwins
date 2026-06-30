@@ -991,7 +991,14 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   const priceLine = formatFriendlyPrice(detail.precio ?? "", options?.country ?? "CL");
   const fallbackPriceLine = options?.requestKind === "arriendo" ? "💰 Precio referencial: Por confirmar" : "💰 Precio referencial: Por confirmar";
   const primaryAction = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
-  const actions = ["¿Qué deseas hacer ahora?", "", primaryAction, "Volver a la lista de productos", "Volver al menú", "Hacer una nueva búsqueda"].join(
+  const actions = [
+    "¿Qué deseas hacer ahora?",
+    "",
+    `1) ${primaryAction}`,
+    "2) Volver a la lista de productos",
+    "3) Volver al menú",
+    "4) Hacer una nueva búsqueda",
+  ].join(
     "\n",
   );
 
@@ -1238,6 +1245,16 @@ function isBackToProductsListCommand(text: string) {
   if (t === "volver") return true;
   if (t.includes("lista") && (t.includes("volver") || t.includes("volv") || t.includes("regresar") || t.includes("regresa"))) return true;
   return false;
+}
+
+function parseProductFichaActionChoice(text: string) {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t === "1") return 1 as const;
+  if (t === "2") return 2 as const;
+  if (t === "3") return 3 as const;
+  if (t === "4") return 4 as const;
+  return null;
 }
 
 function isProjectsIntentNormalized(t: string) {
@@ -5019,15 +5036,16 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (state.catalog.selectedProductId) {
-    if (t.includes("cotiz") || t.includes("arrend")) {
+    const choice = parseProductFichaActionChoice(input);
+    if (choice === 1 || t.includes("cotiz") || t.includes("arrend")) {
       return await startCatalogQuoteForm(state, userPhone, "CL");
     }
-    if (isMenuCommand(input)) {
+    if (choice === 3 || isMenuCommand(input)) {
       returnToCasualState(state);
       markMenuShown(state);
       return buildMainMenuText("CL", "return");
     }
-    if (isBackToProductsListCommand(input)) {
+    if (choice === 2 || isBackToProductsListCommand(input)) {
       const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
       state.catalog.selectedProductId = undefined;
       state.catalog.returnList = undefined;
@@ -5042,7 +5060,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         intro: "Para confirmar stock inmediato y tiempos de entrega, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.",
       });
     }
-    if (t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
+    if (choice === 4 || t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
       const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
@@ -5487,15 +5505,16 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (state.catalog.selectedProductId) {
-    if (t.includes("cotiz")) {
+    const choice = parseProductFichaActionChoice(input);
+    if (choice === 1 || t.includes("cotiz")) {
       return await startCatalogQuoteForm(state, userPhone, "UY");
     }
-    if (isMenuCommand(input)) {
+    if (choice === 3 || isMenuCommand(input)) {
       returnToCasualState(state);
       markMenuShown(state);
       return buildMainMenuText("UY", "return");
     }
-    if (isBackToProductsListCommand(input)) {
+    if (choice === 2 || isBackToProductsListCommand(input)) {
       const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
       state.catalog.selectedProductId = undefined;
       state.catalog.returnList = undefined;
@@ -5510,7 +5529,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         intro: "Para confirmar stock inmediato y tiempos de entrega, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.",
       });
     }
-    if (t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
+    if (choice === 4 || t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
       state.catalog.returnList = undefined;
