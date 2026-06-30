@@ -153,7 +153,7 @@ export default function CatalogPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
-  const [limit] = useState(50);
+  const limit = 10;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, CatalogRow>>({});
   const [readingId, setReadingId] = useState<string | null>(null);
@@ -200,7 +200,7 @@ export default function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [limit, offset]);
+  }, [offset]);
 
   useEffect(() => {
     void loadCatalog();
@@ -578,7 +578,7 @@ export default function CatalogPage() {
             <table className="min-w-[1720px] w-full text-left text-sm">
               <thead className="bg-white/5 text-xs uppercase tracking-[0.18em] text-zinc-500">
                 <tr>
-                  <th className="sticky left-0 z-20 bg-white/5 px-4 py-4 font-medium">ID</th>
+                  <th className="sticky left-0 z-30 bg-zinc-950 px-4 py-4 font-medium">ID</th>
                   <th className="px-4 py-4 font-medium">Producto</th>
                   <th className="px-4 py-4 font-medium">Modelo</th>
                   <th className="px-4 py-4 font-medium">Tier</th>
@@ -587,7 +587,7 @@ export default function CatalogPage() {
                   <th className="px-4 py-4 font-medium">Precio raw</th>
                   <th className="px-4 py-4 font-medium">Descripción</th>
                   <th className="px-4 py-4 font-medium">Recomendados</th>
-                  <th className="sticky right-0 z-20 bg-white/5 px-4 py-4 font-medium">Acciones</th>
+                  <th className="sticky right-0 z-30 bg-zinc-950 px-4 py-4 font-medium">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -605,7 +605,7 @@ export default function CatalogPage() {
                       shownDescription.length > 140 ? `${shownDescription.slice(0, 140).trim()}...` : shownDescription;
                     return (
                       <tr key={r.id} className="align-top">
-                        <td className="sticky left-0 z-10 bg-black/30 px-4 py-4">
+                        <td className="sticky left-0 z-20 bg-zinc-950 px-4 py-4">
                           <div className="text-zinc-300">{r.id}</div>
                         </td>
                         <td className="px-4 py-4">
@@ -661,7 +661,7 @@ export default function CatalogPage() {
                         <td className="px-4 py-4">
                           <div className="max-w-[320px] break-words text-zinc-200">{r.recomendados || "—"}</div>
                         </td>
-                        <td className="sticky right-0 z-10 bg-black/30 px-4 py-4">
+                        <td className="sticky right-0 z-20 bg-zinc-950 px-4 py-4">
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
