@@ -838,6 +838,26 @@ function buildCatalogNameSearchPatterns(query: string) {
   return Array.from(new Set(patterns));
 }
 
+function detectFrequencyBandFromText(freq: string) {
+  const raw = toLooseText(freq);
+  if (!raw) return "" as "" | "VHF" | "UHF";
+  const nums = raw.match(/\d{2,4}/g) || [];
+  if (!nums.length) return "" as "" | "VHF" | "UHF";
+  const n = Number(nums[0]);
+  if (!Number.isFinite(n)) return "" as "" | "VHF" | "UHF";
+  if (n >= 100 && n < 250) return "VHF";
+  if (n >= 300 && n <= 900) return "UHF";
+  return "" as "" | "VHF" | "UHF";
+}
+
+function matchesSelectedFrequencyBand(value: string, selected?: string) {
+  const wanted = normalizeText(selected ?? "");
+  if (!wanted) return true;
+  if (wanted === "vhf") return detectFrequencyBandFromText(value) === "VHF";
+  if (wanted === "uhf") return detectFrequencyBandFromText(value) === "UHF";
+  return normalizeText(value).includes(wanted);
+}
+
 function compactCatalogModelText(value: string) {
   return normalizeText(value).replace(/[^a-z0-9]+/g, "");
 }
@@ -1633,12 +1653,16 @@ function buildMainMenuText(country: Country, variant: "welcome" | "return" = "re
   const introsWelcomeCL = ["¡Hola! Bienvenido al asistente virtual de InterWins. ¿En qué te puedo ayudar hoy?"];
   const introsReturnCL = [
     "Volvimos al menú principal. Indica la opción que necesitas:",
-    "Listo. Desde aquí puedes continuar con una de estas opciones:",
+    "Ya estoy aquí. ¿Con qué quieres continuar?",
+    "Perfecto, volvamos al menú principal. ¿Qué necesitas ahora?",
+    "Excelente. Elige una opción para continuar:",
   ];
   const introsWelcomeUY = ["¡Hola! Bienvenido al asistente virtual de InterWins. ¿En qué te puedo ayudar hoy?"];
   const introsReturnUY = [
     "Volvimos al menú principal. Indica la opción que necesitas:",
-    "Listo. Desde aquí puedes continuar con una de estas opciones:",
+    "Ya estoy aquí. ¿Con qué quieres continuar?",
+    "Perfecto, volvamos al menú principal. ¿Qué necesitas ahora?",
+    "Excelente. Elige una opción para continuar:",
   ];
   const introList =
     country === "UY"
@@ -3118,7 +3142,10 @@ async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_i
     }
   }
   if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
+  const freqWanted = (filters.frecuencia ?? "").trim();
+  const freqNorm = normalizeText(freqWanted);
+  const isBand = freqNorm === "uhf" || freqNorm === "vhf";
+  if (filters.frecuencia && !isBand) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
   const q = `inter_products?${params.join("&")}`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return [];
@@ -3127,12 +3154,79 @@ async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_i
       product_id: toTrimmedString(getRecordValue(r, "product_id")),
       nombre: toTrimmedString(getRecordValue(r, "nombre")),
       tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
+      frecuencia: toLooseText(getRecordValue(r, "frecuencia")),
     }))
     .filter((r) => r.product_id && r.nombre)
     .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
+    .filter((r) => (isBand ? matchesSelectedFrequencyBand(r.frecuencia, filters.frecuencia) : true))
     .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
     .slice(0, 25)
     .filter((r) => r.product_id && r.nombre);
+}
+
+async function queryRadioTechFrequencyPairsCL(filters: CatalogFilters) {
+  if (!filters.tipo_producto) return [] as Array<{ tecnologia: string; frecuencia: string }>;
+  const params: string[] = [
+    `select=tecnologia,frecuencia`,
+    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
+    `limit=200`,
+  ];
+  if (filters.modalidad) {
+    const m = filters.modalidad.trim();
+    if (normalizeText(m) === "venta") {
+      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
+    } else {
+      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
+    }
+  }
+  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
+  const q = `inter_products?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[])
+    .map((r) => ({
+      tecnologia: toLooseText(getRecordValue(r, "tecnologia")),
+      frecuencia: toLooseText(getRecordValue(r, "frecuencia")),
+    }))
+    .filter((r) => r.tecnologia && r.frecuencia);
+}
+
+async function buildAvailableRadioFrequencyTechnologyOptionsCL(filters: CatalogFilters): Promise<CatalogPendingOption[]> {
+  const base: CatalogFilters = {
+    ...filters,
+    tecnologia: undefined,
+    frecuencia: undefined,
+  };
+  const pairs = await queryRadioTechFrequencyPairsCL(base);
+  const has = new Set<string>();
+  for (const p of pairs) {
+    const band = detectFrequencyBandFromText(p.frecuencia);
+    const tech = hasDigitalTechnology(p.tecnologia) ? "DIGITAL" : hasAnalogTechnology(p.tecnologia) ? "ANÁLOGO" : "";
+    if (!band || !tech) continue;
+    has.add(`${band}|${tech}`);
+  }
+
+  const out: CatalogPendingOption[] = [];
+  const push = (band: "UHF" | "VHF", tech: "ANÁLOGO" | "DIGITAL") => {
+    if (!has.has(`${band}|${tech}`)) return;
+    out.push({
+      label: `${band} - ${tech}`,
+      value: `${band} - ${tech}`,
+      applyFilters: { frecuencia: band, tecnologia: tech },
+    });
+  };
+  push("UHF", "ANÁLOGO");
+  push("UHF", "DIGITAL");
+  push("VHF", "ANÁLOGO");
+  push("VHF", "DIGITAL");
+
+  out.push({
+    label: "No estoy seguro / Necesito asesoría",
+    value: "No estoy seguro / Necesito asesoría",
+    skipRadioTechFrequency: true,
+  });
+
+  return out.length > 1 ? out : buildRadioFrequencyTechnologyOptions();
 }
 
 async function queryProductsByName(filters: CatalogFilters, query: string): Promise<Array<{ product_id: string; nombre: string }>> {
@@ -3364,10 +3458,12 @@ async function loadCatalogProductCommercialData(args: { productId?: string; nomb
   const productId = toTrimmedString(args.productId);
   const nombre = toTrimmedString(args.nombre);
   const modelFromName = extractLikelyProductModel(nombre);
-  const candidate = modelFromName || extractLikelyProductModel(productId) || productId || nombre;
+  const modelFromId = extractLikelyProductModel(productId);
+  const candidate = modelFromName || modelFromId || nombre;
   if (!candidate) return null;
 
-  const seeds = Array.from(new Set([candidate, modelFromName, productId, nombre].map((s) => toTrimmedString(s)).filter(Boolean)));
+  const rawSeeds = [modelFromName, modelFromId, candidate].map((s) => toTrimmedString(s)).filter(Boolean);
+  const seeds = Array.from(new Set(rawSeeds.filter((s) => /[a-z]/i.test(s))));
   const patterns = Array.from(new Set(seeds.flatMap((s) => buildCatalogNameSearchPatterns(s)))).slice(0, 4);
   if (!patterns.length) return null;
   const cols = ["producto", "nombre_modelo_especial", "modelo"] as const;
@@ -4573,7 +4669,12 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   if (isExitConversationCommand(input)) {
     returnToCasualState(state);
     markMenuShown(state);
-    return ["Listo, vuelvo al menú.", "", buildMainMenuText(state.country ?? "CL", "return")].join("\n");
+    const lead = [
+      "Entendido. Volvamos al menú principal.",
+      "De acuerdo. Te dejo nuevamente el menú principal.",
+      "Perfecto. Volvamos al menú principal para que elijas la opción que necesitas.",
+    ][crypto.randomInt(0, 3)];
+    return [lead, "", buildMainMenuText(state.country ?? "CL", "return")].join("\n");
   }
 
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
@@ -4872,7 +4973,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (isRadioEquipment && !state.catalog.skipRadioTechFrequency && (!state.catalog.filters.frecuencia || !state.catalog.filters.tecnologia)) {
-    const options = buildRadioFrequencyTechnologyOptions();
+    const options = await buildAvailableRadioFrequencyTechnologyOptionsCL(state.catalog.filters);
     state.catalog.pending = { attr: "frecuencia", options };
     return ["¿En qué frecuencia operan tus equipos actuales o cuál necesitas?", "", ...options.map((o, i) => `${i + 1}) ${o.label}`)].join("\n");
   }
@@ -5018,6 +5119,24 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   const products = await queryProducts(state.catalog.filters);
 
   if (!products.length) {
+    if (isRadioEquipment && !state.catalog.skipRadioTechFrequency) {
+      const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
+      const nextFilters: CatalogFilters = {
+        ...state.catalog.filters,
+        modalidad: keepRental ? "Arriendo" : "Venta",
+        frecuencia: undefined,
+        tecnologia: undefined,
+      };
+      const options = await buildAvailableRadioFrequencyTechnologyOptionsCL(nextFilters);
+      state.catalog.filters = nextFilters;
+      state.catalog.pending = { attr: "frecuencia", options };
+      return [
+        "Con esa combinación no tengo equipos disponibles.",
+        "Probemos con una alternativa:",
+        "",
+        ...options.map((o, i) => `${i + 1}) ${o.label}`),
+      ].join("\n");
+    }
     const missingLabel = (() => {
       const tp = normalizeText(state.catalog.filters.tipo_producto || "");
       if (tp.includes("camara") || tp.includes("cámara") || tp.includes("body")) return "Cámaras Corporales";
@@ -5108,7 +5227,12 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   if (isExitConversationCommand(input)) {
     returnToCasualState(state);
     markMenuShown(state);
-    return ["Listo, vuelvo al menú.", "", buildMainMenuText(state.country ?? "UY", "return")].join("\n");
+    const lead = [
+      "Entendido. Volvamos al menú principal.",
+      "De acuerdo. Te dejo nuevamente el menú principal.",
+      "Perfecto. Volvamos al menú principal para que elijas la opción que necesitas.",
+    ][crypto.randomInt(0, 3)];
+    return [lead, "", buildMainMenuText(state.country ?? "UY", "return")].join("\n");
   }
 
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
@@ -6703,8 +6827,9 @@ export async function POST(request: Request) {
         }
       }
 
-      const derivedInboundKey = buildInboundDedupeKey(userKey, inboundText, inboundDedupeTimestampMs);
-      const inboundKeys = [inboundId, derivedInboundKey].filter(Boolean) as string[];
+      const skipIdDedupe = shouldSkipHashDedupe(inboundText);
+      const derivedInboundKey = skipIdDedupe ? "" : buildInboundDedupeKey(userKey, inboundText, inboundDedupeTimestampMs);
+      const inboundKeys = (skipIdDedupe ? [inboundId] : [inboundId, derivedInboundKey]).filter(Boolean) as string[];
       if (inboundKeys.some((k) => (state.recentInboundIds ?? []).includes(k))) {
         inboxAdd({
           source: "gowa",
@@ -6717,7 +6842,7 @@ export async function POST(request: Request) {
       }
 
       {
-        const toAdd = inboundKeys.length ? inboundKeys : [derivedInboundKey];
+        const toAdd = inboundKeys.length ? inboundKeys : derivedInboundKey ? [derivedInboundKey] : [];
         const keep = (state.recentInboundIds ?? []).filter((x) => !toAdd.includes(x));
         state.recentInboundIds = [...toAdd, ...keep].slice(0, 25);
       }
