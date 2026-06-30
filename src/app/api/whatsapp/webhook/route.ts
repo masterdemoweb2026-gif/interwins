@@ -1827,7 +1827,15 @@ async function runMainMenuAction(state: UserState, userKey: string, action: Main
   }
 
   if (action === "catalogo") {
-    reply = await startCatalogIntentFlow(state, userKey, text);
+    const t = normalizeText(text);
+    const looksLikeMainMenuChoice =
+      t === "1" ||
+      t.startsWith("1 ") ||
+      t.startsWith("1.") ||
+      t.includes("comprar equipos") ||
+      t.includes("equipos o accesorios") ||
+      t.includes("venta)");
+    reply = await startCatalogIntentFlow(state, userKey, looksLikeMainMenuChoice ? "" : text);
   } else if (action === "servicio_tecnico") {
     const stInput = shouldUseServiceTechOpeningPrompt(text) ? "" : text;
     reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
