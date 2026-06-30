@@ -3342,15 +3342,22 @@ async function loadCatalogProductCommercialData(args: { productId?: string; nomb
   const productId = toTrimmedString(args.productId);
   const nombre = toTrimmedString(args.nombre);
   const modelFromName = extractLikelyProductModel(nombre);
-  const candidate = modelFromName || productId;
+  const candidate = modelFromName || extractLikelyProductModel(productId) || productId || nombre;
   if (!candidate) return null;
 
-  const compact = normalizeText(candidate).replace(/[^a-z0-9]+/g, "");
-  const like = encodeIlikePattern(`*${compact || candidate}*`);
+  const seeds = Array.from(new Set([candidate, modelFromName, productId, nombre].map((s) => toTrimmedString(s)).filter(Boolean)));
+  const patterns = Array.from(new Set(seeds.flatMap((s) => buildCatalogNameSearchPatterns(s)))).slice(0, 4);
+  if (!patterns.length) return null;
+  const cols = ["producto", "nombre_modelo_especial", "modelo"] as const;
+  const conditions = patterns.flatMap((p) => {
+    const like = encodeIlikePattern(p);
+    return cols.map((c) => `${c}.ilike.${like}`);
+  });
+
   const select = encodeURIComponent(
     `id,producto,nombre_modelo_especial,modelo,precio_lista_clp,precio_lista_raw,descripcion,caracteristicas,recomendados`,
   );
-  const q = `catalogo_productos?select=${select}&limit=1&or=(producto.ilike.${like},nombre_modelo_especial.ilike.${like},modelo.ilike.${like})`;
+  const q = `catalogo_productos?select=${select}&limit=1&or=(${conditions.join(",")})`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return null;
   const row = (res.data as unknown[])[0];
