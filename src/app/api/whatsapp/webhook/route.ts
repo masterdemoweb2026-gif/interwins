@@ -838,23 +838,34 @@ function buildCatalogNameSearchPatterns(query: string) {
   return Array.from(new Set(patterns));
 }
 
-function detectFrequencyBandFromText(freq: string) {
+function detectFrequencyBandsFromText(freq: string): Array<"VHF" | "UHF"> {
   const raw = toLooseText(freq);
-  if (!raw) return "" as "" | "VHF" | "UHF";
+  if (!raw) return [];
+  const t = normalizeText(raw);
+  const bands: Array<"VHF" | "UHF"> = [];
+  if (t.includes("uhf")) bands.push("UHF");
+  if (t.includes("vhf")) bands.push("VHF");
+  if (bands.length) return Array.from(new Set(bands));
   const nums = raw.match(/\d{2,4}/g) || [];
-  if (!nums.length) return "" as "" | "VHF" | "UHF";
+  if (!nums.length) return [];
   const n = Number(nums[0]);
-  if (!Number.isFinite(n)) return "" as "" | "VHF" | "UHF";
-  if (n >= 100 && n < 250) return "VHF";
-  if (n >= 300 && n <= 900) return "UHF";
+  if (!Number.isFinite(n)) return [];
+  if (n >= 100 && n < 250) return ["VHF"];
+  if (n >= 300 && n <= 900) return ["UHF"];
+  return [];
+}
+
+function detectFrequencyBandFromText(freq: string) {
+  const bands = detectFrequencyBandsFromText(freq);
+  if (bands.length === 1) return bands[0]!;
   return "" as "" | "VHF" | "UHF";
 }
 
 function matchesSelectedFrequencyBand(value: string, selected?: string) {
   const wanted = normalizeText(selected ?? "");
   if (!wanted) return true;
-  if (wanted === "vhf") return detectFrequencyBandFromText(value) === "VHF";
-  if (wanted === "uhf") return detectFrequencyBandFromText(value) === "UHF";
+  if (wanted === "vhf") return detectFrequencyBandsFromText(value).includes("VHF");
+  if (wanted === "uhf") return detectFrequencyBandsFromText(value).includes("UHF");
   return normalizeText(value).includes(wanted);
 }
 
@@ -3208,10 +3219,12 @@ async function buildAvailableRadioFrequencyTechnologyOptionsCL(filters: CatalogF
   const pairs = await queryRadioTechFrequencyPairsCL(base);
   const has = new Set<string>();
   for (const p of pairs) {
-    const band = detectFrequencyBandFromText(p.frecuencia);
     const tech = hasDigitalTechnology(p.tecnologia) ? "DIGITAL" : hasAnalogTechnology(p.tecnologia) ? "ANÁLOGO" : "";
-    if (!band || !tech) continue;
-    has.add(`${band}|${tech}`);
+    if (!tech) continue;
+    const bands = detectFrequencyBandsFromText(p.frecuencia);
+    for (const band of bands) {
+      has.add(`${band}|${tech}`);
+    }
   }
 
   const out: CatalogPendingOption[] = [];
@@ -4912,9 +4925,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (selectedPendingOption?.skipRadioTechFrequency) {
-    return await startCatalogQuoteForm(state, userPhone, "CL", {
-      intro: "Si prefieres asesoría, avancemos con tu solicitud y un ejecutivo te ayudará a definir la mejor alternativa.",
-    });
+    state.catalog.skipRadioTechFrequency = undefined;
+    const options = (await buildAvailableRadioFrequencyTechnologyOptionsCL(state.catalog.filters)).filter((o) => !o.skipRadioTechFrequency);
+    state.catalog.pending = { attr: "frecuencia", options };
+    return buildCatalogPendingAdviceReply({ country: "CL", pending: state.catalog.pending });
   }
 
   if (!state.catalog.filters.tipo_producto) {
@@ -5138,6 +5152,15 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       const options = await buildAvailableRadioFrequencyTechnologyOptionsCL(nextFilters);
       state.catalog.filters = nextFilters;
       state.catalog.pending = { attr: "frecuencia", options };
+      if (!options.length) {
+        state.catalog.pending = undefined;
+        return [
+          "Con esa combinación no tengo equipos disponibles.",
+          "Para ayudarte mejor, dime:",
+          "- ¿Los usarás principalmente en interior (edificio) o exterior (terreno)?",
+          "- ¿Cuántos equipos necesitas y para qué tipo de uso (portátil/vehículo/repetidor)?",
+        ].join("\n");
+      }
       return [
         "Con esa combinación no tengo equipos disponibles.",
         "Probemos con una alternativa:",
@@ -5368,9 +5391,10 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (selectedPendingOption?.skipRadioTechFrequency) {
-    return await startCatalogQuoteForm(state, userPhone, "UY", {
-      intro: "Si prefieres asesoría, avancemos con tu solicitud y un ejecutivo te ayudará a definir la mejor alternativa.",
-    });
+    state.catalog.skipRadioTechFrequency = undefined;
+    const options = buildRadioFrequencyTechnologyOptions().filter((o) => !o.skipRadioTechFrequency);
+    state.catalog.pending = { attr: "frecuencia", options };
+    return buildCatalogPendingAdviceReply({ country: "UY", pending: state.catalog.pending });
   }
 
   if (!state.catalog.filters.tipo_producto) {
