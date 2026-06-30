@@ -1370,8 +1370,15 @@ function withCatalogTypeIcon(label: string) {
 }
 
 function buildCotizarProductMenuMessage(options: CatalogPendingOption[]): Reply {
+  const intros = [
+    "Para continuar con la compra, elige el tipo de producto que te interesa:",
+    "Vamos paso a paso: selecciona el tipo de producto para seguir:",
+    "Elige una categoría para mostrarte opciones del catálogo:",
+    "Selecciona el tipo de producto y avanzamos:",
+  ];
+  const intro = intros[crypto.randomInt(0, intros.length)]!;
   return [
-    "Muy bien. Para continuar con la compra, selecciona el tipo de producto que te interesa:",
+    intro,
     options.map((option, index) => `${index + 1}. ${option.label}`).join("\n"),
     "También puedes escribir el nombre del equipo (ej: DP50).",
   ];
