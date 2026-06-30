@@ -141,7 +141,7 @@ async function upsertCatalogRows(rows: CatalogProductRow[]) {
     producto: row.producto || null,
     nombre_modelo_especial: row.nombre_modelo_especial || null,
     precio_lista_clp: row.precio_lista_clp ? Number(String(row.precio_lista_clp).replace(/[^\d]/g, "")) : null,
-    precio_lista_raw: row.precio_lista_raw || null,
+    precio_lista_raw: row.precio_lista_raw ? String(row.precio_lista_raw).replace(/[^\d\s.,$]/g, "").trim() || null : null,
     modelo: row.modelo || null,
     record_type: row.record_type || null,
     tier: row.tier || null,
@@ -238,7 +238,8 @@ export async function PATCH(request: Request) {
     update.precio_lista_clp = Number(toText(body.precio_lista_clp).replace(/[^\d]/g, ""));
   }
   if (body.precio_lista_raw != null && toText(body.precio_lista_raw).trim() !== "") {
-    update.precio_lista_raw = toText(body.precio_lista_raw).trim();
+    const rawPrice = toText(body.precio_lista_raw).replace(/[^\d\s.,$]/g, "").trim();
+    if (rawPrice) update.precio_lista_raw = rawPrice;
   }
   if (!Object.keys(update).length) {
     return NextResponse.json({ ok: false, error: "No hay campos para actualizar." }, { status: 400 });

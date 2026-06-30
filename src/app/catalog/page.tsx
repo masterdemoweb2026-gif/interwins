@@ -29,6 +29,14 @@ function toTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
 }
 
+function sanitizeDigits(value: string) {
+  return String(value ?? "").replace(/[^\d]/g, "");
+}
+
+function sanitizePriceRaw(value: string) {
+  return String(value ?? "").replace(/[^\d\s.,$]/g, "");
+}
+
 function parseCsv(text: string) {
   const src = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const rows: string[][] = [];
@@ -241,7 +249,10 @@ export default function CatalogPage() {
   function setPriceEditValue(id: string, patch: Partial<{ precio_lista_clp: string; precio_lista_raw: string }>) {
     setPriceEdits((prev) => {
       const cur = prev[id] ?? { precio_lista_clp: "", precio_lista_raw: "", dirty: false };
-      return { ...prev, [id]: { ...cur, ...patch, dirty: true } };
+      const next = { ...cur, ...patch };
+      if (patch.precio_lista_clp != null) next.precio_lista_clp = sanitizeDigits(next.precio_lista_clp);
+      if (patch.precio_lista_raw != null) next.precio_lista_raw = sanitizePriceRaw(next.precio_lista_raw);
+      return { ...prev, [id]: { ...next, dirty: true } };
     });
   }
 
@@ -472,15 +483,21 @@ export default function CatalogPage() {
               />
               <input
                 value={newRow.precio_lista_clp}
-                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_clp: e.target.value }))}
+                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_clp: sanitizeDigits(e.target.value) }))}
                 className="h-11 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                 placeholder="precio_lista_clp (ej: 199900)"
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
               />
               <input
                 value={newRow.precio_lista_raw}
-                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_raw: e.target.value }))}
+                onChange={(e) => setNewRow((p) => ({ ...p, precio_lista_raw: sanitizePriceRaw(e.target.value) }))}
                 className="h-11 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                 placeholder='precio_lista_raw (ej: "$ 126.339")'
+                inputMode="numeric"
+                pattern="[0-9\\s.,$]*"
               />
               <input
                 value={newRow.recomendados}
@@ -627,6 +644,10 @@ export default function CatalogPage() {
                             className="h-10 w-28 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                             placeholder="precio_lista_clp"
                             disabled={saving}
+                            type="number"
+                            min={0}
+                            step={1}
+                            inputMode="numeric"
                           />
                         </td>
                         <td className="px-4 py-4">
@@ -636,6 +657,8 @@ export default function CatalogPage() {
                             className="h-10 w-[160px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                             placeholder="precio_lista_raw"
                             disabled={saving}
+                            inputMode="numeric"
+                            pattern="[0-9\\s.,$]*"
                           />
                         </td>
                         <td className="px-4 py-4">
@@ -835,6 +858,10 @@ export default function CatalogPage() {
                           className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                           placeholder="precio_lista_clp"
                           disabled={saving}
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
                         />
                       </div>
                       <div className="space-y-2">
@@ -845,6 +872,8 @@ export default function CatalogPage() {
                           className="h-11 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                           placeholder="precio_lista_raw"
                           disabled={saving}
+                          inputMode="numeric"
+                          pattern="[0-9\\s.,$]*"
                         />
                       </div>
                     </div>
