@@ -156,7 +156,7 @@ export default function CatalogPage() {
   const [limit] = useState(50);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, CatalogRow>>({});
-  const [expandedDescriptions, setExpandedDescriptions] = useState<Record<string, boolean>>({});
+  const [readingId, setReadingId] = useState<string | null>(null);
   const [priceEdits, setPriceEdits] = useState<Record<string, { precio_lista_clp: string; precio_lista_raw: string; dirty: boolean }>>(
     {},
   );
@@ -228,6 +228,10 @@ export default function CatalogPage() {
 
   function cancelEdit() {
     setEditingId(null);
+  }
+
+  function closeReading() {
+    setReadingId(null);
   }
 
   function getPriceEdit(id: string, fallback: CatalogRow) {
@@ -571,12 +575,14 @@ export default function CatalogPage() {
 
         <section className="overflow-hidden rounded-[28px] border border-white/10 bg-black/20 shadow-2xl shadow-black/10 backdrop-blur">
           <div className="overflow-x-auto">
-            <table className="min-w-[1480px] w-full text-left text-sm">
+            <table className="min-w-[1720px] w-full text-left text-sm">
               <thead className="bg-white/5 text-xs uppercase tracking-[0.18em] text-zinc-500">
                 <tr>
                   <th className="sticky left-0 z-20 bg-white/5 px-4 py-4 font-medium">ID</th>
                   <th className="px-4 py-4 font-medium">Producto</th>
                   <th className="px-4 py-4 font-medium">Modelo</th>
+                  <th className="px-4 py-4 font-medium">Tier</th>
+                  <th className="px-4 py-4 font-medium">Tipo</th>
                   <th className="px-4 py-4 font-medium">Precio CLP</th>
                   <th className="px-4 py-4 font-medium">Precio raw</th>
                   <th className="px-4 py-4 font-medium">Descripción</th>
@@ -587,15 +593,16 @@ export default function CatalogPage() {
               <tbody className="divide-y divide-white/5">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-zinc-400">
+                    <td colSpan={10} className="px-4 py-10 text-center text-zinc-400">
                       Cargando catálogo...
                     </td>
                   </tr>
                 ) : rows.length ? (
                   rows.map((r) => {
                     const price = getPriceEdit(r.id, r);
-                    const expanded = Boolean(expandedDescriptions[r.id]);
                     const shownDescription = (r.descripcion ?? "").trim();
+                    const shortDescription =
+                      shownDescription.length > 140 ? `${shownDescription.slice(0, 140).trim()}...` : shownDescription;
                     return (
                       <tr key={r.id} className="align-top">
                         <td className="sticky left-0 z-10 bg-black/30 px-4 py-4">
@@ -608,10 +615,16 @@ export default function CatalogPage() {
                           <div className="text-zinc-200">{r.modelo || r.nombre_modelo_especial || "—"}</div>
                         </td>
                         <td className="px-4 py-4">
+                          <div className="text-zinc-200">{r.tier || "—"}</div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="text-zinc-200">{r.record_type || "—"}</div>
+                        </td>
+                        <td className="px-4 py-4">
                           <input
                             value={price.precio_lista_clp}
                             onChange={(e) => setPriceEditValue(r.id, { precio_lista_clp: e.target.value })}
-                            className="h-10 w-40 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                            className="h-10 w-28 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                             placeholder="precio_lista_clp"
                             disabled={saving}
                           />
@@ -620,34 +633,26 @@ export default function CatalogPage() {
                           <input
                             value={price.precio_lista_raw}
                             onChange={(e) => setPriceEditValue(r.id, { precio_lista_raw: e.target.value })}
-                            className="h-10 w-[220px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
+                            className="h-10 w-[160px] rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200 outline-none focus:border-cyan-400/30"
                             placeholder="precio_lista_raw"
                             disabled={saving}
                           />
                         </td>
                         <td className="px-4 py-4">
-                          <div className="w-[620px]">
+                          <div className="w-[360px] space-y-2">
                             {shownDescription ? (
-                              <div className="space-y-2">
-                                <div
-                                  className="whitespace-pre-wrap text-zinc-200"
-                                  style={{
-                                    maxHeight: expanded ? "none" : "5.4em",
-                                    overflow: expanded ? "visible" : "hidden",
-                                  }}
-                                >
-                                  {shownDescription}
-                                </div>
-                                {shownDescription.length > 180 ? (
+                              <>
+                                <div className="whitespace-pre-wrap text-zinc-200">{shortDescription}</div>
+                                {shownDescription.length > 140 ? (
                                   <button
                                     type="button"
-                                    onClick={() => setExpandedDescriptions((prev) => ({ ...prev, [r.id]: !Boolean(prev[r.id]) }))}
+                                    onClick={() => setReadingId(r.id)}
                                     className="inline-flex items-center rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/10"
                                   >
-                                    {expanded ? "Ver menos" : "Leer más"}
+                                    Leer más
                                   </button>
                                 ) : null}
-                              </div>
+                              </>
                             ) : (
                               <div className="text-zinc-400">—</div>
                             )}
@@ -685,7 +690,7 @@ export default function CatalogPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-zinc-400">
+                    <td colSpan={10} className="px-4 py-10 text-center text-zinc-400">
                       No hay productos para mostrar.
                     </td>
                   </tr>
@@ -695,6 +700,87 @@ export default function CatalogPage() {
           </div>
         </section>
       </main>
+
+      {readingId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeReading();
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-4xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl shadow-black/50">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 bg-white/5 px-6 py-5">
+              <div className="space-y-1">
+                <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Detalle</div>
+                <div className="text-lg font-semibold text-white">
+                  {rows.find((r) => r.id === readingId)?.producto || readingId}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeReading}
+                className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="max-h-[72vh] overflow-y-auto px-6 py-5">
+              {(() => {
+                const row = rows.find((r) => r.id === readingId);
+                if (!row) return <div className="text-zinc-400">No pude cargar el detalle.</div>;
+                return (
+                  <div className="space-y-5">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Modelo</div>
+                        <div className="mt-1 text-sm font-semibold text-white">{row.modelo || row.nombre_modelo_especial || "—"}</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Tipo</div>
+                        <div className="mt-1 text-sm font-semibold text-white">{row.record_type || "—"}</div>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Precio CLP</div>
+                        <div className="mt-1 text-sm font-semibold text-white">{row.precio_lista_clp || "—"}</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Precio raw</div>
+                        <div className="mt-1 text-sm font-semibold text-white">{row.precio_lista_raw || "—"}</div>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Tier</div>
+                        <div className="mt-1 text-sm font-semibold text-white">{row.tier || "—"}</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">Recomendados</div>
+                        <div className="mt-1 whitespace-pre-wrap text-sm font-semibold text-white">{row.recomendados || "—"}</div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Características</div>
+                      <div className="whitespace-pre-wrap rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200">
+                        {(row.caracteristicas ?? "").trim() || "—"}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Descripción</div>
+                      <div className="whitespace-pre-wrap rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-200">
+                        {(row.descripcion ?? "").trim() || "—"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {editingId ? (
         <div
