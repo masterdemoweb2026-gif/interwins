@@ -4721,8 +4721,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         ]);
   }
 
-  const directModelReply = await tryDirectCatalogModelLookup(state, "CL", input);
-  if (directModelReply) return directModelReply;
+  if (!state.catalog.quote) {
+    const directModelReply = await tryDirectCatalogModelLookup(state, "CL", input);
+    if (directModelReply) return directModelReply;
+  }
 
   if (state.catalog.arriendoStage === "landing") {
     state.catalog.arriendoStage = "product_menu";
@@ -5282,8 +5284,10 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     ]);
   }
 
-  const directModelReply = await tryDirectCatalogModelLookup(state, "UY", input);
-  if (directModelReply) return directModelReply;
+  if (!state.catalog.quote) {
+    const directModelReply = await tryDirectCatalogModelLookup(state, "UY", input);
+    if (directModelReply) return directModelReply;
+  }
 
   if (state.catalog.quote) {
     const q = state.catalog.quote;
