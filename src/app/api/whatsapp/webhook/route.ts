@@ -1016,7 +1016,7 @@ async function loadProductPriceByCountry(country: Country, productId: string, no
     if (!res.ok || !Array.isArray(res.data)) return "";
     const row = (res.data as unknown[])[0];
     if (!row) return "";
-    return toTrimmedString(getRecordValue(row, "precio"));
+    return toLooseText(getRecordValue(row, "precio"));
   }
   const commercial = await loadCatalogProductCommercialData({ productId, nombre: toTrimmedString(nombre) });
   if (commercial?.precio) return commercial.precio;
@@ -1082,10 +1082,17 @@ function toTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function toLooseText(value: unknown) {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return value == null ? "" : String(value).trim();
+}
+
 function extractLikelyProductModel(text: string) {
   const raw = String(text ?? "").trim();
   if (!raw) return "";
-  const m = raw.toUpperCase().match(/\b[A-Z]{1,6}\s?-?\s?\d{2,6}[A-Z]?\b/);
+  const m = raw.toUpperCase().match(/\b[A-Z]{1,6}\s?-?\s?\d{1,6}[A-Z]?\b/);
   if (!m?.[0]) return "";
   return m[0].replace(/[\s-]+/g, "").trim();
 }
@@ -3377,8 +3384,8 @@ async function loadCatalogProductCommercialData(args: { productId?: string; nomb
   if (!res.ok || !Array.isArray(res.data)) return null;
   const row = (res.data as unknown[])[0];
   if (!row) return null;
-  const precioRaw = toTrimmedString(getRecordValue(row, "precio_lista_raw"));
-  const precioClp = toTrimmedString(getRecordValue(row, "precio_lista_clp"));
+  const precioRaw = toLooseText(getRecordValue(row, "precio_lista_raw"));
+  const precioClp = toLooseText(getRecordValue(row, "precio_lista_clp"));
   let precio = precioRaw || precioClp;
 
   if (!precio) {
@@ -3389,7 +3396,7 @@ async function loadCatalogProductCommercialData(args: { productId?: string; nomb
       const vres = await supabaseFetch(vq, { method: "GET" });
       const variants = vres.ok && Array.isArray(vres.data) ? (vres.data as unknown[]) : [];
       const prices = variants
-        .map((v) => toTrimmedString(getRecordValue(v, "precio_lista_clp")))
+        .map((v) => toLooseText(getRecordValue(v, "precio_lista_clp")))
         .map((p) => Number(String(p).replace(/[^\d]/g, "")))
         .filter((n) => Number.isFinite(n) && n > 0);
       if (prices.length) {
@@ -6566,7 +6573,9 @@ export async function POST(request: Request) {
     undefined;
   const inboundTimestampMsRaw = extractInboundTimestampMs(payload, message);
   const inboundTimestampMs = inboundTimestampMsRaw ?? Date.now();
-  const inboundDedupeTimestampMs = Math.floor(inboundTimestampMs / 15000) * 15000;
+  const inboundDedupeTimestampMs = shouldSkipHashDedupe(String(text ?? ""))
+    ? inboundTimestampMs
+    : Math.floor(inboundTimestampMs / 15000) * 15000;
 
   const isInboundText = typeof text === "string" && text.trim().length > 0;
   const autoReplyEnabled = shouldAutoReply();
