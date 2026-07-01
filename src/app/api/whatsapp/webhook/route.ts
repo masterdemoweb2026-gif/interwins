@@ -428,6 +428,7 @@ type CatalogState = {
   reviewEditField?: Exclude<CatalogQuoteStep, "final">;
   status?: "idle" | "wait_finish_cotizacion";
   forceAskAll?: boolean;
+  arriendoPriceMenuActive?: boolean;
   recommended?: {
     mode?: "offer" | "list" | "detail";
     remainingIds: string[];
@@ -438,6 +439,7 @@ type CatalogState = {
 };
 
 type ProjectsState = {
+  stage: "entry" | "browse";
   offset: number;
   lastList?: Array<{ id: number; titulo: string }>;
   reading?: {
@@ -451,7 +453,13 @@ type PointsState = {
   awaitingDealerOffer?: boolean;
 };
 
-type ContactFormKind = "cl_proyectos" | "cl_dealer" | "cl_servicio_tecnico" | "uy_proyectos" | "uy_servicio_tecnico";
+type ContactFormKind =
+  | "cl_proyectos"
+  | "cl_dealer"
+  | "cl_servicio_tecnico"
+  | "cl_arriendo_precio"
+  | "uy_proyectos"
+  | "uy_servicio_tecnico";
 
 type ContactFormStep = "nombre" | "empresa" | "telefono" | "correo" | "direccion" | "producto" | "mensaje" | "final";
 
@@ -988,8 +996,9 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   const header = title ? `*${title}*` : "*Producto*";
   const descriptionText = detail.fullDescription?.trim() || detail.shortFinal?.trim() || "";
   const descriptionChunks = descriptionText ? chunkText(descriptionText, 900) : [];
-  const priceLine = formatFriendlyPrice(detail.precio ?? "", options?.country ?? "CL");
-  const fallbackPriceLine = options?.requestKind === "arriendo" ? "💰 Precio referencial: Por confirmar" : "💰 Precio referencial: Por confirmar";
+  const showPrice = options?.requestKind !== "arriendo";
+  const priceLine = showPrice ? formatFriendlyPrice(detail.precio ?? "", options?.country ?? "CL") : "";
+  const fallbackPriceLine = showPrice ? "💰 Precio referencial: Por confirmar" : "";
   const primaryAction = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
   const actions = [
     "¿Qué deseas hacer ahora?",
@@ -1004,7 +1013,7 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
 
   const out: Array<string | OutboundMessage> = [header];
   if (detail.imageUrl) out.push({ type: "image", imageUrl: detail.imageUrl });
-  out.push(priceLine || fallbackPriceLine);
+  if (showPrice) out.push(priceLine || fallbackPriceLine);
   out.push(...descriptionChunks);
   if (detail.fichaUrl) out.push(`📄 Ficha técnica: ${detail.fichaUrl}`);
   out.push(actions);
@@ -1043,6 +1052,25 @@ function isCatalogPriceRequest(text: string) {
     t.includes("valor") ||
     t.includes("valen")
   );
+}
+
+function buildArriendoPriceInfoMenu() {
+  return [
+    "¡Hola! Como los valores de nuestros sistemas y equipos varían según la configuración técnica y el alcance, un especialista de nuestra área comercial se encargará de preparar tu cotización.",
+    "",
+    "1) Quiero que me contacten",
+    "2) Volver a lista de productos",
+    "3) Volver al Menú",
+  ].join("\n");
+}
+
+function parseArriendoPriceInfoChoice(text: string) {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t === "1") return 1 as const;
+  if (t === "2") return 2 as const;
+  if (t === "3") return 3 as const;
+  return null;
 }
 
 async function loadProductPriceByCountry(country: Country, productId: string, nombre?: string) {
@@ -1617,6 +1645,7 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   state.catalog.arriendoStage = undefined;
   state.catalog.arriendoIntent = undefined;
   state.catalog.optionalCompanyHandled = false;
+  state.catalog.arriendoPriceMenuActive = undefined;
   const isRental = args?.mode === "arriendo";
   state.catalog.filters.modalidad = args?.modalidad ?? (isRental ? "Arriendo" : "Venta");
 
@@ -1673,6 +1702,7 @@ async function startArriendoFlow(state: UserState, userKey: string) {
   state.catalog.requestKind = "arriendo";
   state.catalog.arriendoStage = "product_menu";
   state.catalog.optionalCompanyHandled = false;
+  state.catalog.arriendoPriceMenuActive = undefined;
   return buildArriendoLandingMessage();
 }
 
@@ -3075,7 +3105,7 @@ function initState(): UserState {
     recentInboundIds: [],
     recentInboundHashes: [],
     catalog: { filters: {}, status: "idle" },
-    projects: { offset: 0 },
+    projects: { offset: 0, stage: "entry" },
     points: {},
     cambium: {},
   };
@@ -3086,7 +3116,7 @@ function resetBranchState(state: UserState, branch: Branch) {
     const forceAskAll = state.catalog.forceAskAll;
     state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
   }
-  if (branch === "proyectos") state.projects = { offset: 0 };
+  if (branch === "proyectos") state.projects = { offset: 0, stage: "entry" };
   if (branch === "puntos_venta") state.points = {};
   if (branch === "cambium") state.cambium = {};
 }
@@ -4711,6 +4741,41 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     return "Para cerrar la cotización responde: Terminar / Cancelar.";
   }
 
+  if (rentalRequest) {
+    if (state.catalog.arriendoPriceMenuActive) {
+      const choice = parseArriendoPriceInfoChoice(input);
+      if (choice === 1) {
+        state.catalog.arriendoPriceMenuActive = undefined;
+        return await startContactForm(state, userPhone, "cl_arriendo_precio", {
+          intro: "¿A qué número de teléfono o correo prefieres que te enviemos el detalle de precios? Déjanos tus datos de contacto y te responderemos a la brevedad.",
+        });
+      }
+      if (choice === 2) {
+        state.catalog.arriendoPriceMenuActive = undefined;
+        const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
+        state.catalog.selectedProductId = undefined;
+        state.catalog.returnList = undefined;
+        if (sourceList?.length) {
+          state.catalog.lastList = sourceList;
+          return buildProductsListMessage(sourceList, "Motorola DP250");
+        }
+        return "Perfecto. Indícame el nombre del producto o dime qué tipo de equipo necesitas y te muestro opciones.";
+      }
+      if (choice === 3) {
+        state.catalog.arriendoPriceMenuActive = undefined;
+        returnToCasualState(state);
+        markMenuShown(state);
+        return buildMainMenuText(state.country ?? "CL", "return");
+      }
+      return buildArriendoPriceInfoMenu();
+    }
+
+    if (isCatalogPriceRequest(input)) {
+      state.catalog.arriendoPriceMenuActive = true;
+      return buildArriendoPriceInfoMenu();
+    }
+  }
+
   if (isExitConversationCommand(input)) {
     returnToCasualState(state);
     markMenuShown(state);
@@ -5757,12 +5822,27 @@ function chunkText(text: string, chunkSize: number) {
 }
 
 async function handleProjects(state: UserState, text: string, userPhone: string): Promise<string | string[]> {
-  const t = normalizeText(text);
+  const input = text.trim();
+  const t = normalizeText(input);
   const wantsDetail = t.includes("detalle") || t.includes("completo") || t.includes("texto completo") || t.includes("ver completo");
   const wantsMoreProjects = t.includes("ver mas proyectos") || t.includes("ver más proyectos");
 
-  if (t.includes("solicit") || t.includes("asesoria") || t.includes("asesoría") || t.includes("formulario") || t.includes("contact")) {
-    return await startContactForm(state, userPhone, "cl_proyectos");
+  if (state.projects.stage === "entry") {
+    if (!input) return buildProjectsLandingMessage();
+    const entryChoice = parseProjectsEntryChoice(input);
+    if (entryChoice === 3 || isMenuCommand(input)) {
+      returnToCasualState(state);
+      markMenuShown(state);
+      return buildMainMenuText(state.country ?? "CL", "return");
+    }
+    if (entryChoice === 1 || t.includes("solicit") || t.includes("asesoria") || t.includes("asesoría") || t.includes("formulario") || t.includes("contact")) {
+      return await startContactForm(state, userPhone, "cl_proyectos", { intro: getProjectsContactIntro() });
+    }
+    if (entryChoice !== 2) return buildProjectsLandingMessage();
+    state.projects.stage = "browse";
+    state.projects.offset = 0;
+    state.projects.lastList = undefined;
+    state.projects.reading = undefined;
   }
 
   let list = state.projects.lastList ?? [];
@@ -5866,6 +5946,8 @@ function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormSta
     case "cl_proyectos":
     case "uy_proyectos":
       return "Asesoría en proyectos";
+    case "cl_arriendo_precio":
+      return "Arriendo (precios)";
     case "cl_dealer":
       return getDealerZoneLabel(data);
     case "cl_servicio_tecnico":
@@ -5878,6 +5960,8 @@ function getContactFormStartIntro(kind: ContactFormKind) {
   switch (kind) {
     case "cl_proyectos":
       return "Muy bien. Armemos tu solicitud de asesoría en proyectos.";
+    case "cl_arriendo_precio":
+      return "Muy bien. Armemos tu solicitud para enviarte el detalle de precios de arriendo.";
     case "cl_dealer":
       return "Muy bien. Armemos tu solicitud para que un dealer de tu región te contacte.";
     case "cl_servicio_tecnico":
@@ -5894,6 +5978,8 @@ function getContactFormReviewTitle(kind: ContactFormKind, data?: ContactFormStat
     case "cl_proyectos":
     case "uy_proyectos":
       return "Muy bien. Este es el resumen de tu solicitud de asesoría en proyectos:";
+    case "cl_arriendo_precio":
+      return "Muy bien. Este es el resumen de tu solicitud de precios de arriendo:";
     case "cl_dealer":
       return `Muy bien. Este es el resumen de tu solicitud de ${getContactFormRequestLabel(kind, data)}:`;
     case "cl_servicio_tecnico":
@@ -5907,6 +5993,8 @@ function getContactFormSuccessMessage(kind: ContactFormKind, data?: ContactFormS
     case "cl_proyectos":
     case "uy_proyectos":
       return "✅ Tu solicitud de asesoría en proyectos fue enviada correctamente. Te contactaremos a la brevedad.";
+    case "cl_arriendo_precio":
+      return "✅ Tu solicitud de precios de arriendo fue enviada correctamente. Te contactaremos a la brevedad.";
     case "cl_dealer":
       return `✅ Tu solicitud de ${getContactFormRequestLabel(kind, data)} fue enviada correctamente. Te contactaremos a la brevedad.`;
     case "cl_servicio_tecnico":
@@ -5925,6 +6013,41 @@ function getProjectsNaturalGuidanceText() {
 
 function getProjectsMenuReminderText() {
   return "Recuerda que puedes volver a tu menu de opciones cuando lo desees.";
+}
+
+function buildProjectsLandingMessage() {
+  return [
+    "En Interwins diseñamos e implementamos proyectos tecnológicos bajo la metodología SOEM, respaldados por más de 50 implementaciones exitosas en Chile y Uruguay.",
+    "",
+    "Nos especializamos en soluciones para operaciones críticas, ayudando a tu empresa a:",
+    "",
+    "- Garantizar la continuidad operativa mediante contratos de soporte dedicados.",
+    "- Aumentar la seguridad de tu personal en terreno.",
+    "- Optimizar la eficiencia productiva de toda la organización.",
+    "",
+    "¿Quieres implementar o mejorar tu sistema de comunicación?",
+    "",
+    "1) Sí, quiero mejorar mi sistema",
+    "2) Conocer Proyectos",
+    "3) Volver al menú",
+  ].join("\n");
+}
+
+function parseProjectsEntryChoice(text: string) {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t === "1") return 1 as const;
+  if (t === "2") return 2 as const;
+  if (t === "3") return 3 as const;
+  if (isAffirmative(text) && (t.includes("mejor") || t.includes("implem") || t.includes("sistema") || t.includes("comunic"))) return 1 as const;
+  if (t.includes("mejorar") || t.includes("implementar") || t.includes("asesoria") || t.includes("asesoría")) return 1 as const;
+  if (t.includes("conocer") || t.includes("ver proyectos") || t.includes("proyectos")) return 2 as const;
+  if (t.includes("volver al menu") || t.includes("volver al menú") || t === "menu" || t === "menú") return 3 as const;
+  return null;
+}
+
+function getProjectsContactIntro() {
+  return "Déjanos tu nombre, empresa y teléfono. Nuestro equipo de ingenieros te contactará a la brevedad para brindarte una asesoría experta y personalizada.";
 }
 
 function getServiceCtaText() {
@@ -5964,6 +6087,8 @@ function getContactFormMessagePrompt(kind: ContactFormKind) {
     case "cl_proyectos":
     case "uy_proyectos":
       return "¿Qué proyecto o necesidad tienes? (mensaje)";
+    case "cl_arriendo_precio":
+      return "";
     case "cl_dealer":
       return "¿Qué necesitas del dealer de tu región? (mensaje)";
     case "cl_servicio_tecnico":
@@ -5976,7 +6101,12 @@ function getContactFormStepPrompt(step: Exclude<ContactFormStep, "final">, kind:
   const country = getContactFormCountry(kind);
   if (step === "nombre") return "Muy bien. Para continuar, indícame tu nombre y apellido.";
   if (step === "empresa") return "¿Para qué empresa es la solicitud? Si es para ti, escribe: Particular";
-  if (step === "telefono") return buildPhonePrompt(country);
+  if (step === "telefono") {
+    if (kind === "cl_arriendo_precio") {
+      return "¿A qué número de teléfono o correo prefieres que te enviemos el detalle de precios? Puedes responder con uno de los dos.";
+    }
+    return buildPhonePrompt(country);
+  }
   if (step === "correo") return buildEmailPrompt(country);
   if (step === "direccion") return "¿Cuál es tu dirección, comuna o referencia de ubicación?";
   if (step === "producto") return "¿Con qué equipo o producto necesitas ayuda? Si prefieres omitirlo, escribe: Omitir";
@@ -5984,6 +6114,16 @@ function getContactFormStepPrompt(step: Exclude<ContactFormStep, "final">, kind:
 }
 
 function getContactFormNextStep(kind: ContactFormKind, data: ContactFormState["data"], optionalProductHandled?: boolean): ContactFormStep {
+  if (kind === "cl_proyectos" || kind === "uy_proyectos") {
+    if (!data.nombre) return "nombre";
+    if (!data.empresa) return "empresa";
+    if (!data.telefono) return "telefono";
+    return "final";
+  }
+  if (kind === "cl_arriendo_precio") {
+    if (!data.telefono && !data.correo) return "telefono";
+    return "final";
+  }
   if (!data.nombre) return "nombre";
   if (!data.empresa) return "empresa";
   if (!data.telefono) return "telefono";
@@ -6021,6 +6161,18 @@ function applyContactFieldValue(form: ContactFormState, field: Exclude<ContactFo
     return null;
   }
   if (field === "telefono") {
+    if (form.kind === "cl_arriendo_precio") {
+      const { email } = resolveEmailInput(input, country);
+      if (email) {
+        form.data.correo = email;
+        form.data.telefono = "";
+        return null;
+      }
+      const { phone, error } = resolvePhoneInput(input, country);
+      if (error) return "Necesito un teléfono o un correo válido para enviarte el detalle de precios. Ej: +56912345678 o nombre@empresa.cl";
+      form.data.telefono = phone;
+      return null;
+    }
     const { phone, error } = resolvePhoneInput(input, country);
     if (error) return error;
     form.data.telefono = phone;
@@ -6068,6 +6220,41 @@ function mapContactFormToUserProfile(data: ContactFormState["data"]): CatalogQuo
 async function buildContactFormReviewMessage(state: UserState) {
   const form = state.contactForm;
   if (!form) return "No veo una solicitud activa en este momento.";
+  if (form.kind === "cl_proyectos" || form.kind === "uy_proyectos") {
+    const lines = [
+      getContactFormReviewTitle(form.kind, form.data),
+      "",
+      "*Solicitud*",
+      `- Tipo: ${getContactFormRequestLabel(form.kind, form.data)}`,
+      "",
+      "*Datos de contacto*",
+      form.data.nombre ? `- Nombre y Apellido: ${form.data.nombre}` : "",
+      form.data.telefono ? `- Teléfono: ${form.data.telefono}` : "",
+      "",
+      "*Empresa*",
+      form.data.empresa ? `- Empresa: ${form.data.empresa}` : "- Empresa: Particular / No informada",
+      "",
+      "Si todo está correcto, escribe: Confirmar solicitud",
+      "Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono",
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
+  if (form.kind === "cl_arriendo_precio") {
+    const lines = [
+      getContactFormReviewTitle(form.kind, form.data),
+      "",
+      "*Solicitud*",
+      `- Tipo: ${getContactFormRequestLabel(form.kind, form.data)}`,
+      "",
+      "*Datos de contacto*",
+      form.data.telefono ? `- Teléfono: ${form.data.telefono}` : "",
+      form.data.correo ? `- Correo electrónico: ${form.data.correo}` : "",
+      "",
+      "Si todo está correcto, escribe: Confirmar solicitud",
+      "Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono",
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
   const productSection = isServiceContactKind(form.kind)
     ? ["*Equipo o producto*", form.data.producto ? `- Producto: ${form.data.producto}` : "- Producto: No informado", ""]
     : [];
@@ -6162,6 +6349,8 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
     const flowKey =
       kind.includes("servicio_tecnico")
         ? "servicio_tecnico"
+        : kind.includes("arriendo")
+          ? "arriendo"
         : kind.includes("proyectos")
           ? "proyectos"
           : kind.includes("dealer")
@@ -6172,6 +6361,8 @@ async function finalizeContactForm(state: UserState, userPhone: string) {
     const flowLabel =
       flowKey === "servicio_tecnico"
         ? "Servicio técnico"
+        : flowKey === "arriendo"
+          ? "Arriendo"
         : flowKey === "proyectos"
           ? "Asesoría en proyectos"
           : flowKey === "dealer"
@@ -6231,7 +6422,9 @@ async function startContactForm(
 
   if (next === "final") {
     state.contactForm.reviewMode = true;
-    return await buildContactFormReviewMessage(state);
+    const review = await buildContactFormReviewMessage(state);
+    const intro = options?.intro?.trim();
+    return intro ? [intro, "", review].join("\n") : review;
   }
 
   const intro = options?.intro ?? getContactFormStartIntro(kind);
@@ -6302,8 +6495,20 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
 async function handleProjectsUY(state: UserState, text: string, userPhone: string): Promise<Reply> {
   const input = text.trim();
   const t = normalizeText(input);
-  if (t.includes("solicit") || t.includes("formulario") || t.includes("contact")) {
-    return await startContactForm(state, userPhone, "uy_proyectos");
+  if (state.projects.stage === "entry") {
+    if (!input) return buildProjectsLandingMessage();
+    const entryChoice = parseProjectsEntryChoice(input);
+    if (entryChoice === 3 || isMenuCommand(input)) {
+      returnToCasualState(state);
+      markMenuShown(state);
+      return buildMainMenuText(state.country ?? "UY", "return");
+    }
+    if (entryChoice === 1 || t.includes("solicit") || t.includes("asesoria") || t.includes("asesoría") || t.includes("formulario") || t.includes("contact")) {
+      return await startContactForm(state, userPhone, "uy_proyectos", { intro: getProjectsContactIntro() });
+    }
+    if (entryChoice !== 2) return buildProjectsLandingMessage();
+    state.projects.stage = "browse";
+    state.projects.reading = undefined;
   }
 
   const { projects, bankText } = loadUyProjectsData();
