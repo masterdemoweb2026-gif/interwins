@@ -6424,10 +6424,14 @@ async function startContactForm(
     state.contactForm.reviewMode = true;
     const review = await buildContactFormReviewMessage(state);
     const intro = options?.intro?.trim();
+    if (kind === "cl_arriendo_precio") return review;
     return intro ? [intro, "", review].join("\n") : review;
   }
 
   const intro = options?.intro ?? getContactFormStartIntro(kind);
+  if (kind === "cl_arriendo_precio") {
+    return [intro, getCancelReminderText()].filter(Boolean).join("\n");
+  }
   return [intro, "", buildProfileReuseGuidance(Boolean(profile), "solicitud"), "", getContactFormStepPrompt(next, kind), "", getCancelReminderText()].join("\n");
 }
 
