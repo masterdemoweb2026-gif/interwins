@@ -476,6 +476,7 @@ type ContactFormState = {
     correo: string;
     direccion: string;
     producto: string;
+    subtipo: string;
     mensaje: string;
   }>;
 };
@@ -517,6 +518,8 @@ type UserState = {
   recentInboundIds?: string[];
   recentInboundHashes?: Array<{ h: string; ts: number }>;
   serviceTech?: {
+    mode?: "submenu" | "chat";
+    requestType?: "mantencion_preventiva" | "reparacion";
     lastProducto?: string;
     lastQuestionHash?: string;
     lastQuestionAt?: number;
@@ -1199,6 +1202,7 @@ function shouldUseServiceTechOpeningPrompt(text: string) {
   if (!t) return true;
   if (isServiceTechFormIntent(text)) return false;
   if (t === "2") return true;
+  if (t === "4") return true;
   if (t === "servicio tecnico" || t === "servicio técnico") return true;
   if (t === "soporte tecnico" || t === "soporte técnico") return true;
   if (t === "tecnico" || t === "técnico") return true;
@@ -1847,12 +1851,7 @@ function buildMainMenuEntryIntro(action: MainMenuAction, country: Country) {
     return options[crypto.randomInt(0, options.length)]!;
   }
   if (action === "servicio_tecnico") {
-    const options = [
-      "Muy bien. Estás en Servicio Técnico. Ahora puedes contarme tu duda o indicarme el equipo para orientarte.",
-      "Claro, vamos con Servicio Técnico. Indícame el equipo o la situación y te ayudo a revisarla.",
-      "Excelente. Ya ingresaste a Servicio Técnico. Cuéntame qué necesitas y te orientaré.",
-    ];
-    return options[crypto.randomInt(0, options.length)]!;
+    return "Claro, vamos con Servicio Técnico. Indícame el equipo o la situación y te ayudo a revisarla.";
   }
   if (action === "puntos_venta") {
     const options = [
@@ -3116,6 +3115,7 @@ function resetBranchState(state: UserState, branch: Branch) {
     const forceAskAll = state.catalog.forceAskAll;
     state.catalog = { filters: {}, status: "idle", ...(forceAskAll ? { forceAskAll } : {}) };
   }
+  if (branch === "servicio_tecnico") state.serviceTech = {};
   if (branch === "proyectos") state.projects = { offset: 0, stage: "entry" };
   if (branch === "puntos_venta") state.points = {};
   if (branch === "cambium") state.cambium = {};
@@ -3124,6 +3124,7 @@ function resetBranchState(state: UserState, branch: Branch) {
 function returnToCasualState(state: UserState) {
   state.activeBranch = "menu";
   resetBranchState(state, "catalogo");
+  resetBranchState(state, "servicio_tecnico");
   resetBranchState(state, "proyectos");
   resetBranchState(state, "puntos_venta");
   resetBranchState(state, "cambium");
@@ -5952,7 +5953,7 @@ function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormSta
       return getDealerZoneLabel(data);
     case "cl_servicio_tecnico":
     case "uy_servicio_tecnico":
-      return "Servicio técnico";
+      return data?.subtipo ? `Servicio técnico - ${data.subtipo}` : "Servicio técnico";
   }
 }
 
@@ -5999,7 +6000,7 @@ function getContactFormSuccessMessage(kind: ContactFormKind, data?: ContactFormS
       return `✅ Tu solicitud de ${getContactFormRequestLabel(kind, data)} fue enviada correctamente. Te contactaremos a la brevedad.`;
     case "cl_servicio_tecnico":
     case "uy_servicio_tecnico":
-      return "✅ Tu solicitud de servicio técnico fue enviada correctamente. Te contactaremos a la brevedad.";
+      return `✅ Tu solicitud de ${getContactFormRequestLabel(kind, data)} fue enviada correctamente. Te contactaremos a la brevedad.`;
   }
 }
 
@@ -6060,6 +6061,89 @@ function getDealerCtaText() {
 
 function getNaturalMenuReminderText() {
   return "Recuerda que puedes volver a tu menu de opciones cuando lo desees.";
+}
+
+function getServicioTecnicoSubtypeLabel(requestType?: "mantencion_preventiva" | "reparacion") {
+  if (requestType === "mantencion_preventiva") return "Mantención preventiva";
+  if (requestType === "reparacion") return "Reparación (radios y equipos)";
+  return "";
+}
+
+function buildServicioTecnicoInfoMessage() {
+  return [
+    "🛠️ Mantención preventiva",
+    "Optimice la durabilidad de sus equipos y mejore la comunicación mediante mantenimientos preventivos anuales que incluyen ajustes de frecuencia y sensibilidad.",
+    "",
+    "🧰 Reparación (radios y equipos)",
+    "Recupere la funcionalidad de sus radios con repuestos y accesorios originales. Nuestros especialistas utilizan herramientas de vanguardia y tecnología Motorola en la reparación.",
+    "",
+    "Si necesitas que te deriven:",
+    "📞 Mesa Central: +56 2 3263 5550",
+    "📞 SAM: +56 2 3263 5551",
+    "",
+    getServiceNaturalGuidanceText(),
+  ].join("\n");
+}
+
+function buildServicioTecnicoMenu() {
+  return [
+    "Solicitar Servicio:",
+    "1. Mantención Preventiva",
+    "2. Reparación (radios y equipos)",
+    "3. Conversar con el sistema",
+    "4. Volver al Menú",
+  ].join("\n");
+}
+
+function buildServicioTecnicoLandingMessage() {
+  return [buildServicioTecnicoInfoMessage(), "", buildServicioTecnicoMenu()].join("\n");
+}
+
+function buildServicioTecnicoChatIntro() {
+  return [
+    "Muy bien. Ya puedes conversar con el sistema.",
+    "Cuéntame el equipo, modelo o la situación y te ayudo a revisarla.",
+    "",
+    "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.",
+  ].join("\n");
+}
+
+function buildServicioTecnicoChatFooter() {
+  return "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.";
+}
+
+function parseServicioTecnicoChoice(text: string) {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t === "1") return 1 as const;
+  if (t === "2") return 2 as const;
+  if (t === "3") return 3 as const;
+  if (t === "4") return 4 as const;
+  if (t.includes("mantencion preventiva") || t.includes("mantención preventiva")) return 1 as const;
+  if (t === "mantencion" || t === "mantención") return 1 as const;
+  if (t.includes("reparacion") || t.includes("reparación")) return 2 as const;
+  if (t.includes("conversar con el sistema") || t.includes("hablar con el sistema")) return 3 as const;
+  if ((t.includes("conversar") || t.includes("consulta") || t.includes("pregunta")) && t.includes("sistema")) return 3 as const;
+  if (t.includes("volver al menu") || t.includes("volver al menú") || t === "menu" || t === "menú") return 4 as const;
+  return null;
+}
+
+function getServicioTecnicoFormOptions(state: UserState, requestType?: "mantencion_preventiva" | "reparacion") {
+  const producto = state.serviceTech?.lastProducto || "";
+  const subtipo = getServicioTecnicoSubtypeLabel(requestType);
+  const intro =
+    requestType === "mantencion_preventiva"
+      ? "Muy bien. Armemos tu solicitud de Mantención preventiva."
+      : requestType === "reparacion"
+        ? "Muy bien. Armemos tu solicitud de Reparación (radios y equipos)."
+        : "Muy bien. Armemos tu solicitud de servicio técnico.";
+  return {
+    intro,
+    presetData: {
+      ...(producto ? { producto } : {}),
+      ...(subtipo ? { subtipo } : {}),
+    },
+  };
 }
 
 function getServiceNaturalGuidanceText() {
@@ -6413,6 +6497,7 @@ async function startContactForm(
     correo: options?.presetData?.correo ?? profile?.email,
     direccion: options?.presetData?.direccion ?? profile?.direccion,
     producto: options?.presetData?.producto,
+    subtipo: options?.presetData?.subtipo,
     mensaje: options?.presetData?.mensaje,
   };
 
@@ -6843,20 +6928,46 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
 
 async function handleServicioTecnico(state: UserState, text: string, userPhone: string) {
   const q = text.trim();
-  const t = normalizeText(q);
-  const opening = "🔧 Hola. Indícame tu duda técnica (equipo/modelo y lo que está ocurriendo) y con gusto la revisamos.";
-  const cta = getServiceCtaText();
-  if (!q) return [opening, "", cta].join("\n");
-
-  if (isServiceTechFormIntent(q)) {
-    const producto = extractLikelyProductModel(q) || state.serviceTech?.lastProducto || "";
-    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl routed to form producto=${producto}` });
-    return await startContactForm(state, userPhone, "cl_servicio_tecnico", producto ? { presetData: { producto } } : undefined);
+  state.serviceTech ??= {};
+  if (!state.serviceTech.mode) state.serviceTech.mode = "submenu";
+  if (!q) {
+    state.serviceTech.mode = "submenu";
+    return buildServicioTecnicoLandingMessage();
   }
 
-  state.serviceTech ??= {};
   const detected = extractLikelyProductModel(q);
   if (detected) state.serviceTech.lastProducto = detected;
+  const choice = parseServicioTecnicoChoice(q);
+
+  if (choice === 4) {
+    returnToCasualState(state);
+    markMenuShown(state);
+    return buildMainMenuText(state.country ?? "CL", "return");
+  }
+
+  if (choice === 1 || choice === 2) {
+    const requestType = choice === 1 ? "mantencion_preventiva" : "reparacion";
+    state.serviceTech.requestType = requestType;
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl submenu to form type=${requestType}` });
+    return await startContactForm(state, userPhone, "cl_servicio_tecnico", getServicioTecnicoFormOptions(state, requestType));
+  }
+
+  if (isServiceTechFormIntent(q)) {
+    inboxAdd({
+      source: "gowa",
+      signatureValid: null,
+      from: userPhone,
+      text: `[DEBUG] service-tech cl routed to form producto=${state.serviceTech.lastProducto || ""} type=${state.serviceTech.requestType ?? ""}`,
+    });
+    return await startContactForm(state, userPhone, "cl_servicio_tecnico", getServicioTecnicoFormOptions(state, state.serviceTech.requestType));
+  }
+
+  if (choice === 3) {
+    state.serviceTech.mode = "chat";
+    return buildServicioTecnicoChatIntro();
+  }
+
+  if (state.serviceTech.mode !== "chat") state.serviceTech.mode = "chat";
   if (isRepeatedServiceTechQuestion(state, q)) {
     inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl duplicate ignored text=${q}` });
     return "";
@@ -6864,38 +6975,18 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
 
   const hits = (await answerServicioTecnico(q)) ?? [];
   const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge: hits.map((h) => ({ tema: h.tema, info: h.info })) });
+  const footer = buildServicioTecnicoChatFooter();
+  if (!ai) return [buildServicioTecnicoInfoMessage(), "", footer].join("\n");
 
-  const servicios = [
-    "🛠️ Mantención preventiva",
-    "Optimice la durabilidad de sus equipos y mejore la comunicación mediante mantenimientos preventivos anuales que incluyen ajustes de frecuencia y sensibilidad.",
-    "",
-    "🧰 Reparación (radios y equipos)",
-    "Recupere la funcionalidad de sus radios con repuestos y accesorios originales. Nuestros especialistas utilizan herramientas de vanguardia y tecnología Motorola en la reparación.",
-    "",
-    "Si necesitas que te deriven:",
-    "📞 Mesa Central: +56 2 3263 5550",
-    "📞 SAM: +56 2 3263 5551",
-    "",
-    getServiceNaturalGuidanceText(),
-    "",
-    getNaturalMenuReminderText(),
-  ].join("\n");
-
-  if (!ai) return servicios;
   const aiNorm = normalizeText(ai);
-  const alreadyHasFooter =
-    aiNorm.includes("mantencion preventiva") ||
-    aiNorm.includes("mantencion") ||
-    aiNorm.includes("reparacion") ||
-    aiNorm.includes("mesa central") ||
-    aiNorm.includes("sam:");
+  const alreadyHasFooter = aiNorm.includes("4 o menu") || aiNorm.includes("4 o menú") || aiNorm.includes("volver al menu") || aiNorm.includes("volver al menú");
   inboxAdd({
     source: "gowa",
     signatureValid: null,
     from: userPhone,
     text: `[DEBUG] service-tech cl reply generated ai=${Boolean(ai)} hits=${hits.length} footer=${alreadyHasFooter} model=${state.serviceTech?.lastProducto ?? ""}`,
   });
-  return alreadyHasFooter ? ai : [ai, "", servicios].join("\n");
+  return alreadyHasFooter ? ai : [ai, "", footer].join("\n");
 }
 
 export async function GET(request: Request) {
