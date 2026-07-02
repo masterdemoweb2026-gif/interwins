@@ -3999,6 +3999,39 @@ async function answerServicioTecnico(query: string) {
   return rows;
 }
 
+async function answerStructuredServiceKnowledge(country: Country, query: string) {
+  const q = query.trim();
+  if (!q) return null;
+  const like = encodeURIComponent(`*${q}*`);
+  const tokens = normalizeText(q)
+    .split(/[^a-z0-9]+/g)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3)
+    .slice(0, 6);
+
+  const orParts = [`tema.ilike.${like}`, `informacion.ilike.${like}`];
+  for (const t of tokens) {
+    const arrayExpr = encodeURIComponent(`{${t}}`);
+    orParts.push(`palabras_clave.cs.${arrayExpr}`);
+  }
+
+  const params = [
+    "select=tema,informacion,palabras_clave,prioridad",
+    `country=eq.${country}`,
+    "activo=eq.true",
+    `or=(${orParts.join(",")})`,
+    "order=prioridad.asc,id.asc",
+    "limit=5",
+  ].join("&");
+  const res = await supabaseFetch(`assistant_service_knowledge?${params}`, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return null;
+  const rows = (res.data as unknown[])
+    .map((r) => ({ tema: toTrimmedString(getRecordValue(r, "tema")), info: toTrimmedString(getRecordValue(r, "informacion")) }))
+    .filter((r) => r.tema && r.info);
+  if (!rows.length) return null;
+  return rows;
+}
+
 function isNumericChoice(text: string, max: number) {
   const t = normalizeText(text);
   if (!/^\d+$/.test(t)) return null;
@@ -6827,15 +6860,24 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
     return "";
   }
 
+  const structuredHits = (await answerStructuredServiceKnowledge("UY", input)) ?? [];
   const knowledgeText = managedContent.knowledgeText || loadUyServicioTecnicoText();
   const ai = await minimaxServicioTecnicoAnswer({
     input,
-    knowledge: knowledgeText ? [{ tema: "Servicio técnico (Uruguay)", info: knowledgeText }] : [],
+    knowledge: [
+      ...structuredHits.map((h) => ({ tema: h.tema, info: h.info })),
+      ...(knowledgeText ? [{ tema: "Servicio técnico (Uruguay)", info: knowledgeText }] : []),
+    ],
   });
 
   const footer = buildServicioTecnicoChatFooter("UY");
 
-  inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy reply generated ai=${Boolean(ai)} model=${state.serviceTech?.lastProducto ?? ""}` });
+  inboxAdd({
+    source: "gowa",
+    signatureValid: null,
+    from: userPhone,
+    text: `[DEBUG] service-tech uy reply generated ai=${Boolean(ai)} hits=${structuredHits.length} model=${state.serviceTech?.lastProducto ?? ""}`,
+  });
   if (!ai) return [managedContent.openingText, "", footer].join("\n");
 
   const aiNorm = normalizeText(ai);
@@ -6892,8 +6934,12 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
   }
 
   const hits = (await answerServicioTecnico(q)) ?? [];
+  const structuredHits = (await answerStructuredServiceKnowledge("CL", q)) ?? [];
+  const mergedHits = [...structuredHits, ...hits].filter(
+    (row, index, all) => all.findIndex((item) => normalizeText(item.tema) === normalizeText(row.tema) && normalizeText(item.info) === normalizeText(row.info)) === index,
+  );
   const knowledge = [
-    ...hits.map((h) => ({ tema: h.tema, info: h.info })),
+    ...mergedHits.map((h) => ({ tema: h.tema, info: h.info })),
     ...(managedContent.knowledgeText ? [{ tema: "Servicio técnico (Chile)", info: managedContent.knowledgeText }] : []),
   ];
   const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge });
@@ -6906,7 +6952,7 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
     source: "gowa",
     signatureValid: null,
     from: userPhone,
-    text: `[DEBUG] service-tech cl reply generated ai=${Boolean(ai)} hits=${hits.length} footer=${alreadyHasFooter} model=${state.serviceTech?.lastProducto ?? ""}`,
+    text: `[DEBUG] service-tech cl reply generated ai=${Boolean(ai)} hits=${mergedHits.length} footer=${alreadyHasFooter} model=${state.serviceTech?.lastProducto ?? ""}`,
   });
   return alreadyHasFooter ? ai : [ai, "", footer].join("\n");
 }

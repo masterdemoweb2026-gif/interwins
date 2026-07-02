@@ -37,6 +37,25 @@ type ProjectsResponse = {
   error?: string;
 };
 
+type ServiceKnowledgeRow = {
+  id: string;
+  country: Country;
+  tema: string;
+  palabrasClave: string[];
+  keywordsText: string;
+  informacion: string;
+  prioridad: number;
+  activo: boolean;
+  source: "database" | "legacy";
+};
+
+type ServiceKnowledgeResponse = {
+  ok: boolean;
+  rows: ServiceKnowledgeRow[];
+  warning?: string;
+  error?: string;
+};
+
 function formatDate(value: string) {
   if (!value) return "Sin fecha";
   const date = new Date(value);
@@ -66,6 +85,17 @@ function emptyProject(country: Country): Omit<ProjectRow, "id" | "source"> {
   };
 }
 
+function emptyKnowledge(country: Country): Omit<ServiceKnowledgeRow, "id" | "source" | "palabrasClave"> {
+  return {
+    country,
+    tema: "",
+    keywordsText: "",
+    informacion: "",
+    prioridad: 100,
+    activo: true,
+  };
+}
+
 export default function ContentManagementPanel() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("proyectos");
 
@@ -87,6 +117,14 @@ export default function ContentManagementPanel() {
   const [serviceSaving, setServiceSaving] = useState(false);
   const [serviceError, setServiceError] = useState("");
   const [serviceWarning, setServiceWarning] = useState("");
+  const [serviceKnowledgeRows, setServiceKnowledgeRows] = useState<ServiceKnowledgeRow[]>([]);
+  const [serviceKnowledgeLoading, setServiceKnowledgeLoading] = useState(true);
+  const [serviceKnowledgeSavingId, setServiceKnowledgeSavingId] = useState<string | null>(null);
+  const [serviceKnowledgeDrafts, setServiceKnowledgeDrafts] = useState<
+    Record<string, { tema: string; keywordsText: string; informacion: string; prioridad: number; activo: boolean }>
+  >({});
+  const [newServiceKnowledge, setNewServiceKnowledge] =
+    useState<Omit<ServiceKnowledgeRow, "id" | "source" | "palabrasClave">>(emptyKnowledge("CL"));
 
   async function loadSectionContent(section: SectionKey, country: Country) {
     const res = await fetch(`/api/dashboard/content/admin?section=${section}&country=${country}`, { cache: "no-store" });
@@ -120,6 +158,15 @@ export default function ContentManagementPanel() {
     const json = (await res.json()) as ProjectsResponse;
     if (!res.ok || !json.ok) {
       throw new Error(json.error || "No pude cargar los proyectos.");
+    }
+    return json;
+  }
+
+  async function loadServiceKnowledge(country: Country) {
+    const res = await fetch(`/api/dashboard/service-knowledge/admin?country=${country}`, { cache: "no-store" });
+    const json = (await res.json()) as ServiceKnowledgeResponse;
+    if (!res.ok || !json.ok) {
+      throw new Error(json.error || "No pude cargar el conocimiento técnico.");
     }
     return json;
   }
@@ -205,6 +252,44 @@ export default function ContentManagementPanel() {
     };
   }, [serviceCountry]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setServiceKnowledgeLoading(true);
+      setServiceError("");
+      setNewServiceKnowledge(emptyKnowledge(serviceCountry));
+      try {
+        const json = await loadServiceKnowledge(serviceCountry);
+        if (cancelled) return;
+        setServiceKnowledgeRows(json.rows);
+        setServiceWarning((prev) => [prev, json.warning].filter(Boolean).join(" | "));
+        setServiceKnowledgeDrafts(
+          Object.fromEntries(
+            json.rows.map((row) => [
+              row.id,
+              {
+                tema: row.tema,
+                keywordsText: row.keywordsText,
+                informacion: row.informacion,
+                prioridad: row.prioridad,
+                activo: row.activo,
+              },
+            ]),
+          ),
+        );
+      } catch (err) {
+        if (cancelled) return;
+        setServiceError(String(err));
+      } finally {
+        if (cancelled) return;
+        setServiceKnowledgeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceCountry]);
+
   async function handleSaveProjectsContent() {
     setProjectsSaving(true);
     setProjectsError("");
@@ -254,10 +339,11 @@ export default function ContentManagementPanel() {
       });
       const json = (await res.json()) as { ok: boolean; row?: ProjectRow; warning?: string; error?: string };
       if (!res.ok || !json.ok || !json.row) throw new Error(json.error || "No pude crear el proyecto.");
-      setProjectRows((prev) => [...prev, json.row]);
+      const createdRow = json.row;
+      setProjectRows((prev) => [...prev, createdRow]);
       setProjectDrafts((prev) => ({
         ...prev,
-        [json.row!.id]: { titulo: json.row!.titulo, contenido: json.row!.contenido },
+        [createdRow.id]: { titulo: createdRow.titulo, contenido: createdRow.contenido },
       }));
       setNewProject(emptyProject(projectsCountry));
       setProjectsWarning(json.warning || "");
@@ -312,6 +398,88 @@ export default function ContentManagementPanel() {
       setProjectsError(String(err));
     } finally {
       setProjectRowsSavingId(null);
+    }
+  }
+
+  async function handleCreateServiceKnowledge() {
+    if (!newServiceKnowledge.tema.trim() || !newServiceKnowledge.informacion.trim()) {
+      setServiceError("Necesito tema e información para crear el conocimiento técnico.");
+      return;
+    }
+    setServiceKnowledgeSavingId("new");
+    setServiceError("");
+    try {
+      const res = await fetch("/api/dashboard/service-knowledge/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newServiceKnowledge),
+      });
+      const json = (await res.json()) as { ok: boolean; row?: ServiceKnowledgeRow; error?: string };
+      if (!res.ok || !json.ok || !json.row) throw new Error(json.error || "No pude crear el conocimiento técnico.");
+      const createdRow = json.row;
+      setServiceKnowledgeRows((prev) => [...prev, createdRow].sort((a, b) => a.prioridad - b.prioridad || Number(a.id) - Number(b.id)));
+      setServiceKnowledgeDrafts((prev) => ({
+        ...prev,
+        [createdRow.id]: {
+          tema: createdRow.tema,
+          keywordsText: createdRow.keywordsText,
+          informacion: createdRow.informacion,
+          prioridad: createdRow.prioridad,
+          activo: createdRow.activo,
+        },
+      }));
+      setNewServiceKnowledge(emptyKnowledge(serviceCountry));
+    } catch (err) {
+      setServiceError(String(err));
+    } finally {
+      setServiceKnowledgeSavingId(null);
+    }
+  }
+
+  async function handleSaveServiceKnowledge(id: string) {
+    const draft = serviceKnowledgeDrafts[id];
+    if (!draft?.tema.trim() || !draft?.informacion.trim()) {
+      setServiceError("No puedo guardar conocimiento técnico vacío.");
+      return;
+    }
+    setServiceKnowledgeSavingId(id);
+    setServiceError("");
+    try {
+      const res = await fetch("/api/dashboard/service-knowledge/admin", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, country: serviceCountry, ...draft }),
+      });
+      const json = (await res.json()) as { ok: boolean; row?: ServiceKnowledgeRow; error?: string };
+      if (!res.ok || !json.ok || !json.row) throw new Error(json.error || "No pude actualizar el conocimiento técnico.");
+      const updatedRow = json.row;
+      setServiceKnowledgeRows((prev) => prev.map((row) => (row.id === id ? updatedRow : row)).sort((a, b) => a.prioridad - b.prioridad || Number(a.id) - Number(b.id)));
+    } catch (err) {
+      setServiceError(String(err));
+    } finally {
+      setServiceKnowledgeSavingId(null);
+    }
+  }
+
+  async function handleDeleteServiceKnowledge(id: string) {
+    const confirmDelete = window.confirm("¿Seguro que quieres eliminar este conocimiento técnico?");
+    if (!confirmDelete) return;
+    setServiceKnowledgeSavingId(id);
+    setServiceError("");
+    try {
+      const res = await fetch(`/api/dashboard/service-knowledge/admin?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error || "No pude eliminar el conocimiento técnico.");
+      setServiceKnowledgeRows((prev) => prev.filter((row) => row.id !== id));
+      setServiceKnowledgeDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (err) {
+      setServiceError(String(err));
+    } finally {
+      setServiceKnowledgeSavingId(null);
     }
   }
 
@@ -515,66 +683,237 @@ export default function ContentManagementPanel() {
             </div>
           </div>
         ) : (
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-white">Configuración de Servicio Técnico</div>
-                <div className="mt-1 text-xs text-zinc-500">Última actualización: {formatDate(serviceContent.updatedAt)}</div>
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-white">Configuración de Servicio Técnico</div>
+                  <div className="mt-1 text-xs text-zinc-500">Última actualización: {formatDate(serviceContent.updatedAt)}</div>
+                </div>
+                <div className="flex gap-3">
+                  {(["CL", "UY"] as Country[]).map((country) => (
+                    <button
+                      key={country}
+                      type="button"
+                      onClick={() => setServiceCountry(country)}
+                      className={[
+                        "inline-flex h-10 items-center rounded-xl border px-4 text-sm font-medium transition",
+                        serviceCountry === country
+                          ? "border-cyan-300/50 bg-cyan-400 text-slate-950"
+                          : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
+                      ].join(" ")}
+                    >
+                      {country === "CL" ? "Chile" : "Uruguay"}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-3">
-                {(["CL", "UY"] as Country[]).map((country) => (
+
+              {serviceWarning ? <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">{serviceWarning}</div> : null}
+              {serviceError ? <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{serviceError}</div> : null}
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Bloque de apertura / estático</label>
+                  <textarea
+                    value={serviceContent.openingText}
+                    onChange={(e) => setServiceContent((prev) => ({ ...prev, openingText: e.target.value }))}
+                    rows={16}
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Conocimiento IA libre</label>
+                  <textarea
+                    value={serviceContent.knowledgeText}
+                    onChange={(e) => setServiceContent((prev) => ({ ...prev, knowledgeText: e.target.value }))}
+                    rows={16}
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSaveServiceContent}
+                  disabled={serviceLoading || serviceSaving}
+                  className="inline-flex h-11 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {serviceSaving ? "Guardando..." : "Guardar configuración de Servicio Técnico"}
+                </button>
+                <div className="text-xs text-zinc-500">Aquí gestionas el bloque estático y una base libre de conocimiento complementario.</div>
+              </div>
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                <div className="text-sm font-semibold text-white">Agregar conocimiento técnico</div>
+                <div className="mt-4 space-y-3">
+                  <input
+                    value={newServiceKnowledge.tema}
+                    onChange={(e) => setNewServiceKnowledge((prev) => ({ ...prev, tema: e.target.value }))}
+                    placeholder="Tema"
+                    className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-cyan-400/40"
+                  />
+                  <input
+                    value={newServiceKnowledge.keywordsText}
+                    onChange={(e) => setNewServiceKnowledge((prev) => ({ ...prev, keywordsText: e.target.value }))}
+                    placeholder="Keywords separadas por coma"
+                    className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-cyan-400/40"
+                  />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      type="number"
+                      value={newServiceKnowledge.prioridad}
+                      onChange={(e) => setNewServiceKnowledge((prev) => ({ ...prev, prioridad: Number(e.target.value || "100") || 100 }))}
+                      placeholder="Prioridad"
+                      className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-cyan-400/40"
+                    />
+                    <label className="flex h-11 items-center gap-3 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200">
+                      <input
+                        type="checkbox"
+                        checked={newServiceKnowledge.activo}
+                        onChange={(e) => setNewServiceKnowledge((prev) => ({ ...prev, activo: e.target.checked }))}
+                      />
+                      Activo
+                    </label>
+                  </div>
+                  <textarea
+                    value={newServiceKnowledge.informacion}
+                    onChange={(e) => setNewServiceKnowledge((prev) => ({ ...prev, informacion: e.target.value }))}
+                    rows={8}
+                    placeholder="Información técnica"
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-cyan-400/40"
+                  />
                   <button
-                    key={country}
                     type="button"
-                    onClick={() => setServiceCountry(country)}
-                    className={[
-                      "inline-flex h-10 items-center rounded-xl border px-4 text-sm font-medium transition",
-                      serviceCountry === country
-                        ? "border-cyan-300/50 bg-cyan-400 text-slate-950"
-                        : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
-                    ].join(" ")}
+                    onClick={handleCreateServiceKnowledge}
+                    disabled={serviceKnowledgeSavingId === "new"}
+                    className="inline-flex h-11 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {country === "CL" ? "Chile" : "Uruguay"}
+                    {serviceKnowledgeSavingId === "new" ? "Creando..." : "Crear conocimiento"}
                   </button>
-                ))}
-              </div>
-            </div>
-
-            {serviceWarning ? <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">{serviceWarning}</div> : null}
-            {serviceError ? <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{serviceError}</div> : null}
-
-            <div className="mt-5 grid gap-5 xl:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Bloque de apertura / estático</label>
-                <textarea
-                  value={serviceContent.openingText}
-                  onChange={(e) => setServiceContent((prev) => ({ ...prev, openingText: e.target.value }))}
-                  rows={16}
-                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
-                />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Conocimiento IA</label>
-                <textarea
-                  value={serviceContent.knowledgeText}
-                  onChange={(e) => setServiceContent((prev) => ({ ...prev, knowledgeText: e.target.value }))}
-                  rows={16}
-                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
-                />
+              <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                <div className="text-sm font-semibold text-white">Conocimiento estructurado existente</div>
+                <div className="mt-4 space-y-4">
+                  {serviceKnowledgeLoading ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-sm text-zinc-400">Cargando conocimiento técnico...</div>
+                  ) : serviceKnowledgeRows.length ? (
+                    serviceKnowledgeRows.map((row) => {
+                      const draft = serviceKnowledgeDrafts[row.id] ?? {
+                        tema: row.tema,
+                        keywordsText: row.keywordsText,
+                        informacion: row.informacion,
+                        prioridad: row.prioridad,
+                        activo: row.activo,
+                      };
+                      const isSaving = serviceKnowledgeSavingId === row.id;
+                      const readOnly = row.source !== "database";
+                      return (
+                        <div key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-zinc-300">ID {row.id}</span>
+                            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-zinc-300">
+                              {row.source === "database" ? "Base de datos" : "Legacy fallback"}
+                            </span>
+                          </div>
+                          <div className="space-y-3">
+                            <input
+                              value={draft.tema}
+                              onChange={(e) =>
+                                setServiceKnowledgeDrafts((prev) => ({
+                                  ...prev,
+                                  [row.id]: { ...draft, tema: e.target.value },
+                                }))
+                              }
+                              readOnly={readOnly}
+                              className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none read-only:opacity-70 focus:border-cyan-400/40"
+                            />
+                            <input
+                              value={draft.keywordsText}
+                              onChange={(e) =>
+                                setServiceKnowledgeDrafts((prev) => ({
+                                  ...prev,
+                                  [row.id]: { ...draft, keywordsText: e.target.value },
+                                }))
+                              }
+                              readOnly={readOnly}
+                              className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none read-only:opacity-70 focus:border-cyan-400/40"
+                            />
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <input
+                                type="number"
+                                value={draft.prioridad}
+                                onChange={(e) =>
+                                  setServiceKnowledgeDrafts((prev) => ({
+                                    ...prev,
+                                    [row.id]: { ...draft, prioridad: Number(e.target.value || "100") || 100 },
+                                  }))
+                                }
+                                readOnly={readOnly}
+                                className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none read-only:opacity-70 focus:border-cyan-400/40"
+                              />
+                              <label className="flex h-11 items-center gap-3 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-zinc-200">
+                                <input
+                                  type="checkbox"
+                                  checked={draft.activo}
+                                  onChange={(e) =>
+                                    setServiceKnowledgeDrafts((prev) => ({
+                                      ...prev,
+                                      [row.id]: { ...draft, activo: e.target.checked },
+                                    }))
+                                  }
+                                  disabled={readOnly}
+                                />
+                                Activo
+                              </label>
+                            </div>
+                            <textarea
+                              value={draft.informacion}
+                              onChange={(e) =>
+                                setServiceKnowledgeDrafts((prev) => ({
+                                  ...prev,
+                                  [row.id]: { ...draft, informacion: e.target.value },
+                                }))
+                              }
+                              readOnly={readOnly}
+                              rows={7}
+                              className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none read-only:opacity-70 focus:border-cyan-400/40"
+                            />
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                type="button"
+                                onClick={() => void handleSaveServiceKnowledge(row.id)}
+                                disabled={readOnly || isSaving}
+                                className="inline-flex h-10 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isSaving ? "Guardando..." : "Guardar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteServiceKnowledge(row.id)}
+                                disabled={readOnly || isSaving}
+                                className="inline-flex h-10 items-center rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-sm text-zinc-400">
+                      No hay conocimiento estructurado cargado para este país todavía.
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={handleSaveServiceContent}
-                disabled={serviceLoading || serviceSaving}
-                className="inline-flex h-11 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {serviceSaving ? "Guardando..." : "Guardar configuración de Servicio Técnico"}
-              </button>
-              <div className="text-xs text-zinc-500">Aquí gestionas el bloque estático de entrada y el conocimiento libre adicional usado por la IA.</div>
             </div>
           </div>
         )}

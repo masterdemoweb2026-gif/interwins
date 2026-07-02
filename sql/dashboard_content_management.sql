@@ -87,3 +87,30 @@ Si necesitas ayuda más personalizada en Uruguay, solicita el servicio técnico 
     ''
   )
 on conflict (section_key, country) do nothing;
+
+create table if not exists public.assistant_service_knowledge (
+  id bigint generated always as identity primary key,
+  country text not null check (country in ('CL', 'UY')),
+  tema text not null,
+  palabras_clave text[] not null default '{}',
+  informacion text not null default '',
+  prioridad integer not null default 100,
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists assistant_service_knowledge_country_priority_idx
+  on public.assistant_service_knowledge (country, activo, prioridad, id);
+
+insert into public.assistant_service_knowledge (country, tema, palabras_clave, informacion, prioridad, activo)
+select
+  'CL',
+  coalesce(st.tema, 'Sin tema'),
+  coalesce(st.palabras_clave, '{}'),
+  coalesce(st.informacion, ''),
+  100,
+  true
+from public.servicio_tecnico st
+where coalesce(st.tema, '') <> ''
+on conflict do nothing;
