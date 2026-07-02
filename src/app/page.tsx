@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import ContentManagementPanel from "./_components/ContentManagementPanel";
+
 type DashboardRequest = {
   id: string;
   source: "cotizaciones" | "uy_leads";
@@ -425,6 +427,8 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        <ContentManagementPanel />
       </main>
     </div>
   );

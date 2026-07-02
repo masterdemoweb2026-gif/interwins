@@ -1851,7 +1851,9 @@ function buildMainMenuEntryIntro(action: MainMenuAction, country: Country) {
     return options[crypto.randomInt(0, options.length)]!;
   }
   if (action === "servicio_tecnico") {
-    return "Claro, vamos con Servicio Técnico. Indícame el equipo o la situación y te ayudo a revisarla.";
+    return country === "UY"
+      ? "Claro, vamos con Servicio Técnico en Uruguay. Indícame el equipo o la situación y te ayudo a revisarla."
+      : "Claro, vamos con Servicio Técnico. Indícame el equipo o la situación y te ayudo a revisarla.";
   }
   if (action === "puntos_venta") {
     const options = [
@@ -2359,6 +2361,44 @@ function loadUyProjectsData() {
 
 function loadUyServicioTecnicoText() {
   return readLocalTextFile(path.join("instructivo", "uruguay", "servicio_tecnico.txt")).trim();
+}
+
+type ManagedSectionKey = "proyectos" | "servicio_tecnico";
+
+function getDefaultProjectsOpeningText() {
+  return [
+    "En Interwins diseñamos e implementamos proyectos tecnológicos bajo la metodología SOEM, respaldados por más de 50 implementaciones exitosas en Chile y Uruguay.",
+    "",
+    "Nos especializamos en soluciones para operaciones críticas, ayudando a tu empresa a:",
+    "",
+    "- Garantizar la continuidad operativa mediante contratos de soporte dedicados.",
+    "- Aumentar la seguridad de tu personal en terreno.",
+    "- Optimizar la eficiencia productiva de toda la organización.",
+    "",
+    "¿Quieres implementar o mejorar tu sistema de comunicación?",
+  ].join("\n");
+}
+
+async function loadManagedSectionContent(section: ManagedSectionKey, country: Country) {
+  const defaultOpeningText = section === "proyectos" ? getDefaultProjectsOpeningText() : country === "UY" ? buildServicioTecnicoInfoMessageUY() : buildServicioTecnicoInfoMessage();
+  const defaultKnowledgeText =
+    section === "proyectos"
+      ? country === "UY"
+        ? loadUyProjectsData().bankText
+        : ""
+      : country === "UY"
+        ? loadUyServicioTecnicoText()
+        : "";
+  const q = `assistant_section_content?select=opening_text,knowledge_text&limit=1&section_key=eq.${section}&country=eq.${country}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) {
+    return { openingText: defaultOpeningText, knowledgeText: defaultKnowledgeText };
+  }
+  const row = (res.data as unknown[])[0];
+  return {
+    openingText: toTrimmedString(getRecordValue(row, "opening_text")) || defaultOpeningText,
+    knowledgeText: toTrimmedString(getRecordValue(row, "knowledge_text")) || defaultKnowledgeText,
+  };
 }
 
 function loadCambiumData() {
@@ -3827,13 +3867,22 @@ async function buildCatalogAdviceReply(args: {
   return [...(parts.length ? parts : [adviceText || ""]), ...(hasFooterAlready ? [] : [footer])].filter((x) => String(x).trim());
 }
 
-async function listProjects(offset: number) {
-  const q = `proyectos?select=id,titulo&order=id.asc&limit=5&offset=${offset}`;
+async function listProjectsByCountry(country: Country, offset: number) {
+  const q = `proyectos?select=id,titulo&order=id.asc&limit=5&offset=${offset}&country=eq.${country}`;
   const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({ id: Number(getRecordValue(r, "id")), titulo: toTrimmedString(getRecordValue(r, "titulo")) }))
-    .filter((r) => Number.isFinite(r.id) && r.titulo);
+  if (res.ok && Array.isArray(res.data)) {
+    return (res.data as unknown[])
+      .map((r) => ({ id: Number(getRecordValue(r, "id")), titulo: toTrimmedString(getRecordValue(r, "titulo")) }))
+      .filter((r) => Number.isFinite(r.id) && r.titulo);
+  }
+  if (country === "CL") {
+    const fallback = await supabaseFetch(`proyectos?select=id,titulo&order=id.asc&limit=5&offset=${offset}`, { method: "GET" });
+    if (!fallback.ok || !Array.isArray(fallback.data)) return [];
+    return (fallback.data as unknown[])
+      .map((r) => ({ id: Number(getRecordValue(r, "id")), titulo: toTrimmedString(getRecordValue(r, "titulo")) }))
+      .filter((r) => Number.isFinite(r.id) && r.titulo);
+  }
+  return loadUyProjectsData().projects.slice(offset, offset + 5).map((r) => ({ id: r.id, titulo: r.titulo }));
 }
 
 async function searchDealers(query: string) {
@@ -5827,9 +5876,10 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
   const t = normalizeText(input);
   const wantsDetail = t.includes("detalle") || t.includes("completo") || t.includes("texto completo") || t.includes("ver completo");
   const wantsMoreProjects = t.includes("ver mas proyectos") || t.includes("ver más proyectos");
+  const knowledgeHints = ["certificacion", "certificación", "certificaciones", "enfoque", "banco", "informativo", "capacidad", "soluciones"];
 
   if (state.projects.stage === "entry") {
-    if (!input) return buildProjectsLandingMessage();
+    if (!input) return await buildProjectsLandingMessage("CL");
     const entryChoice = parseProjectsEntryChoice(input);
     if (entryChoice === 3 || isMenuCommand(input)) {
       returnToCasualState(state);
@@ -5839,7 +5889,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
     if (entryChoice === 1 || t.includes("solicit") || t.includes("asesoria") || t.includes("asesoría") || t.includes("formulario") || t.includes("contact")) {
       return await startContactForm(state, userPhone, "cl_proyectos", { intro: getProjectsContactIntro() });
     }
-    if (entryChoice !== 2) return buildProjectsLandingMessage();
+    if (entryChoice !== 2) return await buildProjectsLandingMessage("CL");
     state.projects.stage = "browse";
     state.projects.offset = 0;
     state.projects.lastList = undefined;
@@ -5850,7 +5900,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
   let noMoreProjects = false;
 
   if (wantsDetail && state.projects.reading?.id) {
-    const detail = await loadProjectContent(state.projects.reading.id);
+    const detail = await loadProjectContentByCountry("CL", state.projects.reading.id);
     if (!detail) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
     const chunks = chunkText(detail.plain, 1100);
     return [
@@ -5863,22 +5913,22 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
 
   if (wantsMoreProjects) {
     const nextOffset = state.projects.offset + 5;
-    const nextList = await listProjects(nextOffset);
+    const nextList = await listProjectsByCountry("CL", nextOffset);
     if (nextList.length) {
       state.projects.offset = nextOffset;
       list = nextList;
     } else if (state.projects.offset === 0 && !list.length) {
-      list = await listProjects(0);
+      list = await listProjectsByCountry("CL", 0);
       noMoreProjects = true;
     } else {
       noMoreProjects = true;
     }
   } else if (t.includes("ver mas") || t.includes("ver más")) {
     state.projects.offset += 5;
-    list = await listProjects(state.projects.offset);
+    list = await listProjectsByCountry("CL", state.projects.offset);
   } else {
     if (!list.length) {
-      list = await listProjects(state.projects.offset);
+      list = await listProjectsByCountry("CL", state.projects.offset);
     }
   }
 
@@ -5886,7 +5936,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
   const n = isNumericChoice(t, list.length) ?? extractProjectChoiceFromText(t, list.length);
   if (n) {
     const chosen = list[n - 1];
-    const detail = await loadProjectContent(chosen.id);
+    const detail = await loadProjectContentByCountry("CL", chosen.id);
     if (!detail) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
 
     state.projects.reading = { id: chosen.id, offset: 0 };
@@ -5899,6 +5949,13 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
     messages.push("Para ver otro proyecto, indícame el número (ej: 2) o escribe: proyecto 2.");
     return messages.filter(Boolean);
   }
+  const projectKnowledge = (await loadManagedSectionContent("proyectos", "CL")).knowledgeText;
+  if (knowledgeHints.some((h) => t.includes(normalizeText(h))) && projectKnowledge) {
+    const ai = await minimaxAnswerFromKnowledge({ role: "proyectos", input, knowledgeText: projectKnowledge });
+    if (ai) return [ai, "", getProjectsCtaText()].join("\n");
+    const clipped = projectKnowledge.length > 1400 ? `${projectKnowledge.slice(0, 1400).trim()}...` : projectKnowledge;
+    return [clipped, "", getProjectsCtaText()].join("\n");
+  }
   if (!list.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
 
   if (noMoreProjects) {
@@ -5909,16 +5966,29 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
   return ["Estos son algunos proyectos:", "", lines, "", getProjectsNaturalGuidanceText(), "", getProjectsMenuReminderText()].join("\n");
 }
 
-async function loadProjectContent(id: number) {
-  const q = `proyectos?select=id,titulo,contenido&limit=1&id=eq.${id}`;
+async function loadProjectContentByCountry(country: Country, id: number) {
+  const q = `proyectos?select=id,titulo,contenido&limit=1&id=eq.${id}&country=eq.${country}`;
   const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return null;
-  const row = (res.data as unknown[])[0];
-  if (!row) return null;
-  const titulo = toTrimmedString(getRecordValue(row, "titulo"));
-  const contenido = toTrimmedString(getRecordValue(row, "contenido"));
-  const plain = htmlToParagraphText(contenido);
-  return { id, titulo, plain };
+  if (res.ok && Array.isArray(res.data)) {
+    const row = (res.data as unknown[])[0];
+    if (row) {
+      const titulo = toTrimmedString(getRecordValue(row, "titulo"));
+      const contenido = toTrimmedString(getRecordValue(row, "contenido"));
+      return { id, titulo, plain: htmlToParagraphText(contenido) };
+    }
+  }
+  if (country === "CL") {
+    const fallback = await supabaseFetch(`proyectos?select=id,titulo,contenido&limit=1&id=eq.${id}`, { method: "GET" });
+    if (!fallback.ok || !Array.isArray(fallback.data)) return null;
+    const row = (fallback.data as unknown[])[0];
+    if (!row) return null;
+    const titulo = toTrimmedString(getRecordValue(row, "titulo"));
+    const contenido = toTrimmedString(getRecordValue(row, "contenido"));
+    return { id, titulo, plain: htmlToParagraphText(contenido) };
+  }
+  const project = loadUyProjectsData().projects.find((item) => item.id === id);
+  if (!project) return null;
+  return { id, titulo: project.titulo, plain: project.contenido };
 }
 
 function isFormLockActive(state: UserState) {
@@ -5952,8 +6022,9 @@ function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormSta
     case "cl_dealer":
       return getDealerZoneLabel(data);
     case "cl_servicio_tecnico":
-    case "uy_servicio_tecnico":
       return data?.subtipo ? `Servicio técnico - ${data.subtipo}` : "Servicio técnico";
+    case "uy_servicio_tecnico":
+      return data?.subtipo ? `Servicio técnico Uruguay - ${data.subtipo}` : "Servicio técnico Uruguay";
   }
 }
 
@@ -5970,7 +6041,7 @@ function getContactFormStartIntro(kind: ContactFormKind) {
     case "uy_proyectos":
       return "Muy bien. Armemos tu solicitud de asesoría en proyectos.";
     case "uy_servicio_tecnico":
-      return "Muy bien. Armemos tu solicitud de servicio técnico.";
+      return "Muy bien. Armemos tu solicitud de servicio técnico para Uruguay.";
   }
 }
 
@@ -5984,8 +6055,9 @@ function getContactFormReviewTitle(kind: ContactFormKind, data?: ContactFormStat
     case "cl_dealer":
       return `Muy bien. Este es el resumen de tu solicitud de ${getContactFormRequestLabel(kind, data)}:`;
     case "cl_servicio_tecnico":
-    case "uy_servicio_tecnico":
       return "Muy bien. Este es el resumen de tu solicitud de servicio técnico:";
+    case "uy_servicio_tecnico":
+      return "Muy bien. Este es el resumen de tu solicitud de servicio técnico para Uruguay:";
   }
 }
 
@@ -5999,8 +6071,9 @@ function getContactFormSuccessMessage(kind: ContactFormKind, data?: ContactFormS
     case "cl_dealer":
       return `✅ Tu solicitud de ${getContactFormRequestLabel(kind, data)} fue enviada correctamente. Te contactaremos a la brevedad.`;
     case "cl_servicio_tecnico":
-    case "uy_servicio_tecnico":
       return `✅ Tu solicitud de ${getContactFormRequestLabel(kind, data)} fue enviada correctamente. Te contactaremos a la brevedad.`;
+    case "uy_servicio_tecnico":
+      return `✅ Tu solicitud de ${getContactFormRequestLabel(kind, data)} fue enviada correctamente. Nuestro equipo en Uruguay te contactará a la brevedad.`;
   }
 }
 
@@ -6016,17 +6089,10 @@ function getProjectsMenuReminderText() {
   return "Recuerda que puedes volver a tu menu de opciones cuando lo desees.";
 }
 
-function buildProjectsLandingMessage() {
+async function buildProjectsLandingMessage(country: Country) {
+  const content = await loadManagedSectionContent("proyectos", country);
   return [
-    "En Interwins diseñamos e implementamos proyectos tecnológicos bajo la metodología SOEM, respaldados por más de 50 implementaciones exitosas en Chile y Uruguay.",
-    "",
-    "Nos especializamos en soluciones para operaciones críticas, ayudando a tu empresa a:",
-    "",
-    "- Garantizar la continuidad operativa mediante contratos de soporte dedicados.",
-    "- Aumentar la seguridad de tu personal en terreno.",
-    "- Optimizar la eficiencia productiva de toda la organización.",
-    "",
-    "¿Quieres implementar o mejorar tu sistema de comunicación?",
+    content.openingText,
     "",
     "1) Sí, quiero mejorar mi sistema",
     "2) Conocer Proyectos",
@@ -6051,14 +6117,6 @@ function getProjectsContactIntro() {
   return "Déjanos tu nombre, empresa y teléfono. Nuestro equipo de ingenieros te contactará a la brevedad para brindarte una asesoría experta y personalizada.";
 }
 
-function getServiceCtaText() {
-  return "Si quieres ingresar una solicitud, escribe: Solicitar Servicio Técnico.";
-}
-
-function getDealerCtaText() {
-  return "Si quieres ingresar una solicitud, escribe: Contactar Dealer.";
-}
-
 function getNaturalMenuReminderText() {
   return "Recuerda que puedes volver a tu menu de opciones cuando lo desees.";
 }
@@ -6081,35 +6139,73 @@ function buildServicioTecnicoInfoMessage() {
     "📞 Mesa Central: +56 2 3263 5550",
     "📞 SAM: +56 2 3263 5551",
     "",
-    getServiceNaturalGuidanceText(),
+    getServiceNaturalGuidanceText("CL"),
   ].join("\n");
 }
 
-function buildServicioTecnicoMenu() {
+function buildServicioTecnicoInfoMessageUY() {
   return [
-    "Solicitar Servicio:",
-    "1. Mantención Preventiva",
-    "2. Reparación (radios y equipos)",
-    "3. Conversar con el sistema",
-    "4. Volver al Menú",
-  ].join("\n");
-}
-
-function buildServicioTecnicoLandingMessage() {
-  return [buildServicioTecnicoInfoMessage(), "", buildServicioTecnicoMenu()].join("\n");
-}
-
-function buildServicioTecnicoChatIntro() {
-  return [
-    "Muy bien. Ya puedes conversar con el sistema.",
-    "Cuéntame el equipo, modelo o la situación y te ayudo a revisarla.",
+    "🔧 Servicio Técnico Autorizado Motorola",
+    "Contamos con un equipo profesional altamente capacitado y certificado para servicio técnico en Uruguay.",
     "",
-    "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.",
+    "🛠️ Mantención preventiva",
+    "Optimice la durabilidad de sus equipos y mejore la comunicación mediante mantenimientos preventivos anuales que incluyen ajustes de frecuencia y sensibilidad.",
+    "",
+    "🧰 Reparación (radios y equipos)",
+    "Recupere la funcionalidad de sus radios con repuestos y accesorios originales. Nuestros especialistas utilizan herramientas de vanguardia y tecnología Motorola en la reparación.",
+    "",
+    "⚙️ Servicios adicionales",
+    "- Instalaciones de licencias",
+    "- Ajuste de parámetros",
+    "- Garantía Motorola Solutions",
+    "",
+    getServiceNaturalGuidanceText("UY"),
   ].join("\n");
 }
 
-function buildServicioTecnicoChatFooter() {
-  return "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.";
+function buildServicioTecnicoMenu(country: Country = "CL") {
+  return country === "UY"
+    ? [
+        "Solicitar Asistencia:",
+        "1. Mantención Preventiva",
+        "2. Reparación (radios y equipos)",
+        "3. Consultar al sistema",
+        "4. Volver al Menú",
+      ].join("\n")
+    : [
+        "Solicitar Servicio:",
+        "1. Mantención Preventiva",
+        "2. Reparación (radios y equipos)",
+        "3. Conversar con el sistema",
+        "4. Volver al Menú",
+      ].join("\n");
+}
+
+async function buildServicioTecnicoLandingMessage(country: Country = "CL") {
+  const content = await loadManagedSectionContent("servicio_tecnico", country);
+  return [content.openingText, "", buildServicioTecnicoMenu(country)].join("\n");
+}
+
+function buildServicioTecnicoChatIntro(country: Country = "CL") {
+  return country === "UY"
+    ? [
+        "Muy bien. Ya puedes consultar al sistema de soporte para Uruguay.",
+        "Cuéntame el equipo, modelo o la situación y te ayudo a revisarla.",
+        "",
+        "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.",
+      ].join("\n")
+    : [
+        "Muy bien. Ya puedes conversar con el sistema.",
+        "Cuéntame el equipo, modelo o la situación y te ayudo a revisarla.",
+        "",
+        "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.",
+      ].join("\n");
+}
+
+function buildServicioTecnicoChatFooter(country: Country = "CL") {
+  return country === "UY"
+    ? "Si quieres volver al menú principal en cualquier momento, escribe 4 o Menú."
+    : "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.";
 }
 
 function parseServicioTecnicoChoice(text: string) {
@@ -6128,15 +6224,21 @@ function parseServicioTecnicoChoice(text: string) {
   return null;
 }
 
-function getServicioTecnicoFormOptions(state: UserState, requestType?: "mantencion_preventiva" | "reparacion") {
+function getServicioTecnicoFormOptions(state: UserState, country: Country, requestType?: "mantencion_preventiva" | "reparacion") {
   const producto = state.serviceTech?.lastProducto || "";
   const subtipo = getServicioTecnicoSubtypeLabel(requestType);
   const intro =
-    requestType === "mantencion_preventiva"
-      ? "Muy bien. Armemos tu solicitud de Mantención preventiva."
-      : requestType === "reparacion"
-        ? "Muy bien. Armemos tu solicitud de Reparación (radios y equipos)."
-        : "Muy bien. Armemos tu solicitud de servicio técnico.";
+    country === "UY"
+      ? requestType === "mantencion_preventiva"
+        ? "Muy bien. Armemos tu solicitud de Mantención preventiva para Uruguay."
+        : requestType === "reparacion"
+          ? "Muy bien. Armemos tu solicitud de Reparación (radios y equipos) para Uruguay."
+          : "Muy bien. Armemos tu solicitud de servicio técnico para Uruguay."
+      : requestType === "mantencion_preventiva"
+        ? "Muy bien. Armemos tu solicitud de Mantención preventiva."
+        : requestType === "reparacion"
+          ? "Muy bien. Armemos tu solicitud de Reparación (radios y equipos)."
+          : "Muy bien. Armemos tu solicitud de servicio técnico.";
   return {
     intro,
     presetData: {
@@ -6146,8 +6248,10 @@ function getServicioTecnicoFormOptions(state: UserState, requestType?: "mantenci
   };
 }
 
-function getServiceNaturalGuidanceText() {
-  return "Si necesitas ayuda mas personalizada con tu caso, solo debes solicitar el servicio tecnico y te derivamos al formulario de contacto.";
+function getServiceNaturalGuidanceText(country: Country = "CL") {
+  return country === "UY"
+    ? "Si necesitas ayuda más personalizada en Uruguay, solicita el servicio técnico y te derivamos al formulario de contacto."
+    : "Si necesitas ayuda mas personalizada con tu caso, solo debes solicitar el servicio tecnico y te derivamos al formulario de contacto.";
 }
 
 function getDealerNaturalGuidanceText() {
@@ -6176,8 +6280,9 @@ function getContactFormMessagePrompt(kind: ContactFormKind) {
     case "cl_dealer":
       return "¿Qué necesitas del dealer de tu región? (mensaje)";
     case "cl_servicio_tecnico":
-    case "uy_servicio_tecnico":
       return "¿Qué problema o solicitud tienes? (mensaje)";
+    case "uy_servicio_tecnico":
+      return "¿Qué problema o solicitud tienes en Uruguay? (mensaje)";
   }
 }
 
@@ -6584,8 +6689,11 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
 async function handleProjectsUY(state: UserState, text: string, userPhone: string): Promise<Reply> {
   const input = text.trim();
   const t = normalizeText(input);
+  const wantsDetail = t.includes("detalle") || t.includes("completo") || t.includes("texto completo") || t.includes("ver completo");
+  const wantsMoreProjects = t.includes("ver mas proyectos") || t.includes("ver más proyectos");
+  const knowledgeHints = ["certificacion", "certificación", "certificaciones", "enfoque", "banco", "informativo", "capacidad", "soluciones"];
   if (state.projects.stage === "entry") {
-    if (!input) return buildProjectsLandingMessage();
+    if (!input) return await buildProjectsLandingMessage("UY");
     const entryChoice = parseProjectsEntryChoice(input);
     if (entryChoice === 3 || isMenuCommand(input)) {
       returnToCasualState(state);
@@ -6595,94 +6703,212 @@ async function handleProjectsUY(state: UserState, text: string, userPhone: strin
     if (entryChoice === 1 || t.includes("solicit") || t.includes("asesoria") || t.includes("asesoría") || t.includes("formulario") || t.includes("contact")) {
       return await startContactForm(state, userPhone, "uy_proyectos", { intro: getProjectsContactIntro() });
     }
-    if (entryChoice !== 2) return buildProjectsLandingMessage();
+    if (entryChoice !== 2) return await buildProjectsLandingMessage("UY");
     state.projects.stage = "browse";
+    state.projects.offset = 0;
+    state.projects.lastList = undefined;
     state.projects.reading = undefined;
   }
 
-  const { projects, bankText } = loadUyProjectsData();
-  state.projects.lastList = projects.map((p) => ({ id: p.id, titulo: p.titulo }));
+  let list = state.projects.lastList ?? [];
+  let noMoreProjects = false;
 
-  const wantsDetail = t.includes("detalle") || t.includes("completo") || t.includes("texto completo");
   if (wantsDetail && state.projects.reading?.id) {
-    const found = projects.find((p) => p.id === state.projects.reading?.id);
-    if (!found) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
-    const chunks = chunkText(found.contenido, 1100);
+    const detail = await loadProjectContentByCountry("UY", state.projects.reading.id);
+    if (!detail) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
+    const chunks = chunkText(detail.plain, 1100);
     return [
-      `*${found.titulo}*`,
+      `*${detail.titulo}*`,
       ...(chunks.length ? chunks : ["Descripción no disponible."]),
       getProjectsCtaText(),
       "Para ver otro proyecto, indícame el número o escribe Menú.",
     ].filter(Boolean);
   }
 
-  const n = isNumericChoice(t, projects.length) ?? extractProjectChoiceFromText(t, projects.length);
+  if (wantsMoreProjects) {
+    const nextOffset = state.projects.offset + 5;
+    const nextList = await listProjectsByCountry("UY", nextOffset);
+    if (nextList.length) {
+      state.projects.offset = nextOffset;
+      list = nextList;
+    } else if (state.projects.offset === 0 && !list.length) {
+      list = await listProjectsByCountry("UY", 0);
+      noMoreProjects = true;
+    } else {
+      noMoreProjects = true;
+    }
+  } else if (t.includes("ver mas") || t.includes("ver más")) {
+    state.projects.offset += 5;
+    list = await listProjectsByCountry("UY", state.projects.offset);
+  } else if (!list.length) {
+    list = await listProjectsByCountry("UY", state.projects.offset);
+  }
+
+  state.projects.lastList = list;
+  const n = isNumericChoice(t, list.length) ?? extractProjectChoiceFromText(t, list.length);
   if (n) {
-    const chosen = projects[n - 1];
+    const chosen = list[n - 1];
     if (!chosen) return "Elige un número válido o escribe Menú.";
     state.projects.reading = { id: chosen.id, offset: 0 };
-    const resumen = summarizeProject(chosen.contenido, 900);
+    const detail = await loadProjectContentByCountry("UY", chosen.id);
+    if (!detail) return "No pude cargar ese proyecto. Elige otro número o escribe Menú.";
+    const resumen = summarizeProject(detail.plain, 900);
     const messages: string[] = [`*${chosen.titulo}*`];
     if (resumen) messages.push(resumen);
     messages.push("Si quieres que te envíe el detalle completo, dime: Detalle.");
     messages.push(getProjectsCtaText());
+    messages.push("Para ver otro proyecto, indícame el número (ej: 2) o escribe: proyecto 2.");
     return messages.filter(Boolean);
   }
 
-  const bankHints = ["certificacion", "certificación", "certificaciones", "enfoque", "banco", "informativo", "capacidad", "soluciones"];
-  if (bankHints.some((h) => t.includes(normalizeText(h))) && bankText) {
-    const ai = await minimaxAnswerFromKnowledge({ role: "proyectos", input, knowledgeText: bankText });
+  const projectKnowledge = (await loadManagedSectionContent("proyectos", "UY")).knowledgeText || loadUyProjectsData().bankText;
+  if (knowledgeHints.some((h) => t.includes(normalizeText(h))) && projectKnowledge) {
+    const ai = await minimaxAnswerFromKnowledge({ role: "proyectos", input, knowledgeText: projectKnowledge });
     if (ai) return [ai, "", getProjectsCtaText()].join("\n");
-    const clipped = bankText.length > 1400 ? `${bankText.slice(0, 1400).trim()}...` : bankText;
+    const clipped = projectKnowledge.length > 1400 ? `${projectKnowledge.slice(0, 1400).trim()}...` : projectKnowledge;
     return [clipped, "", getProjectsCtaText()].join("\n");
   }
 
-  if (!projects.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
-  const lines = projects.map((p, i) => `${i + 1}) ${p.titulo}`).join("\n");
-  return [
-    "Estos son algunos proyectos:",
-    "",
-    lines,
-    "",
-    `Elige un proyecto por número. ${getProjectsCtaText()}`,
-  ].join("\n");
+  if (!list.length) return "Por ahora no veo proyectos para mostrar. Responde Menú para volver al inicio.";
+
+  if (noMoreProjects) {
+    return "Por ahora no tengo más proyectos para mostrar. Elige algún proyecto o si quieres regresamos al menú.";
+  }
+
+  const lines = list.map((p, i) => `${i + 1}) ${p.titulo}`).join("\n");
+  return ["Estos son algunos proyectos:", "", lines, "", getProjectsNaturalGuidanceText(), "", getProjectsMenuReminderText()].join("\n");
 }
 
 async function handleServicioTecnicoUY(state: UserState, text: string, userPhone: string): Promise<Reply> {
   const input = text.trim();
-  const t = normalizeText(input);
-  const opening = "🔧 Hola. Indícame tu duda técnica (equipo/modelo y lo que está ocurriendo) y con gusto la revisamos.";
-  if (!input) return `${opening}\n\n${getServiceCtaText()}`;
-
-  if (isServiceTechFormIntent(input)) {
-    const producto = extractLikelyProductModel(input) || state.serviceTech?.lastProducto || "";
-    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy routed to form producto=${producto}` });
-    return await startContactForm(state, userPhone, "uy_servicio_tecnico", producto ? { presetData: { producto } } : undefined);
+  const managedContent = await loadManagedSectionContent("servicio_tecnico", "UY");
+  state.serviceTech ??= {};
+  if (!state.serviceTech.mode) state.serviceTech.mode = "submenu";
+  if (!input) {
+    state.serviceTech.mode = "submenu";
+    return await buildServicioTecnicoLandingMessage("UY");
   }
 
-  state.serviceTech ??= {};
   const detected = extractLikelyProductModel(input);
   if (detected) state.serviceTech.lastProducto = detected;
+  const choice = parseServicioTecnicoChoice(input);
+
+  if (choice === 4) {
+    returnToCasualState(state);
+    markMenuShown(state);
+    return buildMainMenuText(state.country ?? "UY", "return");
+  }
+
+  if (choice === 1 || choice === 2) {
+    const requestType = choice === 1 ? "mantencion_preventiva" : "reparacion";
+    state.serviceTech.requestType = requestType;
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy submenu to form type=${requestType}` });
+    return await startContactForm(state, userPhone, "uy_servicio_tecnico", getServicioTecnicoFormOptions(state, "UY", requestType));
+  }
+
+  if (isServiceTechFormIntent(input)) {
+    inboxAdd({
+      source: "gowa",
+      signatureValid: null,
+      from: userPhone,
+      text: `[DEBUG] service-tech uy routed to form producto=${state.serviceTech.lastProducto || ""} type=${state.serviceTech.requestType ?? ""}`,
+    });
+    return await startContactForm(state, userPhone, "uy_servicio_tecnico", getServicioTecnicoFormOptions(state, "UY", state.serviceTech.requestType));
+  }
+
+  if (choice === 3) {
+    state.serviceTech.mode = "chat";
+    return buildServicioTecnicoChatIntro("UY");
+  }
+
+  if (state.serviceTech.mode !== "chat") state.serviceTech.mode = "chat";
   if (isRepeatedServiceTechQuestion(state, input)) {
     inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy duplicate ignored text=${input}` });
     return "";
   }
 
-  const st = loadUyServicioTecnicoText();
-  const core = st ? (st.length > 2200 ? `${st.slice(0, 2200).trim()}...` : st) : "";
+  const knowledgeText = managedContent.knowledgeText || loadUyServicioTecnicoText();
   const ai = await minimaxServicioTecnicoAnswer({
     input,
-    knowledge: core ? [{ tema: "Servicio técnico (Uruguay)", info: core }] : [],
+    knowledge: knowledgeText ? [{ tema: "Servicio técnico (Uruguay)", info: knowledgeText }] : [],
   });
 
-  const tail = [
-    getServiceNaturalGuidanceText(),
-    "",
-    getNaturalMenuReminderText(),
-  ].join("\n");
+  const footer = buildServicioTecnicoChatFooter("UY");
 
   inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech uy reply generated ai=${Boolean(ai)} model=${state.serviceTech?.lastProducto ?? ""}` });
-  return [ai || opening, "", tail].join("\n");
+  if (!ai) return [managedContent.openingText, "", footer].join("\n");
+
+  const aiNorm = normalizeText(ai);
+  const alreadyHasFooter = aiNorm.includes("4 o menu") || aiNorm.includes("4 o menú") || aiNorm.includes("volver al menu") || aiNorm.includes("volver al menú");
+  return alreadyHasFooter ? ai : [ai, "", footer].join("\n");
+}
+
+async function handleServicioTecnico(state: UserState, text: string, userPhone: string) {
+  const q = text.trim();
+  const managedContent = await loadManagedSectionContent("servicio_tecnico", "CL");
+  state.serviceTech ??= {};
+  if (!state.serviceTech.mode) state.serviceTech.mode = "submenu";
+  if (!q) {
+    state.serviceTech.mode = "submenu";
+    return await buildServicioTecnicoLandingMessage();
+  }
+
+  const detected = extractLikelyProductModel(q);
+  if (detected) state.serviceTech.lastProducto = detected;
+  const choice = parseServicioTecnicoChoice(q);
+
+  if (choice === 4) {
+    returnToCasualState(state);
+    markMenuShown(state);
+    return buildMainMenuText(state.country ?? "CL", "return");
+  }
+
+  if (choice === 1 || choice === 2) {
+    const requestType = choice === 1 ? "mantencion_preventiva" : "reparacion";
+    state.serviceTech.requestType = requestType;
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl submenu to form type=${requestType}` });
+    return await startContactForm(state, userPhone, "cl_servicio_tecnico", getServicioTecnicoFormOptions(state, "CL", requestType));
+  }
+
+  if (isServiceTechFormIntent(q)) {
+    inboxAdd({
+      source: "gowa",
+      signatureValid: null,
+      from: userPhone,
+      text: `[DEBUG] service-tech cl routed to form producto=${state.serviceTech.lastProducto || ""} type=${state.serviceTech.requestType ?? ""}`,
+    });
+    return await startContactForm(state, userPhone, "cl_servicio_tecnico", getServicioTecnicoFormOptions(state, "CL", state.serviceTech.requestType));
+  }
+
+  if (choice === 3) {
+    state.serviceTech.mode = "chat";
+    return buildServicioTecnicoChatIntro("CL");
+  }
+
+  if (state.serviceTech.mode !== "chat") state.serviceTech.mode = "chat";
+  if (isRepeatedServiceTechQuestion(state, q)) {
+    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl duplicate ignored text=${q}` });
+    return "";
+  }
+
+  const hits = (await answerServicioTecnico(q)) ?? [];
+  const knowledge = [
+    ...hits.map((h) => ({ tema: h.tema, info: h.info })),
+    ...(managedContent.knowledgeText ? [{ tema: "Servicio técnico (Chile)", info: managedContent.knowledgeText }] : []),
+  ];
+  const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge });
+  const footer = buildServicioTecnicoChatFooter("CL");
+  if (!ai) return [managedContent.openingText, "", footer].join("\n");
+
+  const aiNorm = normalizeText(ai);
+  const alreadyHasFooter = aiNorm.includes("4 o menu") || aiNorm.includes("4 o menú") || aiNorm.includes("volver al menu") || aiNorm.includes("volver al menú");
+  inboxAdd({
+    source: "gowa",
+    signatureValid: null,
+    from: userPhone,
+    text: `[DEBUG] service-tech cl reply generated ai=${Boolean(ai)} hits=${hits.length} footer=${alreadyHasFooter} model=${state.serviceTech?.lastProducto ?? ""}`,
+  });
+  return alreadyHasFooter ? ai : [ai, "", footer].join("\n");
 }
 
 function matchByNameOrNumber(input: string, list: { name: string }[]) {
@@ -6926,68 +7152,6 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
   ].join("\n");
 }
 
-async function handleServicioTecnico(state: UserState, text: string, userPhone: string) {
-  const q = text.trim();
-  state.serviceTech ??= {};
-  if (!state.serviceTech.mode) state.serviceTech.mode = "submenu";
-  if (!q) {
-    state.serviceTech.mode = "submenu";
-    return buildServicioTecnicoLandingMessage();
-  }
-
-  const detected = extractLikelyProductModel(q);
-  if (detected) state.serviceTech.lastProducto = detected;
-  const choice = parseServicioTecnicoChoice(q);
-
-  if (choice === 4) {
-    returnToCasualState(state);
-    markMenuShown(state);
-    return buildMainMenuText(state.country ?? "CL", "return");
-  }
-
-  if (choice === 1 || choice === 2) {
-    const requestType = choice === 1 ? "mantencion_preventiva" : "reparacion";
-    state.serviceTech.requestType = requestType;
-    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl submenu to form type=${requestType}` });
-    return await startContactForm(state, userPhone, "cl_servicio_tecnico", getServicioTecnicoFormOptions(state, requestType));
-  }
-
-  if (isServiceTechFormIntent(q)) {
-    inboxAdd({
-      source: "gowa",
-      signatureValid: null,
-      from: userPhone,
-      text: `[DEBUG] service-tech cl routed to form producto=${state.serviceTech.lastProducto || ""} type=${state.serviceTech.requestType ?? ""}`,
-    });
-    return await startContactForm(state, userPhone, "cl_servicio_tecnico", getServicioTecnicoFormOptions(state, state.serviceTech.requestType));
-  }
-
-  if (choice === 3) {
-    state.serviceTech.mode = "chat";
-    return buildServicioTecnicoChatIntro();
-  }
-
-  if (state.serviceTech.mode !== "chat") state.serviceTech.mode = "chat";
-  if (isRepeatedServiceTechQuestion(state, q)) {
-    inboxAdd({ source: "gowa", signatureValid: null, from: userPhone, text: `[DEBUG] service-tech cl duplicate ignored text=${q}` });
-    return "";
-  }
-
-  const hits = (await answerServicioTecnico(q)) ?? [];
-  const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge: hits.map((h) => ({ tema: h.tema, info: h.info })) });
-  const footer = buildServicioTecnicoChatFooter();
-  if (!ai) return [buildServicioTecnicoInfoMessage(), "", footer].join("\n");
-
-  const aiNorm = normalizeText(ai);
-  const alreadyHasFooter = aiNorm.includes("4 o menu") || aiNorm.includes("4 o menú") || aiNorm.includes("volver al menu") || aiNorm.includes("volver al menú");
-  inboxAdd({
-    source: "gowa",
-    signatureValid: null,
-    from: userPhone,
-    text: `[DEBUG] service-tech cl reply generated ai=${Boolean(ai)} hits=${hits.length} footer=${alreadyHasFooter} model=${state.serviceTech?.lastProducto ?? ""}`,
-  });
-  return alreadyHasFooter ? ai : [ai, "", footer].join("\n");
-}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
