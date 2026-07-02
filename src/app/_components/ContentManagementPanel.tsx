@@ -120,6 +120,7 @@ export default function ContentManagementPanel() {
   const [serviceKnowledgeRows, setServiceKnowledgeRows] = useState<ServiceKnowledgeRow[]>([]);
   const [serviceKnowledgeLoading, setServiceKnowledgeLoading] = useState(true);
   const [serviceKnowledgeSavingId, setServiceKnowledgeSavingId] = useState<string | null>(null);
+  const [serviceKnowledgeImporting, setServiceKnowledgeImporting] = useState(false);
   const [serviceKnowledgeDrafts, setServiceKnowledgeDrafts] = useState<
     Record<string, { tema: string; keywordsText: string; informacion: string; prioridad: number; activo: boolean }>
   >({});
@@ -483,6 +484,76 @@ export default function ContentManagementPanel() {
     }
   }
 
+  async function handleImportServiceKnowledgeFromText() {
+    const rawText = serviceContent.knowledgeText.trim();
+    if (!rawText) {
+      setServiceError("Primero debes tener contenido en el bloque 'Conocimiento IA libre' para importarlo.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Esta importación solo agregará nuevos registros al conocimiento estructurado. No reemplaza ni elimina nada. ¿Quieres continuar?",
+    );
+    if (!confirmed) return;
+
+    setServiceKnowledgeImporting(true);
+    setServiceError("");
+    try {
+      const res = await fetch("/api/dashboard/service-knowledge/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "import_from_text",
+          country: serviceCountry,
+          rawText,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        rows?: ServiceKnowledgeRow[];
+        importedCount?: number;
+        skippedCount?: number;
+        warning?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.ok) throw new Error(json.error || "No pude importar el conocimiento técnico.");
+
+      const importedRows = json.rows ?? [];
+      if (importedRows.length) {
+        setServiceKnowledgeRows((prev) =>
+          [...prev, ...importedRows]
+            .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
+            .sort((a, b) => a.prioridad - b.prioridad || Number(a.id) - Number(b.id)),
+        );
+        setServiceKnowledgeDrafts((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            importedRows.map((row) => [
+              row.id,
+              {
+                tema: row.tema,
+                keywordsText: row.keywordsText,
+                informacion: row.informacion,
+                prioridad: row.prioridad,
+                activo: row.activo,
+              },
+            ]),
+          ),
+        }));
+      }
+
+      const resultMessage =
+        typeof json.importedCount === "number" || typeof json.skippedCount === "number"
+          ? `Importados: ${json.importedCount ?? 0}. Omitidos por duplicado: ${json.skippedCount ?? 0}.`
+          : "Importación completada.";
+      setServiceWarning([json.warning, resultMessage].filter(Boolean).join(" | "));
+    } catch (err) {
+      setServiceError(String(err));
+    } finally {
+      setServiceKnowledgeImporting(false);
+    }
+  }
+
   return (
     <section className="rounded-[28px] border border-white/10 bg-white/6 p-5 shadow-2xl shadow-black/10 backdrop-blur">
       <div className="flex flex-col gap-5">
@@ -742,6 +813,14 @@ export default function ContentManagementPanel() {
                   className="inline-flex h-11 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {serviceSaving ? "Guardando..." : "Guardar configuración de Servicio Técnico"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportServiceKnowledgeFromText}
+                  disabled={serviceLoading || serviceKnowledgeImporting || !serviceContent.knowledgeText.trim()}
+                  className="inline-flex h-11 items-center rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {serviceKnowledgeImporting ? "Importando..." : "Importar texto libre a conocimiento estructurado"}
                 </button>
                 <div className="text-xs text-zinc-500">Aquí gestionas el bloque estático y una base libre de conocimiento complementario.</div>
               </div>

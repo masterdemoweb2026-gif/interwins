@@ -46,6 +46,16 @@ function toBoolean(value: unknown) {
   return text === "true" || text === "1" || text === "si" || text === "sí";
 }
 
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function supabaseFetch(pathAndQuery: string, init: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {}) {
   const base = getSupabaseUrl();
   const key = getSupabaseKey();
@@ -90,6 +100,55 @@ function pickKnowledgeRow(value: unknown, country: Country, source: "database" |
   };
 }
 
+function sanitizeHeading(line: string) {
+  return line
+    .replace(/^[\-\*\u2022\d\.\)\(]+\s*/g, "")
+    .replace(/^[^\p{L}\p{N}]+/gu, "")
+    .trim();
+}
+
+function buildKeywordsFromText(text: string) {
+  return Array.from(
+    new Set(
+      normalizeText(text)
+        .split(/\s+/g)
+        .filter((token) => token.length >= 4)
+        .slice(0, 12),
+    ),
+  );
+}
+
+function parseKnowledgeBlocks(raw: string) {
+  const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!normalized) return [];
+
+  return normalized
+    .split(/\n\s*\n+/g)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block, index) => {
+      const lines = block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const firstLine = sanitizeHeading(lines[0] ?? "");
+      const restLines = lines.slice(1);
+      const inferredTema =
+        firstLine && firstLine.length <= 90
+          ? firstLine
+          : sanitizeHeading(firstLine.slice(0, 90)) || `Conocimiento ${index + 1}`;
+      const informationLines = firstLine && firstLine.length <= 90 ? restLines : lines;
+      const informacion = informationLines.join("\n").trim() || block;
+      const palabrasClave = buildKeywordsFromText(`${inferredTema} ${informacion}`);
+      return {
+        tema: inferredTema,
+        informacion,
+        palabras_clave: palabrasClave,
+      };
+    })
+    .filter((row) => row.tema && row.informacion);
+}
+
 async function loadLegacyChileKnowledge() {
   const res = await supabaseFetch("servicio_tecnico?select=tema,informacion,palabras_clave&limit=200", { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return [];
@@ -99,6 +158,20 @@ async function loadLegacyChileKnowledge() {
       return { ...base, prioridad: 100 + index };
     })
     .filter((row) => row.tema && row.informacion);
+}
+
+async function loadExistingStructuredKnowledge(country: Country) {
+  const query = [
+    "select=id,tema,informacion,palabras_clave",
+    `country=eq.${country}`,
+    "limit=1000",
+  ].join("&");
+  const res = await supabaseFetch(`assistant_service_knowledge?${query}`, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[]).map((row) => ({
+    tema: toText(asRecord(row).tema),
+    informacion: toText(asRecord(row).informacion),
+  }));
 }
 
 export async function GET(request: Request) {
@@ -148,6 +221,85 @@ export async function POST(request: Request) {
   }
 
   const row = asRecord(body);
+  const action = toText(row.action);
+  if (action === "import_from_text") {
+    const country = normalizeCountry(toText(row.country).toUpperCase());
+    const rawText = toText(row.rawText ?? row.knowledgeText ?? row.text);
+    if (!rawText) {
+      return NextResponse.json({ ok: false, error: "Necesito el texto libre para importar conocimiento técnico." }, { status: 400 });
+    }
+
+    const parsedRows = parseKnowledgeBlocks(rawText);
+    if (!parsedRows.length) {
+      return NextResponse.json({ ok: false, error: "No pude identificar bloques válidos para importar." }, { status: 400 });
+    }
+
+    const existingRows = await loadExistingStructuredKnowledge(country);
+    const existingKeys = new Set(existingRows.map((item) => `${normalizeText(item.tema)}::${normalizeText(item.informacion)}`));
+    const rowsToInsert = parsedRows
+      .filter((item) => {
+        const key = `${normalizeText(item.tema)}::${normalizeText(item.informacion)}`;
+        if (existingKeys.has(key)) return false;
+        existingKeys.add(key);
+        return true;
+      })
+      .map((item, index) => ({
+        country,
+        tema: item.tema,
+        palabras_clave: item.palabras_clave,
+        informacion: item.informacion,
+        prioridad: 300 + index,
+        activo: true,
+      }));
+
+    if (!rowsToInsert.length) {
+      return NextResponse.json(
+        {
+          ok: true,
+          importedCount: 0,
+          skippedCount: parsedRows.length,
+          rows: [],
+          warning: "No se importó nada porque todos los bloques ya existían como conocimiento estructurado.",
+        },
+        { status: 200 },
+      );
+    }
+
+    const importRes = await supabaseFetch("assistant_service_knowledge", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(rowsToInsert),
+    });
+
+    if (!importRes.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "No pude importar el conocimiento técnico. Ejecuta primero el SQL de soporte.",
+          details: importRes.error,
+        },
+        { status: importRes.status || 500 },
+      );
+    }
+
+    const savedRows = Array.isArray(importRes.data)
+      ? importRes.data.map((item) => pickKnowledgeRow(item, country, "database"))
+      : [];
+    return NextResponse.json(
+      {
+        ok: true,
+        rows: savedRows,
+        importedCount: savedRows.length,
+        skippedCount: parsedRows.length - savedRows.length,
+        warning: "",
+      },
+      { status: 200 },
+    );
+  }
+
   const country = normalizeCountry(toText(row.country).toUpperCase());
   const tema = toText(row.tema);
   const informacion = toText(row.informacion);
