@@ -1373,7 +1373,12 @@ function detectQuoteIntent(text: string) {
 function isRentalIntent(text: string) {
   const t = normalizeText(text);
   if (!t) return false;
-  return t.includes("arrend") || t.includes("alquil") || t.includes("renta");
+  return (
+    t.includes("arrend") ||
+    t.includes("arriend") ||
+    t.includes("alquil") ||
+    t.includes("renta")
+  );
 }
 
 function isRentalRequest(state: UserState) {
