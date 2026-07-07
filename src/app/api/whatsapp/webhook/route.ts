@@ -573,6 +573,15 @@ function getMinimaxBaseUrl() {
   return (process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1").replace(/\/+$/, "");
 }
 
+function getMinimaxChatCompletionsUrl() {
+  const baseUrl = getMinimaxBaseUrl();
+  return /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
+}
+
+function getMinimaxModel() {
+  return "DeepSeek V4 Flash";
+}
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -1920,6 +1929,9 @@ async function runMainMenuAction(state: UserState, userKey: string, action: Main
   let reply: Reply = "";
 
   if (action === "arriendo") {
+    if (country === "CL" && isRentalPriceIntent(text)) {
+      return await startRentalPriceLeadFlow(state, userKey);
+    }
     reply = await startArriendoFlow(state, userKey);
     return prependReplyContext(reply, buildMainMenuEntryIntro(action, country));
   }
@@ -2668,7 +2680,7 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
     return args.facts.filter(Boolean).join("\n");
   }
 
-  const baseUrl = getMinimaxBaseUrl();
+  const completionsUrl = getMinimaxChatCompletionsUrl();
   const system = [
     "Eres un asesor humano de ventas y soporte para una empresa chilena de telecomunicaciones y radiocomunicación.",
     "Hablas en español chileno, tono cordial, profesional y claro.",
@@ -2694,14 +2706,14 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
     .filter(Boolean)
     .join("\n");
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await fetch(completionsUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "MiniMax-M2.7",
+      model: getMinimaxModel(),
       messages: [
         { role: "system", content: system },
         { role: "user", content: userParts },
@@ -2749,7 +2761,7 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
   const key = getMinimaxApiKey();
   if (!key) return fallback();
 
-  const baseUrl = getMinimaxBaseUrl();
+  const completionsUrl = getMinimaxChatCompletionsUrl();
   const system = [
     "Eres un asesor humano de soporte técnico para una empresa de radiocomunicación.",
     "Hablas en español chileno, tono cordial, profesional y claro.",
@@ -2781,14 +2793,14 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
   ].join("\n");
 
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetch(completionsUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "MiniMax-M2.7",
+        model: getMinimaxModel(),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -2981,7 +2993,7 @@ async function minimaxCatalogAdvisor(args: {
   const key = getMinimaxApiKey();
   if (!key) return fallback();
 
-  const baseUrl = getMinimaxBaseUrl();
+  const completionsUrl = getMinimaxChatCompletionsUrl();
   const system = [
     "Eres un asesor humano de ventas para una empresa de radiocomunicación.",
     "Hablas en español, tono profesional, claro y cercano.",
@@ -3021,14 +3033,14 @@ async function minimaxCatalogAdvisor(args: {
   ].join("\n");
 
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetch(completionsUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "MiniMax-M2.7",
+        model: getMinimaxModel(),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -3061,7 +3073,7 @@ async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium";
   const key = getMinimaxApiKey();
   if (!key || !knowledgeText) return "";
 
-  const baseUrl = getMinimaxBaseUrl();
+  const completionsUrl = getMinimaxChatCompletionsUrl();
   const systemBase = [
     "Eres un asesor humano para una empresa de telecomunicaciones y radiocomunicación.",
     "Hablas en español, tono cordial, profesional y claro.",
@@ -3089,14 +3101,14 @@ async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium";
   ].join("\n");
 
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetch(completionsUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "MiniMax-M2.7",
+        model: getMinimaxModel(),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -6697,7 +6709,7 @@ async function startContactForm(
     state.contactForm.reviewMode = true;
     const review = await buildContactFormReviewMessage(state);
     const intro = options?.intro?.trim();
-    if (kind === "cl_arriendo_precio") return review;
+    if (kind === "cl_arriendo_precio") return intro ? [intro, "", review].join("\n") : review;
     return intro ? [intro, "", review].join("\n") : review;
   }
 
