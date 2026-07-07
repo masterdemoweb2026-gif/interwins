@@ -7552,12 +7552,11 @@ export async function POST(request: Request) {
           }
         } else
         if (state.activeBranch === "menu") {
-          if (detectQuoteIntent(inboundText)) {
-            reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
-          } else {
           const choice = casualChoice;
           if (choice) {
             reply = await runMainMenuAction(state, userKey, choice, inboundText);
+          } else if (detectQuoteIntent(inboundText)) {
+            reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
             const msg = await minimaxRewrite({
               kind: "fuera_menu",
@@ -7576,7 +7575,6 @@ export async function POST(request: Request) {
                     ],
             });
             reply = msg;
-          }
           }
         } else {
           if (detectQuoteIntent(inboundText) && state.activeBranch !== "catalogo") {
