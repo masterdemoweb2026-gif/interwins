@@ -4177,14 +4177,42 @@ function resolveEmailInput(input: string, country: Country) {
   };
 }
 
-function buildProfileReuseGuidance(hasProfile: boolean, kind: "solicitud" | "cotizacion" | "arriendo" | "cambium") {
-  if (hasProfile) {
-    return "Usaré los datos que ya tengo registrados y solo te pediré lo pendiente. Antes de enviar podrás revisar y editar cualquier dato si lo necesitas.";
+function buildProfileReuseGuidance(
+  profile: CatalogQuote["data"] | null | undefined,
+  kind: "solicitud" | "cotizacion" | "arriendo" | "cambium",
+  nextStep?: CatalogQuoteStep | ContactFormStep,
+) {
+  const hasProfile = Boolean(profile && Object.values(profile).some(Boolean));
+  if (!hasProfile) {
+    if (kind === "arriendo" || kind === "cotizacion") {
+      return "Te pediré solo los datos necesarios y, antes de enviar, podrás revisar todo y editar cualquier dato si lo necesitas.";
+    }
+    return "Te pediré los datos paso a paso. Antes de enviar podrás revisar todo y editar cualquier dato si lo necesitas.";
   }
-  if (kind === "arriendo" || kind === "cotizacion") {
-    return "Te iré pidiendo los datos paso a paso. Antes de enviar podrás revisar todo y editar cualquier dato si lo necesitas.";
+
+  const savedLabels = [
+    profile?.nombre ? "nombre" : "",
+    profile?.telefono ? "teléfono" : "",
+    profile?.email ? "correo" : "",
+    profile?.empresa ? "empresa" : "",
+    profile?.ciudad && profile?.region ? "ciudad y región" : "",
+  ].filter(Boolean);
+
+  const savedSummary =
+    savedLabels.length >= 3
+      ? `${savedLabels.slice(0, -1).join(", ")} y ${savedLabels[savedLabels.length - 1]}`
+      : savedLabels.length === 2
+        ? `${savedLabels[0]} y ${savedLabels[1]}`
+        : savedLabels[0] || "algunos datos";
+
+  if (kind === "arriendo") {
+    if (nextStep === "empresa" && profile?.nombre && profile?.telefono && profile?.email) {
+      return "Ya tengo tu nombre, teléfono y correo. Si quieres, puedes indicarme la empresa o escribir Omitir. Antes de enviar podrás revisar todo.";
+    }
+    return `Ya encontré ${savedSummary} y completaré contigo solo lo que falte. Antes de enviar podrás revisar y editar todo si lo necesitas.`;
   }
-  return "Te pediré los datos paso a paso. Antes de enviar podrás revisar todo y editar cualquier dato si lo necesitas.";
+
+  return `Ya encontré ${savedSummary} y completaré contigo solo lo que falte. Antes de enviar podrás revisar y editar todo si lo necesitas.`;
 }
 
 function normalizeUserKeyFrom(from: string) {
@@ -4384,7 +4412,7 @@ async function startDirectRentalForm(state: UserState, userPhone: string, intent
       ? "Con gusto. Te ayudo con más información sobre arriendo."
       : "Muy bien. Te ayudo con la cotización de arriendo.";
   const prompt = getRentalPromptForStep(next, state.country ?? "CL");
-  return [intro, "", buildProfileReuseGuidance(Boolean(profile), "arriendo"), "", prompt].filter(Boolean).join("\n");
+  return [intro, "", buildProfileReuseGuidance(profile, "arriendo", next), "", prompt].filter(Boolean).join("\n");
 }
 
 async function startCatalogQuoteForm(
@@ -4437,7 +4465,7 @@ async function startCatalogQuoteForm(
       ? "Muy bien. Avancemos con la cotización de arriendo para revisar disponibilidad y tiempos."
       : "Muy bien. Avancemos con la cotización para revisar stock y tiempos de entrega.");
 
-  return [intro, "", buildProfileReuseGuidance(Boolean(profile), isRentalFlow ? "arriendo" : "cotizacion"), "", prompt].filter(Boolean).join("\n");
+  return [intro, "", buildProfileReuseGuidance(profile, isRentalFlow ? "arriendo" : "cotizacion", next), "", prompt].filter(Boolean).join("\n");
 }
 
 function detectQuoteFieldToEdit(text: string): Exclude<CatalogQuoteStep, "final"> | null {
@@ -6660,7 +6688,7 @@ async function startContactForm(
   if (kind === "cl_arriendo_precio") {
     return [intro, getCancelReminderText()].filter(Boolean).join("\n");
   }
-  return [intro, "", buildProfileReuseGuidance(Boolean(profile), "solicitud"), "", getContactFormStepPrompt(next, kind), "", getCancelReminderText()].join("\n");
+  return [intro, "", buildProfileReuseGuidance(profile, "solicitud", next), "", getContactFormStepPrompt(next, kind), "", getCancelReminderText()].join("\n");
 }
 
 async function handleContactForm(state: UserState, text: string, userPhone: string) {
@@ -7130,7 +7158,7 @@ async function handleCambium(state: UserState, text: string, userPhone: string):
       return [
         "📄 Muy bien. Armemos tu solicitud de Cambium.",
         "",
-        buildProfileReuseGuidance(Boolean(profile), "cambium"),
+        buildProfileReuseGuidance(profile, "cambium"),
         "",
         getCambiumStepPrompt(next as Exclude<CambiumQuoteStep, "final">),
         "",
