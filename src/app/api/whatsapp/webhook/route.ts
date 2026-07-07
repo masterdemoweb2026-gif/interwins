@@ -1058,7 +1058,32 @@ function isCatalogPriceRequest(text: string) {
 }
 
 function isRentalPriceIntent(text: string) {
-  return isRentalIntent(text) && isCatalogPriceRequest(text);
+  const t = normalizeText(text);
+  if (!t) return false;
+
+  const commercialHints =
+    isCatalogPriceRequest(t) ||
+    t.includes("tarifa") ||
+    t.includes("tarifas") ||
+    t.includes("costo") ||
+    t.includes("costos") ||
+    t.includes("detalle de precios") ||
+    t.includes("detalle de precio") ||
+    t.includes("detalle del arriendo") ||
+    t.includes("precio del arriendo") ||
+    t.includes("precios del arriendo") ||
+    t.includes("precio de arriendo") ||
+    t.includes("precios de arriendo") ||
+    t.includes("valor del arriendo") ||
+    t.includes("valores del arriendo") ||
+    t.includes("cuanto es el arriendo") ||
+    t.includes("cuánto es el arriendo") ||
+    t.includes("cuanto cuesta arrendar") ||
+    t.includes("cuánto cuesta arrendar") ||
+    t.includes("cuanto sale arrendar") ||
+    t.includes("cuánto sale arrendar");
+
+  return isRentalIntent(t) && commercialHints;
 }
 
 function getArriendoPriceLeadIntro() {
