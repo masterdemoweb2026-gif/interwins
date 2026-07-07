@@ -1057,23 +1057,16 @@ function isCatalogPriceRequest(text: string) {
   );
 }
 
-function buildArriendoPriceInfoMenu() {
+function isRentalPriceIntent(text: string) {
+  return isRentalIntent(text) && isCatalogPriceRequest(text);
+}
+
+function getArriendoPriceLeadIntro() {
   return [
     "¡Hola! Como los valores de nuestros sistemas y equipos varían según la configuración técnica y el alcance, un especialista de nuestra área comercial se encargará de preparar tu cotización.",
     "",
-    "1) Quiero que me contacten",
-    "2) Volver a lista de productos",
-    "3) Volver al Menú",
+    "¿A qué número de teléfono o correo prefieres que te enviemos el detalle de precios? Déjanos tus datos de contacto y te responderemos a la brevedad.",
   ].join("\n");
-}
-
-function parseArriendoPriceInfoChoice(text: string) {
-  const t = normalizeText(text);
-  if (!t) return null;
-  if (t === "1") return 1 as const;
-  if (t === "2") return 2 as const;
-  if (t === "3") return 3 as const;
-  return null;
 }
 
 async function loadProductPriceByCountry(country: Country, productId: string, nombre?: string) {
@@ -1715,8 +1708,26 @@ async function startArriendoFlow(state: UserState, userKey: string) {
   return buildArriendoLandingMessage();
 }
 
+async function startRentalPriceLeadFlow(state: UserState, userPhone: string) {
+  const previous = state.activeBranch;
+  state.activeBranch = "catalogo";
+  resetBranchState(state, previous);
+  resetBranchState(state, "catalogo");
+  state.catalog.requestKind = "arriendo";
+  state.catalog.filters.modalidad = "Arriendo";
+  state.catalog.arriendoStage = undefined;
+  state.catalog.optionalCompanyHandled = false;
+  state.catalog.arriendoPriceMenuActive = undefined;
+  return await startContactForm(state, userPhone, "cl_arriendo_precio", {
+    intro: getArriendoPriceLeadIntro(),
+  });
+}
+
 async function startCatalogIntentFlow(state: UserState, userKey: string, text: string) {
   const country = state.country ?? "CL";
+  if (country === "CL" && isRentalPriceIntent(text)) {
+    return await startRentalPriceLeadFlow(state, userKey);
+  }
   if (country === "CL" && isRentalIntent(text)) {
     return await startArriendoFlow(state, userKey);
   }
@@ -4859,36 +4870,17 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (rentalRequest) {
     if (state.catalog.arriendoPriceMenuActive) {
-      const choice = parseArriendoPriceInfoChoice(input);
-      if (choice === 1) {
-        state.catalog.arriendoPriceMenuActive = undefined;
-        return await startContactForm(state, userPhone, "cl_arriendo_precio", {
-          intro: "¿A qué número de teléfono o correo prefieres que te enviemos el detalle de precios? Déjanos tus datos de contacto y te responderemos a la brevedad.",
-        });
-      }
-      if (choice === 2) {
-        state.catalog.arriendoPriceMenuActive = undefined;
-        const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
-        state.catalog.selectedProductId = undefined;
-        state.catalog.returnList = undefined;
-        if (sourceList?.length) {
-          state.catalog.lastList = sourceList;
-          return buildProductsListMessage(sourceList, "Motorola DP250");
-        }
-        return "Perfecto. Indícame el nombre del producto o dime qué tipo de equipo necesitas y te muestro opciones.";
-      }
-      if (choice === 3) {
-        state.catalog.arriendoPriceMenuActive = undefined;
-        returnToCasualState(state);
-        markMenuShown(state);
-        return buildMainMenuText(state.country ?? "CL", "return");
-      }
-      return buildArriendoPriceInfoMenu();
+      state.catalog.arriendoPriceMenuActive = undefined;
+      return await startContactForm(state, userPhone, "cl_arriendo_precio", {
+        intro: getArriendoPriceLeadIntro(),
+      });
     }
 
     if (isCatalogPriceRequest(input)) {
-      state.catalog.arriendoPriceMenuActive = true;
-      return buildArriendoPriceInfoMenu();
+      state.catalog.arriendoPriceMenuActive = undefined;
+      return await startContactForm(state, userPhone, "cl_arriendo_precio", {
+        intro: getArriendoPriceLeadIntro(),
+      });
     }
   }
 
@@ -6099,7 +6091,7 @@ function getContactFormStartIntro(kind: ContactFormKind) {
     case "cl_proyectos":
       return "Muy bien. Armemos tu solicitud de asesoría en proyectos.";
     case "cl_arriendo_precio":
-      return "Muy bien. Armemos tu solicitud para enviarte el detalle de precios de arriendo.";
+      return getArriendoPriceLeadIntro();
     case "cl_dealer":
       return "Muy bien. Armemos tu solicitud para que un dealer de tu región te contacte.";
     case "cl_servicio_tecnico":
