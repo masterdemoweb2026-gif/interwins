@@ -3633,18 +3633,31 @@ async function buildCatalogAdviceFollowUpReply(args: {
 
   if (!details.length) return "";
 
+  const preface = `Perfecto. Consideraré ${args.usageContext} para orientarte mejor.`;
+  const footer = `Si quieres ver la ficha completa, indícame el número (${args.referencedNumbers?.length ? args.referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
+
+  if (args.mode === "compare") {
+    const comparison = buildCatalogComparisonReply({
+      country: args.country,
+      requestKind: args.requestKind,
+      max,
+      selectedNumbers: args.referencedNumbers ?? [],
+      products: details,
+    });
+    return [preface, "", ...comparison, "", footer].filter(Boolean).join("\n");
+  }
+
   const augmentedInput = `${args.input}\nContexto adicional del cliente: ${args.usageContext}.`;
   const advice = await minimaxCatalogAdvisor({
     input: augmentedInput,
     country: args.country,
     requestKind: args.requestKind,
     products: details,
-    mode: args.mode,
+    mode: "recommend",
   });
-  const footer = `Si quieres ver el detalle completo, indícame el número (${args.referencedNumbers?.length ? args.referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
   const adviceText = String(advice || "").trim();
-  const preface = `Perfecto. Entonces lo consideraré para ${args.usageContext}.`;
-  const hasFooterAlready = normalizeText(adviceText).includes(normalizeText(footer).slice(0, 24));
+  const footerSignal = "si quieres ver la ficha completa";
+  const hasFooterAlready = normalizeText(adviceText).includes(footerSignal);
   return [preface, "", adviceText, ...(hasFooterAlready ? [] : ["", footer])].filter(Boolean).join("\n");
 }
 
@@ -4624,34 +4637,30 @@ function buildCatalogComparisonReply(args: {
   products: ProductDetail[];
 }) {
   const picked = args.products.slice(0, 3);
-  const intro = "🆚 Diferencias principales entre estos modelos";
+  const intro = "Revisé los modelos que estás viendo y estas son las diferencias más relevantes:";
   const blocks = picked.map((p, idx) => {
     const n = idx + 1;
     const name = cleanProductName(p.nombre);
     const price = formatFriendlyPrice(p.precio ?? "", args.country);
     const tags = extractCatalogComparisonTags(p);
     const summary = summarizeForComparison(p);
-    const tagLine = tags.length ? `- Enfoque: ${tags.join(" · ")}` : "";
+    const tagLine = tags.length ? `- Perfil técnico: ${tags.join(" · ")}` : "";
     return [
-      `*${n}) ${name}*`,
-      price || "💰 Precio referencial: Por confirmar",
+      `${n}) ${name}`,
+      price ? `- ${price.replace(/^💰\s*/, "")}` : "- Precio referencial: Por confirmar",
       tagLine,
-      `- Resumen: ${summary}`,
+      `- Lo principal: ${summary}`,
     ]
       .filter(Boolean)
       .join("\n");
   });
   const diffLines = buildCatalogComparisonDiffLines(picked);
   const guidance = [
-    "📌 Lectura rápida:",
+    "Lectura rápida:",
     ...diffLines,
-    "Si quieres afinar la recomendación, puedo hacerlo con un solo dato: indícame si el uso será en terreno, vehículo o base fija.",
+    "Si quieres afinar la recomendación, basta con un dato: indícame si el uso será en terreno, vehículo o base fija.",
   ].join("\n");
-
-  const range = args.selectedNumbers.length ? args.selectedNumbers.join(", ") : `1–${args.max}`;
-  const next = `Para ver la ficha completa, indícame el número (${range}) o el nombre del producto.`;
-
-  return [[intro, "", ...blocks].join("\n"), [guidance, "", next].join("\n")].filter((x) => x.trim());
+  return [[intro, "", ...blocks].join("\n"), guidance].filter((x) => x.trim());
 }
 
 async function buildCatalogAdviceReply(args: {
@@ -4729,7 +4738,9 @@ async function buildCatalogAdviceReply(args: {
   const footer = `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
   const adviceText = String(advice || "").trim();
   const parts = splitForWhatsapp(adviceText, 650, 4);
-  const hasFooterAlready = normalizeText(adviceText).includes(normalizeText(footer).slice(0, 24));
+  const footerSignal = "si quieres ver el detalle completo";
+  const hasFooterAlready =
+    normalizeText(adviceText).includes(footerSignal) || parts.some((part) => normalizeText(String(part)).includes(footerSignal));
   return [...(parts.length ? parts : [adviceText || ""]), ...(hasFooterAlready ? [] : [footer])].filter((x) => String(x).trim());
 }
 
