@@ -436,6 +436,15 @@ type CatalogState = {
     rejectedIds: string[];
     currentId?: string;
   };
+  leadContext?: Partial<{
+    quantity: number;
+    brand: string;
+    location: string;
+    categoryKey: "equipos_radio" | "accesorio_radio" | "camara_corporal";
+    portabilidadHint: "portatil" | "movil" | "repetidor";
+    frequencyBand: "VHF" | "UHF";
+    technologyHint: "DIGITAL" | "ANALOGO";
+  }>;
 };
 
 type ProjectsState = {
@@ -726,6 +735,73 @@ function isPuntosVentaIntentNormalized(normalizedText: string) {
   return false;
 }
 
+function isLocationSupportIntent(text: string, country: Country) {
+  if (country === "UY") return false;
+  const t = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return false;
+  return (
+    t.includes("donde estan") ||
+    t.includes("donde queda") ||
+    t.includes("ubicados") ||
+    t.includes("ubicacion") ||
+    t.includes("direccion") ||
+    t.includes("direcciones") ||
+    t.includes("atienden en") ||
+    t.includes("atienden cerca") ||
+    t.includes("punto de venta") ||
+    t.includes("puntos de venta") ||
+    t.includes("sucursal") ||
+    t.includes("sucursales")
+  );
+}
+
+function extractUnsupportedCommercialProduct(text: string) {
+  const t = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return "";
+  const hasCommercialContext =
+    detectQuoteIntent(text) ||
+    isRentalIntent(text) ||
+    t.includes("venden") ||
+    t.includes("vende") ||
+    t.includes("tienen") ||
+    t.includes("ofrecen") ||
+    t.includes("manejan") ||
+    t.includes("comercializan") ||
+    t.includes("busco") ||
+    t.includes("necesito") ||
+    t.includes("quiero");
+  if (!hasCommercialContext) return "";
+  const supportedHints = ["radio", "radios", "repetidor", "repetidores", "accesorio", "accesorios", "camara corporal", "bodycam"];
+  if (supportedHints.some((hint) => t.includes(hint))) return "";
+  const unsupportedGroups = [
+    { label: "teléfonos celulares", terms: ["celular", "celulares", "telefono celular", "telefonos celulares", "smartphone", "smartphones", "iphone"] },
+    { label: "tablets", terms: ["tablet", "tablets", "ipad"] },
+    { label: "notebooks o laptops", terms: ["notebook", "notebooks", "laptop", "laptops"] },
+  ];
+  for (const group of unsupportedGroups) {
+    if (group.terms.some((term) => t.includes(normalizeText(term)))) return group.label;
+  }
+  return "";
+}
+
+function buildUnsupportedCommercialReply(country: Country, productLabel: string) {
+  const focus =
+    country === "UY"
+      ? "Nuestro portafolio en Uruguay está enfocado en radiocomunicación profesional, servicio técnico, proyectos y soluciones Cambium."
+      : "Nuestro catálogo está enfocado en soluciones de radiocomunicación profesional, como radios portátiles, móviles, repetidores, accesorios, cámaras corporales y servicios asociados.";
+  const guidance =
+    country === "UY"
+      ? "Si quieres, puedo ayudarte con compra de equipos, servicio técnico, proyectos o soluciones Cambium."
+      : "Si quieres, puedo ayudarte con compra o arriendo de equipos, servicio técnico, proyectos o puntos de venta.";
+  return [`Actualmente no comercializamos ${productLabel}.`, focus, guidance].join("\n");
+}
+
 function extractLocationQuery(text: string) {
   const raw = text.trim();
   if (!raw) return "";
@@ -831,13 +907,46 @@ function matchPendingOption(input: string, options: CatalogPendingOption[]) {
   return { value: best.value, ambiguous: false };
 }
 
+function escapeRegexLiteral(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const CHOICE_NUMBER_WORDS: Record<number, string[]> = {
+  1: ["uno", "primero", "primera"],
+  2: ["dos", "segundo", "segunda"],
+  3: ["tres", "tercero", "tercera"],
+  4: ["cuatro", "cuarto", "cuarta"],
+  5: ["cinco", "quinto", "quinta"],
+  6: ["seis", "sexto", "sexta"],
+  7: ["siete", "septimo", "septima"],
+  8: ["ocho", "octavo", "octava"],
+};
+
 function extractChoiceNumberFromText(text: string, max: number) {
   if (!text) return null as number | null;
-  const m = normalizeText(text).match(/\b(\d{1,2})\b/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n) || n < 1 || n > max) return null;
-  return n;
+  const normalized = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+  const m = normalized.match(/\b(\d{1,2})\b/);
+  if (m) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n >= 1 && n <= max) return n;
+  }
+  const hasSelectionContext =
+    /(?:^| )(?:opcion|numero|nro|alternativa|elijo|escojo|escogo|selecciono|seleccion|prefiero|quiero|voy con|me interesa|tomo|la)(?: |$)/.test(
+      normalized,
+    ) || normalized.split(" ").length <= 2;
+  if (!hasSelectionContext) return null;
+  for (let choice = 1; choice <= max; choice += 1) {
+    const words = CHOICE_NUMBER_WORDS[choice] ?? [];
+    if (!words.length) continue;
+    if (words.some((word) => normalized === word)) return choice;
+    const wordPattern = words.map(escapeRegexLiteral).join("|");
+    if (new RegExp(`\\b(?:${wordPattern})\\b`).test(normalized)) return choice;
+  }
+  return null;
 }
 
 const CATALOG_MAX_LIST_ITEMS = 8;
@@ -1366,7 +1475,7 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
   const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
   const mentionsProjects = isProjectsIntentNormalized(t);
   const mentionsCambium = t.includes("cambium") || t.includes("cnmaestro") || t.includes("epmp") || t.includes("radioenlace") || t.includes("radioenlaces");
-  const mentionsPoints = country !== "UY" && isPuntosVentaIntentNormalized(t);
+  const mentionsPoints = country !== "UY" && (isPuntosVentaIntentNormalized(t) || isLocationSupportIntent(text, country));
 
   if (mentionsCatalog) return { branch: "catalogo", wantsMenu };
   if (mentionsServicio) return { branch: "servicio_tecnico", wantsMenu };
@@ -1587,6 +1696,46 @@ async function listDistinctTipoProductoByModalidad(country: Country, modalidad: 
 
 type SuggestedCatalogTypeKey = "equipos_radio" | "accesorio_radio" | "camara_corporal";
 
+type CatalogEntityHints = Partial<{
+  quantity: number;
+  brand: string;
+  location: string;
+  categoryKey: SuggestedCatalogTypeKey;
+  portabilidadHint: "portatil" | "movil" | "repetidor";
+  frequencyBand: "VHF" | "UHF";
+  technologyHint: "DIGITAL" | "ANALOGO";
+}>;
+
+const COMMERCIAL_BRANDS = ["motorola", "hytera", "kenwood", "icom", "vertex", "cambium", "avigilon", "videobadge", "videotag"] as const;
+const QUANTITY_WORD_VALUES: Record<string, number> = {
+  un: 1,
+  una: 1,
+  uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+  once: 11,
+  doce: 12,
+  trece: 13,
+  catorce: 14,
+  quince: 15,
+  dieciseis: 16,
+  diecisiete: 17,
+  dieciocho: 18,
+  diecinueve: 19,
+  veinte: 20,
+  treinta: 30,
+  cuarenta: 40,
+  cincuenta: 50,
+  cien: 100,
+};
+
 function findBestCatalogTypeByKeywords(tipos: string[], keywords: string[]) {
   const scored = tipos
     .map((tp) => {
@@ -1671,6 +1820,239 @@ async function buildRadioSubtypeOptions(country: Country, filters: CatalogFilter
   return options;
 }
 
+function extractBrandHint(text: string) {
+  const tokens = normalizeText(text)
+    .split(/[^a-z0-9]+/g)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const hit = tokens.find((token) => COMMERCIAL_BRANDS.includes(token as (typeof COMMERCIAL_BRANDS)[number]));
+  return hit ? hit.charAt(0).toUpperCase() + hit.slice(1) : "";
+}
+
+function extractQuantityHint(text: string) {
+  const normalized = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null as number | null;
+  const direct = normalized.match(/\b(\d{1,3})\s+(?:equipos?|radios?|unidades?|repetidores?|accesorios?|camaras?|cámaras?)\b/);
+  if (direct?.[1]) {
+    const n = Number(direct[1]);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  const wordMatch = normalized.match(
+    /\b(un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieciseis|diecisiete|dieciocho|diecinueve|veinte|treinta|cuarenta|cincuenta|cien)\s+(?:equipos?|radios?|unidades?|repetidores?|accesorios?|camaras?|cámaras?)\b/,
+  );
+  if (!wordMatch?.[1]) return null;
+  const value = QUANTITY_WORD_VALUES[wordMatch[1]];
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function extractLocationHint(text: string) {
+  const parsed = parseCityRegionInput(text);
+  if (parsed?.ciudad && parsed?.region) return `${parsed.ciudad}, ${parsed.region}`;
+  const normalized = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+  const stop = new Set([
+    "un",
+    "una",
+    "el",
+    "la",
+    "los",
+    "las",
+    "interior",
+    "exterior",
+    "faena",
+    "minera",
+    "mineria",
+    "mineriaa",
+    "proyecto",
+    "proyectos",
+    "terreno",
+    "vehiculo",
+    "vehiculos",
+    "base",
+    "radio",
+    "radios",
+    "equipo",
+    "equipos",
+    "repetidor",
+    "repetidores",
+  ]);
+  const matches = Array.from(normalized.matchAll(/\ben\s+([a-z0-9]+(?:\s+[a-z0-9]+){0,2})\b/g));
+  for (const match of matches) {
+    const candidate = String(match[1] ?? "").trim();
+    if (!candidate) continue;
+    const words = candidate.split(" ").filter(Boolean);
+    if (!words.length) continue;
+    if (stop.has(words[0] ?? "")) continue;
+    if (words.every((word) => stop.has(word))) continue;
+    return words.map((word) => (word.length <= 2 ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1))).join(" ");
+  }
+  return "";
+}
+
+function detectCatalogCategoryHint(text: string): SuggestedCatalogTypeKey | null {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t.includes("camara corporal") || t.includes("cámara corporal") || t.includes("bodycam") || t.includes("videobadge") || t.includes("videotag")) {
+    return "camara_corporal";
+  }
+  if (
+    t.includes("accesorio") ||
+    t.includes("accesorios") ||
+    t.includes("bateria") ||
+    t.includes("batería") ||
+    t.includes("antena") ||
+    t.includes("cargador") ||
+    t.includes("auricular") ||
+    t.includes("microfono") ||
+    t.includes("micrófono")
+  ) {
+    return "accesorio_radio";
+  }
+  if (
+    t.includes("radio") ||
+    t.includes("radios") ||
+    t.includes("repetidor") ||
+    t.includes("repetidores") ||
+    t.includes("handy") ||
+    t.includes("portatil") ||
+    t.includes("portátil") ||
+    t.includes("movil") ||
+    t.includes("móvil")
+  ) {
+    return "equipos_radio";
+  }
+  return null;
+}
+
+function detectPortabilidadHint(text: string): "portatil" | "movil" | "repetidor" | null {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t.includes("repetidor")) return "repetidor";
+  if (t.includes("portatil") || t.includes("portátil") || t.includes("handy")) return "portatil";
+  if (t.includes("movil") || t.includes("móvil") || t.includes("vehiculo") || t.includes("vehículo") || t.includes("base fija") || t.includes("radio base")) {
+    return "movil";
+  }
+  return null;
+}
+
+function detectTechnologyHint(text: string): "DIGITAL" | "ANALOGO" | null {
+  const t = normalizeText(text);
+  if (!t) return null;
+  if (t.includes("digital")) return "DIGITAL";
+  if (t.includes("analogo") || t.includes("análogo") || t.includes("analogico") || t.includes("analógico")) return "ANALOGO";
+  return null;
+}
+
+function extractCatalogEntityHints(text: string): CatalogEntityHints {
+  const input = String(text ?? "").trim();
+  if (!input) return {};
+  return {
+    quantity: extractQuantityHint(input) ?? undefined,
+    brand: extractBrandHint(input) || undefined,
+    location: extractLocationHint(input) || undefined,
+    categoryKey: detectCatalogCategoryHint(input) ?? undefined,
+    portabilidadHint: detectPortabilidadHint(input) ?? undefined,
+    frequencyBand: detectFrequencyBandFromText(input) || undefined,
+    technologyHint: detectTechnologyHint(input) ?? undefined,
+  };
+}
+
+function mergeCatalogLeadContext(current: CatalogState["leadContext"], hints: CatalogEntityHints) {
+  const merged = {
+    ...(current ?? {}),
+    ...(hints.quantity ? { quantity: hints.quantity } : {}),
+    ...(hints.brand ? { brand: hints.brand } : {}),
+    ...(hints.location ? { location: hints.location } : {}),
+    ...(hints.categoryKey ? { categoryKey: hints.categoryKey } : {}),
+    ...(hints.portabilidadHint ? { portabilidadHint: hints.portabilidadHint } : {}),
+    ...(hints.frequencyBand ? { frequencyBand: hints.frequencyBand } : {}),
+    ...(hints.technologyHint ? { technologyHint: hints.technologyHint } : {}),
+  };
+  return Object.keys(merged).length ? merged : undefined;
+}
+
+function buildCatalogLeadContextSummary(context?: CatalogState["leadContext"]) {
+  if (!context) return "";
+  const productText = (() => {
+    const category = context.categoryKey;
+    const subtype = context.portabilidadHint;
+    if (category === "camara_corporal") return context.quantity === 1 ? "cámara corporal" : "cámaras corporales";
+    if (category === "accesorio_radio") return context.quantity === 1 ? "accesorio" : "accesorios";
+    if (subtype === "repetidor") return context.quantity === 1 ? "repetidor" : "repetidores";
+    if (subtype === "portatil") return context.quantity === 1 ? "radio portátil" : "radios portátiles";
+    if (subtype === "movil") return context.quantity === 1 ? "radio móvil" : "radios móviles";
+    if (category === "equipos_radio") return context.quantity === 1 ? "equipo de radio" : "equipos de radio";
+    return context.quantity === 1 ? "equipo" : "equipos";
+  })();
+  const subject = context.quantity ? `${context.quantity} ${productText}` : productText;
+  const details = [
+    context.brand ? `marca ${context.brand}` : "",
+    context.frequencyBand && context.technologyHint
+      ? `${context.frequencyBand} ${context.technologyHint === "DIGITAL" ? "digital" : "analógico"}`
+      : context.frequencyBand || "",
+  ].filter(Boolean);
+  const lead = [`Tomé nota de que buscas ${subject}`, details.length ? `, ${details.join(", ")}` : "", context.location ? ` en ${context.location}` : "", "."].join("");
+  return lead.replace(/\s+,/g, ",").replace(/\s+\./g, ".").trim();
+}
+
+async function applyCatalogEntityHintsToState(
+  state: UserState,
+  country: Country,
+  input: string,
+  options?: { mode?: CatalogRequestKind },
+) {
+  const hints = extractCatalogEntityHints(input);
+  state.catalog.leadContext = mergeCatalogLeadContext(state.catalog.leadContext, hints);
+  let changed = false;
+  const modalidad = state.catalog.filters.modalidad ?? (options?.mode === "arriendo" ? "Arriendo" : options?.mode === "cotizacion" ? "Venta" : undefined);
+
+  if (!state.catalog.filters.tipo_producto && hints.categoryKey) {
+    const suggested = await getSuggestedCatalogTypes(country, modalidad);
+    const selected = suggested.find((item) => item.key === hints.categoryKey);
+    if (selected?.tipo) {
+      state.catalog.filters.tipo_producto = selected.tipo;
+      changed = true;
+    }
+  }
+
+  const currentTipo = state.catalog.filters.tipo_producto;
+  const isRadioType = isRadioEquipmentTipoProducto(currentTipo) || hints.categoryKey === "equipos_radio";
+  if (isRadioType && !state.catalog.filters.portabilidad && hints.portabilidadHint) {
+    const radioOptions = await buildRadioSubtypeOptions(country, state.catalog.filters);
+    const wanted =
+      hints.portabilidadHint === "repetidor"
+        ? "repetidor"
+        : hints.portabilidadHint === "movil"
+          ? "movil"
+          : "portatil";
+    const portabilidad = radioOptions.find((option) => normalizeText(option.value).includes(wanted))?.value;
+    if (portabilidad) {
+      state.catalog.filters.portabilidad = portabilidad;
+      changed = true;
+    }
+  }
+
+  if (isRadioType && !state.catalog.filters.frecuencia && hints.frequencyBand) {
+    state.catalog.filters.frecuencia = hints.frequencyBand;
+    changed = true;
+  }
+  if (isRadioType && !state.catalog.filters.tecnologia && hints.technologyHint) {
+    state.catalog.filters.tecnologia = hints.technologyHint;
+    changed = true;
+  }
+
+  if (changed) {
+    state.catalog.pending = undefined;
+  }
+  return changed;
+}
+
 async function startCatalogFlow(state: UserState, userKey: string, args?: { modalidad?: string; mode?: "cotizar" | "arriendo"; seedText?: string }) {
   const country = state.country ?? "CL";
   const previous = state.activeBranch;
@@ -1684,6 +2066,9 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   state.catalog.arriendoPriceMenuActive = undefined;
   const isRental = args?.mode === "arriendo";
   state.catalog.filters.modalidad = args?.modalidad ?? (isRental ? "Arriendo" : "Venta");
+  if (args?.seedText) {
+    await applyCatalogEntityHintsToState(state, country, args.seedText, { mode: isRental ? "arriendo" : "cotizacion" });
+  }
 
   if (state.catalog.selectedProductId) {
     return country === "UY" ? await handleCatalogUY(state, "cotizar", userKey) : await handleCatalog(state, "cotizar", userKey);
@@ -1717,6 +2102,10 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
     }
   }
 
+  if (state.catalog.filters.tipo_producto) {
+    return country === "UY" ? await handleCatalogUY(state, args?.seedText ?? "", userKey) : await handleCatalog(state, args?.seedText ?? "", userKey);
+  }
+
   return isRental
     ? buildArriendoProductMenuMessage()
     : buildCotizarProductMenuMessage([
@@ -1731,15 +2120,11 @@ async function startCotizarFlow(state: UserState, userKey: string, seedText?: st
 }
 
 async function startArriendoFlow(state: UserState, userKey: string) {
-  const previous = state.activeBranch;
-  state.activeBranch = "catalogo";
-  resetBranchState(state, previous);
-  resetBranchState(state, "catalogo");
-  state.catalog.requestKind = "arriendo";
-  state.catalog.arriendoStage = "product_menu";
-  state.catalog.optionalCompanyHandled = false;
-  state.catalog.arriendoPriceMenuActive = undefined;
-  return buildArriendoLandingMessage();
+  return await startCatalogFlow(state, userKey, { mode: "arriendo" });
+}
+
+async function startArriendoFlowFromText(state: UserState, userKey: string, seedText?: string) {
+  return await startCatalogFlow(state, userKey, { mode: "arriendo", seedText });
 }
 
 async function startRentalPriceLeadFlow(state: UserState, userPhone: string) {
@@ -1752,18 +2137,22 @@ async function startRentalPriceLeadFlow(state: UserState, userPhone: string) {
   state.catalog.arriendoStage = undefined;
   state.catalog.optionalCompanyHandled = false;
   state.catalog.arriendoPriceMenuActive = undefined;
+  const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
   return await startContactForm(state, userPhone, "cl_arriendo_precio", {
-    intro: getArriendoPriceLeadIntro(),
+    intro: contextLine ? [contextLine, "", getArriendoPriceLeadIntro()].join("\n") : getArriendoPriceLeadIntro(),
   });
 }
 
 async function startCatalogIntentFlow(state: UserState, userKey: string, text: string) {
   const country = state.country ?? "CL";
+  if (text) {
+    state.catalog.leadContext = mergeCatalogLeadContext(state.catalog.leadContext, extractCatalogEntityHints(text));
+  }
   if (country === "CL" && isRentalPriceIntent(text)) {
     return await startRentalPriceLeadFlow(state, userKey);
   }
   if (country === "CL" && isRentalIntent(text)) {
-    return await startArriendoFlow(state, userKey);
+    return await startArriendoFlowFromText(state, userKey, text);
   }
   return await startCotizarFlow(state, userKey, text);
 }
@@ -1836,32 +2225,57 @@ function withMainMenu(message: string, state: UserState, country: Country, varia
 
 function parseMenuChoice(text: string, country: Country): Branch | null {
   const t = normalizeText(text);
+  const choice = extractChoiceNumberFromText(text, country === "UY" ? 4 : 5);
+  if (choice === 1) return "catalogo";
+  if (country !== "UY" && choice === 4) return "servicio_tecnico";
+  if (country !== "UY" && choice === 5) return "puntos_venta";
+  if (country === "UY" && choice === 2) return "servicio_tecnico";
+  if (choice === 3) return "proyectos";
+  if (country === "UY" && choice === 4) return "cambium";
   if (t === "1" || t.includes("catalogo") || t.includes("catálogo") || t.includes("cotizar") || t.includes("cotizacion") || t.includes("cotización"))
     return "catalogo";
   if ((country === "UY" && t === "2") || t.includes("servicio") || t.includes("tecnico") || t.includes("técnico")) return "servicio_tecnico";
   if (t === "3" || isProjectsIntentNormalized(t)) return "proyectos";
   if (t === "4") return country === "UY" ? "cambium" : "servicio_tecnico";
-  if (country !== "UY" && (t === "5" || isPuntosVentaIntentNormalized(t))) return "puntos_venta";
+  if (country !== "UY" && (t === "5" || isPuntosVentaIntentNormalized(t) || isLocationSupportIntent(text, country))) return "puntos_venta";
   if (t.includes("cambium") || t.includes("cnmaestro")) return "cambium";
   return null;
 }
 
 type MainMenuAction = Branch | "arriendo";
 
+function isLikelyMainMenuSelectionOnly(text: string, country: Country) {
+  const t = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return false;
+  if (/^\d+$/.test(t)) return true;
+  const max = country === "UY" ? 4 : 5;
+  const exactLabels =
+    country === "UY"
+      ? ["comprar equipos o accesorios", "venta", "servicio tecnico", "proyectos", "asesoria en proyectos", "cambium", "soluciones cambium networks"]
+      : ["comprar equipos o accesorios", "venta", "arriendo", "arrendar equipos de radiocomunicacion", "proyectos", "asesoria en proyectos", "servicio tecnico", "direcciones y puntos de venta", "puntos de venta"];
+  if (exactLabels.includes(t)) return true;
+  const choice = extractChoiceNumberFromText(text, max);
+  return Boolean(choice && t.split(" ").length <= 5);
+}
+
 function parseMainMenuAction(text: string, country: Country): MainMenuAction | null {
   const t = normalizeText(text);
+  const choice = extractChoiceNumberFromText(text, country === "UY" ? 4 : 5);
   if (country !== "UY") {
-    if (t === "1") return "catalogo";
-    if (t === "2") return "arriendo";
-    if (t === "3") return "proyectos";
-    if (t === "4") return "servicio_tecnico";
-    if (t === "5") return "puntos_venta";
+    if (choice === 1 || t === "1") return "catalogo";
+    if (choice === 2 || t === "2") return "arriendo";
+    if (choice === 3 || t === "3") return "proyectos";
+    if (choice === 4 || t === "4") return "servicio_tecnico";
+    if (choice === 5 || t === "5") return "puntos_venta";
     if (isRentalIntent(text)) return "arriendo";
   } else {
-    if (t === "1") return "catalogo";
-    if (t === "2") return "servicio_tecnico";
-    if (t === "3") return "proyectos";
-    if (t === "4") return "cambium";
+    if (choice === 1 || t === "1") return "catalogo";
+    if (choice === 2 || t === "2") return "servicio_tecnico";
+    if (choice === 3 || t === "3") return "proyectos";
+    if (choice === 4 || t === "4") return "cambium";
   }
   return parseMenuChoice(text, country) ?? classifyFreeText(text, country);
 }
@@ -1927,6 +2341,7 @@ function buildMainMenuEntryIntro(action: MainMenuAction, country: Country) {
 async function runMainMenuAction(state: UserState, userKey: string, action: MainMenuAction, text: string): Promise<Reply> {
   const country = state.country ?? "CL";
   let reply: Reply = "";
+  const forwardInput = isLikelyMainMenuSelectionOnly(text, country) ? "" : text;
 
   if (action === "arriendo") {
     if (country === "CL" && isRentalPriceIntent(text)) {
@@ -1956,14 +2371,14 @@ async function runMainMenuAction(state: UserState, userKey: string, action: Main
       t.includes("venta)");
     reply = await startCatalogIntentFlow(state, userKey, looksLikeMainMenuChoice ? "" : text);
   } else if (action === "servicio_tecnico") {
-    const stInput = shouldUseServiceTechOpeningPrompt(text) ? "" : text;
+    const stInput = !forwardInput || shouldUseServiceTechOpeningPrompt(text) ? "" : text;
     reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
   } else if (action === "proyectos") {
-    reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
+    reply = country === "UY" ? await handleProjectsUY(state, forwardInput, userKey) : await handleProjects(state, forwardInput, userKey);
   } else if (action === "cambium") {
-    reply = await handleCambium(state, "", userKey);
+    reply = await handleCambium(state, forwardInput, userKey);
   } else if (action === "puntos_venta") {
-    reply = await handlePoints(state, "", userKey);
+    reply = await handlePoints(state, forwardInput, userKey);
   } else {
     markMenuShown(state);
     reply = buildMainMenuText(country, "return");
@@ -2031,7 +2446,7 @@ function classifyFreeText(text: string, country: Country): Branch | null {
   ];
 
   if (country !== "UY") {
-    if (isPuntosVentaIntentNormalized(t)) return "puntos_venta";
+    if (isPuntosVentaIntentNormalized(t) || isLocationSupportIntent(text, country)) return "puntos_venta";
     if (pointsHints.some((h) => t.includes(normalizeText(h)))) return "puntos_venta";
   }
 
@@ -2086,8 +2501,7 @@ function cleanProductName(rawName: string) {
     }
   }
   const tokens = name.split(" ").filter(Boolean);
-  const brands = ["motorola", "hytera", "kenwood", "icom", "vertex", "cambium", "avigilon", "videobadge", "videotag"];
-  const idx = tokens.findIndex((t) => brands.includes(normalizeText(t)));
+  const idx = tokens.findIndex((t) => COMMERCIAL_BRANDS.includes(normalizeText(t) as (typeof COMMERCIAL_BRANDS)[number]));
   if (idx > 0) {
     name = tokens.slice(idx).join(" ");
   }
@@ -4452,7 +4866,9 @@ async function startDirectRentalForm(state: UserState, userPhone: string, intent
 
   if (next === "final") {
     state.catalog.reviewMode = "arriendo";
-    return await buildArriendoProfileReviewMessage(state);
+    const review = await buildArriendoProfileReviewMessage(state);
+    const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
+    return contextLine ? [contextLine, "", review].join("\n") : review;
   }
 
   const intro =
@@ -4460,7 +4876,8 @@ async function startDirectRentalForm(state: UserState, userPhone: string, intent
       ? "Con gusto. Te ayudo con más información sobre arriendo."
       : "Muy bien. Te ayudo con la cotización de arriendo.";
   const prompt = getRentalPromptForStep(next, state.country ?? "CL");
-  return [intro, "", buildProfileReuseGuidance(profile, "arriendo", next), "", prompt].filter(Boolean).join("\n");
+  const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
+  return [intro, contextLine ? `\n${contextLine}` : "", "", buildProfileReuseGuidance(profile, "arriendo", next), "", prompt].filter(Boolean).join("\n");
 }
 
 async function startCatalogQuoteForm(
@@ -4483,11 +4900,15 @@ async function startCatalogQuoteForm(
 
   if (isRentalFlow && profile && next === "final") {
     state.catalog.reviewMode = "arriendo";
-    return await buildArriendoProfileReviewMessage(state);
+    const review = await buildArriendoProfileReviewMessage(state);
+    const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
+    return contextLine ? [contextLine, "", review].join("\n") : review;
   }
   if (!isRentalFlow && profile && next === "final") {
     state.catalog.reviewMode = "cotizacion";
-    return await buildCotizacionProfileReviewMessage(state);
+    const review = await buildCotizacionProfileReviewMessage(state);
+    const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
+    return contextLine ? [contextLine, "", review].join("\n") : review;
   }
   if (next === "final") {
     return await completeCatalogQuote(state, userPhone, options?.intro ?? "");
@@ -4512,8 +4933,10 @@ async function startCatalogQuoteForm(
     (isRentalFlow
       ? "Muy bien. Avancemos con la cotización de arriendo para revisar disponibilidad y tiempos."
       : "Muy bien. Avancemos con la cotización para revisar stock y tiempos de entrega.");
-
-  return [intro, "", buildProfileReuseGuidance(profile, isRentalFlow ? "arriendo" : "cotizacion", next), "", prompt].filter(Boolean).join("\n");
+  const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
+  return [intro, contextLine ? `\n${contextLine}` : "", "", buildProfileReuseGuidance(profile, isRentalFlow ? "arriendo" : "cotizacion", next), "", prompt]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function detectQuoteFieldToEdit(text: string): Exclude<CatalogQuoteStep, "final"> | null {
@@ -4785,6 +5208,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   const t = normalizeText(input);
   let selectedPendingOption: CatalogPendingOption | null = null;
   const rentalRequest = isRentalRequest(state);
+  const unsupportedCommercialProduct = extractUnsupportedCommercialProduct(input);
 
   if (state.catalog.status === "wait_finish_cotizacion") {
     if (t.includes("cancel")) {
@@ -4946,6 +5370,22 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
           { label: "🎧 Accesorios", value: "accesorios" },
           { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
         ]);
+  }
+
+  if (unsupportedCommercialProduct) {
+    return [
+      buildUnsupportedCommercialReply("CL", unsupportedCommercialProduct),
+      "",
+      ...buildCotizarProductMenuMessage([
+        { label: "📻 Equipos Radio", value: "equipos-radio" },
+        { label: "🎧 Accesorios", value: "accesorios" },
+        { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
+      ]),
+    ].join("\n");
+  }
+
+  if (!state.catalog.quote && !state.catalog.pending && !state.catalog.selectedProductId && input) {
+    await applyCatalogEntityHintsToState(state, "CL", input, { mode: rentalRequest ? "arriendo" : "cotizacion" });
   }
 
   if (!state.catalog.quote) {
@@ -5474,6 +5914,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   const input = text.trim();
   const t = normalizeText(input);
   let selectedPendingOption: CatalogPendingOption | null = null;
+  const unsupportedCommercialProduct = extractUnsupportedCommercialProduct(input);
 
   if (state.catalog.status === "wait_finish_cotizacion") {
     if (t.includes("cancel")) {
@@ -5501,6 +5942,22 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       "Perfecto. Volvamos al menú principal para que elijas la opción que necesitas.",
     ][crypto.randomInt(0, 3)];
     return [lead, "", buildMainMenuText(state.country ?? "UY", "return")].join("\n");
+  }
+
+  if (unsupportedCommercialProduct) {
+    return [
+      buildUnsupportedCommercialReply("UY", unsupportedCommercialProduct),
+      "",
+      ...buildCotizarProductMenuMessage([
+        { label: "📻 Equipos Radio", value: "equipos-radio" },
+        { label: "🎧 Accesorios", value: "accesorios" },
+        { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
+      ]),
+    ].join("\n");
+  }
+
+  if (!state.catalog.quote && !state.catalog.pending && !state.catalog.selectedProductId && input) {
+    await applyCatalogEntityHintsToState(state, "UY", input, { mode: "cotizacion" });
   }
 
   if (t.includes("nueva busqueda") || t.includes("nueva búsqueda") || t === "reiniciar") {
@@ -7492,6 +7949,7 @@ export async function POST(request: Request) {
           ? { ...rawBranchIntent, branch: null as Branch | null }
           : rawBranchIntent;
       const casualChoice = parseMainMenuAction(inboundText, country) ?? branchIntent.branch;
+      const unsupportedCommercialProduct = extractUnsupportedCommercialProduct(inboundText);
       const pureGreeting = isGreetingMessage(inboundText);
       const menuShownToday = state.lastMenuDate === todayKey;
 
@@ -7560,13 +8018,13 @@ export async function POST(request: Request) {
               } else if (intent.branch === "catalogo") {
                 reply = await startCatalogIntentFlow(state, userKey, inboundText);
               } else if (intent.branch === "proyectos") {
-                reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
+                reply = country === "UY" ? await handleProjectsUY(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey) : await handleProjects(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
               } else if (intent.branch === "servicio_tecnico") {
                 reply = country === "UY" ? await handleServicioTecnicoUY(state, "", userKey) : await handleServicioTecnico(state, "", userKey);
               } else if (intent.branch === "cambium") {
-                reply = await handleCambium(state, "", userKey);
+                reply = await handleCambium(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
               } else if (intent.branch === "puntos_venta") {
-                reply = await handlePoints(state, "", userKey);
+                reply = await handlePoints(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
               } else {
                 markMenuShown(state);
                 reply = buildMainMenuText(country, "return");
@@ -7594,14 +8052,14 @@ export async function POST(request: Request) {
             } else if (intent.branch === "catalogo") {
               reply = await startCatalogIntentFlow(state, userKey, inboundText);
             } else if (intent.branch === "proyectos") {
-              reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
+              reply = country === "UY" ? await handleProjectsUY(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey) : await handleProjects(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
             } else if (intent.branch === "servicio_tecnico") {
               const stInput = shouldUseServiceTechOpeningPrompt(inboundText) ? "" : inboundText;
               reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
             } else if (intent.branch === "cambium") {
-              reply = await handleCambium(state, "", userKey);
+              reply = await handleCambium(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
             } else if (intent.branch === "puntos_venta") {
-              reply = await handlePoints(state, "", userKey);
+              reply = await handlePoints(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
             } else {
               markMenuShown(state);
               reply = buildMainMenuText(country, "return");
@@ -7617,6 +8075,8 @@ export async function POST(request: Request) {
           const choice = casualChoice;
           if (choice) {
             reply = await runMainMenuAction(state, userKey, choice, inboundText);
+          } else if (unsupportedCommercialProduct) {
+            reply = withMainMenu(buildUnsupportedCommercialReply(country, unsupportedCommercialProduct), state, country, menuShownToday ? "return" : "welcome");
           } else if (detectQuoteIntent(inboundText)) {
             reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
@@ -7662,14 +8122,14 @@ export async function POST(request: Request) {
               } else if (intent.branch === "catalogo") {
                 reply = await startCatalogIntentFlow(state, userKey, inboundText);
               } else if (intent.branch === "proyectos") {
-                reply = country === "UY" ? await handleProjectsUY(state, "", userKey) : await handleProjects(state, "", userKey);
+                reply = country === "UY" ? await handleProjectsUY(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey) : await handleProjects(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
               } else if (intent.branch === "servicio_tecnico") {
                 const stInput = shouldUseServiceTechOpeningPrompt(inboundText) ? "" : inboundText;
                 reply = country === "UY" ? await handleServicioTecnicoUY(state, stInput, userKey) : await handleServicioTecnico(state, stInput, userKey);
               } else if (intent.branch === "cambium") {
-                reply = await handleCambium(state, "", userKey);
+                reply = await handleCambium(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
               } else if (intent.branch === "puntos_venta") {
-                reply = await handlePoints(state, "", userKey);
+                reply = await handlePoints(state, isLikelyMainMenuSelectionOnly(inboundText, country) ? "" : inboundText, userKey);
               } else {
                 markMenuShown(state);
                 reply = buildMainMenuText(country, "return");
