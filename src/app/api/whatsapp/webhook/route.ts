@@ -3635,25 +3635,13 @@ async function buildCatalogAdviceFollowUpReply(args: {
 
   const preface = `Perfecto. Consideraré ${args.usageContext} para orientarte mejor.`;
   const footer = `Si quieres ver la ficha completa, indícame el número (${args.referencedNumbers?.length ? args.referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
-
-  if (args.mode === "compare") {
-    const comparison = buildCatalogComparisonReply({
-      country: args.country,
-      requestKind: args.requestKind,
-      max,
-      selectedNumbers: args.referencedNumbers ?? [],
-      products: details,
-    });
-    return [preface, "", ...comparison, "", footer].filter(Boolean).join("\n");
-  }
-
   const augmentedInput = `${args.input}\nContexto adicional del cliente: ${args.usageContext}.`;
   const advice = await minimaxCatalogAdvisor({
     input: augmentedInput,
     country: args.country,
     requestKind: args.requestKind,
     products: details,
-    mode: "recommend",
+    mode: args.mode,
   });
   const adviceText = String(advice || "").trim();
   const footerSignal = "si quieres ver la ficha completa";
@@ -3790,9 +3778,12 @@ async function minimaxCatalogAdvisor(args: {
     "No inventes características, certificaciones, stock ni precios.",
     "Si hay precio disponible, puedes mencionarlo como precio referencial.",
     "Si el cliente pide recomendación, sugiere 1 o 2 opciones y explica brevemente por qué.",
-    "Si el cliente pide diferencias, compara de forma breve y útil las opciones relevantes.",
+    "Si el cliente pide diferencias, entrega una comparación final redactada como asesor comercial, no como ficha técnica pegada.",
     "Analiza la descripción de cada producto y sintetiza la información; no copies bloques largos ni concatines frases sin procesarlas.",
     "Prioriza en tu respuesta: uso recomendado, capacidades clave y diferencias reales entre modelos.",
+    "Cuando compares, explica en lenguaje natural qué aporta cada modelo y para qué escenario conviene más.",
+    "Evita encabezados rígidos como 'Resumen ejecutivo', 'Perfil técnico', 'Lectura rápida' o listados plantilla salvo que sean realmente necesarios.",
+    "Si la consulta no trae suficiente contexto, al final haz solo una pregunta breve para afinar la recomendación.",
     "No uses tablas ni markdown complejo; la respuesta debe quedar lista para WhatsApp.",
     "No incluyas instrucciones de navegación como 'elige un número' o 'indícame el número'; eso lo agrega el sistema.",
     "Nunca menciones que eres una IA.",
@@ -3819,7 +3810,9 @@ async function minimaxCatalogAdvisor(args: {
     "Productos disponibles:",
     productsBlock,
     "",
-    "Responde en un solo mensaje breve, útil y orientado a decisión.",
+    args.mode === "compare"
+      ? "Responde en un solo mensaje final, natural y útil. Compara solo las diferencias más relevantes entre 2 o 3 modelos, orienta cuál conviene según el escenario y evita repetir texto del catálogo."
+      : "Responde en un solo mensaje breve, útil y orientado a decisión.",
   ].join("\n");
 
   try {
@@ -4823,21 +4816,13 @@ async function buildCatalogAdviceReply(args: {
   }
 
   const isComparison = isCatalogComparisonRequest(args.input);
-  const advice = isComparison
-    ? buildCatalogComparisonReply({
-        country: args.country,
-        requestKind: args.requestKind,
-        max,
-        selectedNumbers: referencedNumbers,
-        products: describedDetails,
-      }).join("\n\n")
-    : await minimaxCatalogAdvisor({
-        input: args.input,
-        country: args.country,
-        requestKind: args.requestKind,
-        products: describedDetails,
-        mode: "recommend",
-      });
+  const advice = await minimaxCatalogAdvisor({
+    input: args.input,
+    country: args.country,
+    requestKind: args.requestKind,
+    products: describedDetails,
+    mode: isComparison ? "compare" : "recommend",
+  });
 
   const footer = `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
   const adviceText = String(advice || "").trim();
