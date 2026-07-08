@@ -758,22 +758,94 @@ function isLocationSupportIntent(text: string, country: Country) {
   );
 }
 
+const SUPPORTED_COMMERCIAL_HINTS = ["radio", "radios", "repetidor", "repetidores", "accesorio", "accesorios", "camara corporal", "bodycam"];
+const COMMERCIAL_ROUTE_HINTS = [
+  "compra",
+  "comprar",
+  "cotizacion",
+  "cotización",
+  "cotizar",
+  "arriendo",
+  "arrendar",
+  "alquilar",
+  "servicio tecnico",
+  "servicio técnico",
+  "soporte",
+  "proyectos",
+  "proyecto",
+  "punto de venta",
+  "puntos de venta",
+  "dealer",
+  "dealers",
+  "direccion",
+  "dirección",
+  "ubicacion",
+  "ubicación",
+  "menu",
+  "menú",
+  "ayuda",
+  "informacion",
+  "información",
+];
+
+function cleanCommercialCandidateLabel(raw: string) {
+  return String(raw ?? "")
+    .trim()
+    .replace(/^[¿?¡!.,;:()\[\]\-_\s]+|[¿?¡!.,;:()\[\]\-_\s]+$/g, "")
+    .replace(/^(?:un|una|unos|unas|el|la|los|las)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeCommercialCandidateLabel(raw: string) {
+  return normalizeText(cleanCommercialCandidateLabel(raw))
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractGenericCommercialProductLabel(text: string) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return "";
+  const normalized = normalizeText(raw)
+    .replace(/[^a-z0-9\s?]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+
+  const patterns = [
+    /^(?:tiene|tienes|tienen|venden|vende|ofrecen|ofrece|manejan|maneja|comercializan|comercializa|hay)\s+(.+?)\??$/,
+    /^(?:trabajan con)\s+(.+?)\??$/,
+    /^(?:quiero saber si\s+(?:tiene|tienes|tienen|venden|vende|ofrecen|ofrece|manejan|maneja|hay))\s+(.+?)\??$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match?.[1]) continue;
+    const label = cleanCommercialCandidateLabel(match[1]);
+    const labelNorm = normalizeCommercialCandidateLabel(label);
+    if (!labelNorm) continue;
+    if (labelNorm.split(" ").length > 4) continue;
+    if (SUPPORTED_COMMERCIAL_HINTS.some((hint) => labelNorm.includes(normalizeText(hint)))) return "";
+    if (COMMERCIAL_ROUTE_HINTS.some((hint) => labelNorm.includes(normalizeText(hint)))) return "";
+    return label;
+  }
+
+  return "";
+}
+
 function extractUnsupportedCommercialProduct(text: string) {
   const t = normalizeText(text)
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!t) return "";
-  const supportedHints = ["radio", "radios", "repetidor", "repetidores", "accesorio", "accesorios", "camara corporal", "bodycam"];
-  if (supportedHints.some((hint) => t.includes(hint))) return "";
+  if (SUPPORTED_COMMERCIAL_HINTS.some((hint) => t.includes(hint))) return "";
   const unsupportedGroups = [
     { label: "teléfonos celulares", terms: ["celular", "celulares", "telefono celular", "telefonos celulares", "smartphone", "smartphones", "iphone"] },
     { label: "tablets", terms: ["tablet", "tablets", "ipad"] },
     { label: "notebooks o laptops", terms: ["notebook", "notebooks", "laptop", "laptops"] },
   ];
-  const label = unsupportedGroups.find((group) => group.terms.some((term) => t.includes(normalizeText(term))))?.label ?? "";
-  if (!label) return "";
-
   const hasCommercialContext =
     detectQuoteIntent(text) ||
     isRentalIntent(text) ||
@@ -804,20 +876,37 @@ function extractUnsupportedCommercialProduct(text: string) {
     t.startsWith("tienen ") ||
     t.startsWith("hay ");
 
-  if (hasCommercialContext || isQuestionLike) return label;
-  return "";
+  if (!(hasCommercialContext || isQuestionLike)) return "";
+
+  const explicitLabel = unsupportedGroups.find((group) => group.terms.some((term) => t.includes(normalizeText(term))))?.label ?? "";
+  if (explicitLabel) return explicitLabel;
+
+  return extractGenericCommercialProductLabel(text);
 }
 
 function buildUnsupportedCommercialReply(country: Country, productLabel: string) {
+  const introOptions =
+    country === "UY"
+      ? [
+          `No, por ahora no trabajamos con ${productLabel}.`,
+          `Actualmente no comercializamos ${productLabel}.`,
+          `En este momento no manejamos ${productLabel}.`,
+        ]
+      : [
+          `No, por ahora no trabajamos con ${productLabel}.`,
+          `Actualmente no comercializamos ${productLabel}.`,
+          `En este momento no manejamos ${productLabel}.`,
+        ];
+  const intro = introOptions[crypto.randomInt(0, introOptions.length)]!;
   const focus =
     country === "UY"
       ? "Nuestro portafolio en Uruguay está enfocado en radiocomunicación profesional, servicio técnico, proyectos y soluciones Cambium."
       : "Nuestro catálogo está enfocado en soluciones de radiocomunicación profesional, como radios portátiles, móviles, repetidores, accesorios, cámaras corporales y servicios asociados.";
   const guidance =
     country === "UY"
-      ? "Si quieres, puedo ayudarte con compra de equipos, servicio técnico, proyectos o soluciones Cambium."
-      : "Si quieres, puedo ayudarte con compra o arriendo de equipos, servicio técnico, proyectos o puntos de venta.";
-  return [`Actualmente no comercializamos ${productLabel}.`, focus, guidance].join("\n");
+      ? "Si quieres, puedo orientarte con compra de equipos, servicio técnico, proyectos o soluciones Cambium."
+      : "Si quieres, puedo orientarte con compra o arriendo de equipos, servicio técnico, proyectos o puntos de venta.";
+  return [intro, focus, guidance].join("\n");
 }
 
 type OpenBusinessOverviewKind = "productos" | "servicios" | "general" | "marca";
