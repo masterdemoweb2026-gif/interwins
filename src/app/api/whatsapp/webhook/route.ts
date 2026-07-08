@@ -445,6 +445,12 @@ type CatalogState = {
     frequencyBand: "VHF" | "UHF";
     technologyHint: "DIGITAL" | "ANALOGO";
   }>;
+  adviceContext?: {
+    mode: "recommend" | "compare";
+    lastInput: string;
+    referencedNumbers?: number[];
+    awaitingUsageContext?: boolean;
+  };
 };
 
 type ProjectsState = {
@@ -3563,6 +3569,85 @@ function isCatalogComparisonRequest(text: string) {
   return t.includes("diferencia") || t.includes("diferencias") || t.includes("compar") || t.includes("versus") || t.includes("vs");
 }
 
+function extractCatalogUsageContext(text: string) {
+  const t = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return "";
+  const signals: string[] = [];
+  if (t.includes("terreno") || t.includes("faena") || t.includes("exterior") || t.includes("campo")) signals.push("uso en terreno/exterior");
+  if (t.includes("interior") || t.includes("urbano") || t.includes("edificio") || t.includes("oficina")) signals.push("uso en interior/urbano");
+  if (t.includes("vehiculo") || t.includes("vehículos") || t.includes("movil") || t.includes("móvil")) signals.push("uso en vehículo");
+  if (t.includes("base fija") || t.includes("base") || t.includes("puesto fijo")) signals.push("uso en base fija");
+  if (t.includes("repetidor") || t.includes("repeticion") || t.includes("repetición") || t.includes("cobertura")) signals.push("uso como repetición/cobertura");
+  if (!signals.length) return "";
+  return Array.from(new Set(signals)).join(", ");
+}
+
+function shouldKeepCatalogAdviceThread(text: string) {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return Boolean(
+    extractCatalogUsageContext(text) ||
+      t.includes("no conozco") ||
+      t.includes("no se cual") ||
+      t.includes("no sé cual") ||
+      t.includes("cual me recomiendas") ||
+      t.includes("cuál me recomiendas") ||
+      t.includes("cual conviene") ||
+      t.includes("cuál conviene") ||
+      t.includes("para terreno") ||
+      t.includes("para vehiculo") ||
+      t.includes("para vehículo") ||
+      t.includes("para base") ||
+      t.includes("para interior") ||
+      t.includes("para exterior")
+  );
+}
+
+async function buildCatalogAdviceFollowUpReply(args: {
+  input: string;
+  country: Country;
+  requestKind?: CatalogRequestKind;
+  list: Array<{ product_id: string; nombre: string }>;
+  mode: "recommend" | "compare";
+  referencedNumbers?: number[];
+  usageContext: string;
+}): Promise<Reply> {
+  const max = Math.min(CATALOG_MAX_LIST_ITEMS, args.list.length);
+  const picked = (args.referencedNumbers?.length
+    ? args.referencedNumbers.map((n) => args.list[n - 1]).filter(Boolean)
+    : args.list.slice(0, Math.min(4, max))) as Array<{ product_id: string; nombre: string }>;
+
+  const details = (
+    await Promise.all(
+      picked.map(async (item) => {
+        if (!item?.product_id) return null;
+        const detail = await loadProductDetailByCountry(args.country, item.product_id);
+        if (detail) return { ...detail, nombre: detail.nombre || item.nombre };
+        return null;
+      }),
+    )
+  ).filter((detail): detail is ProductDetail => Boolean(detail));
+
+  if (!details.length) return "";
+
+  const augmentedInput = `${args.input}\nContexto adicional del cliente: ${args.usageContext}.`;
+  const advice = await minimaxCatalogAdvisor({
+    input: augmentedInput,
+    country: args.country,
+    requestKind: args.requestKind,
+    products: details,
+    mode: args.mode,
+  });
+  const footer = `Si quieres ver el detalle completo, indícame el número (${args.referencedNumbers?.length ? args.referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
+  const adviceText = String(advice || "").trim();
+  const preface = `Perfecto. Entonces lo consideraré para ${args.usageContext}.`;
+  const hasFooterAlready = normalizeText(adviceText).includes(normalizeText(footer).slice(0, 24));
+  return [preface, "", adviceText, ...(hasFooterAlready ? [] : ["", footer])].filter(Boolean).join("\n");
+}
+
 function buildCatalogPendingAdviceReply(args: { country: Country; pending: CatalogPendingOptions }) {
   const n = args.pending.options.length;
   const attr = String(args.pending.attr || "");
@@ -4503,6 +4588,34 @@ function summarizeForComparison(detail: ProductDetail) {
   return raw.length > 170 ? `${raw.slice(0, 167).trim()}...` : raw;
 }
 
+function buildCatalogComparisonDiffLines(products: ProductDetail[]) {
+  const picked = products.slice(0, 3);
+  if (!picked.length) return [] as string[];
+  const items = picked.map((product) => ({
+    name: cleanProductName(product.nombre),
+    tags: extractCatalogComparisonTags(product),
+    summary: summarizeForComparison(product),
+    price: product.precio,
+  }));
+  const diffLines: string[] = [];
+  const uniqueTags = items.map((item, idx) => ({
+    idx,
+    values: item.tags.filter((tag) => items.every((other, otherIdx) => otherIdx === idx || !other.tags.includes(tag))),
+  }));
+
+  for (const item of uniqueTags) {
+    if (!item.values.length) continue;
+    diffLines.push(`- ${items[item.idx]!.name}: destaca por ${item.values.slice(0, 3).join(", ")}.`);
+  }
+
+  if (!diffLines.length && items.length >= 2) {
+    diffLines.push(`- ${items[0]!.name}: ${items[0]!.summary}`);
+    diffLines.push(`- ${items[1]!.name}: ${items[1]!.summary}`);
+  }
+
+  return diffLines.slice(0, 3);
+}
+
 function buildCatalogComparisonReply(args: {
   country: Country;
   requestKind?: CatalogRequestKind;
@@ -4511,7 +4624,7 @@ function buildCatalogComparisonReply(args: {
   products: ProductDetail[];
 }) {
   const picked = args.products.slice(0, 3);
-  const intro = "🆚 Diferencias clave (rápidas)";
+  const intro = "🆚 Diferencias principales entre estos modelos";
   const blocks = picked.map((p, idx) => {
     const n = idx + 1;
     const name = cleanProductName(p.nombre);
@@ -4528,17 +4641,17 @@ function buildCatalogComparisonReply(args: {
       .filter(Boolean)
       .join("\n");
   });
-
-  const questions = [
-    "❓Pregunta rápida para afinar la recomendación:",
-    "- ¿Será para interior/urbano o exterior/abierto?",
-    "- ¿Ya tienes radios (y cuáles modelos) para asegurar compatibilidad?",
+  const diffLines = buildCatalogComparisonDiffLines(picked);
+  const guidance = [
+    "📌 Lectura rápida:",
+    ...diffLines,
+    "Si quieres afinar la recomendación, puedo hacerlo con un solo dato: indícame si el uso será en terreno, vehículo o base fija.",
   ].join("\n");
 
   const range = args.selectedNumbers.length ? args.selectedNumbers.join(", ") : `1–${args.max}`;
   const next = `Para ver la ficha completa, indícame el número (${range}) o el nombre del producto.`;
 
-  return [[intro, "", ...blocks].join("\n"), [questions, "", next].join("\n")].filter((x) => x.trim());
+  return [[intro, "", ...blocks].join("\n"), [guidance, "", next].join("\n")].filter((x) => x.trim());
 }
 
 async function buildCatalogAdviceReply(args: {
@@ -4596,13 +4709,22 @@ async function buildCatalogAdviceReply(args: {
     );
   }
 
-  const advice = await minimaxCatalogAdvisor({
-    input: args.input,
-    country: args.country,
-    requestKind: args.requestKind,
-    products: describedDetails,
-    mode: isCatalogComparisonRequest(args.input) ? "compare" : "recommend",
-  });
+  const isComparison = isCatalogComparisonRequest(args.input);
+  const advice = isComparison
+    ? buildCatalogComparisonReply({
+        country: args.country,
+        requestKind: args.requestKind,
+        max,
+        selectedNumbers: referencedNumbers,
+        products: describedDetails,
+      }).join("\n\n")
+    : await minimaxCatalogAdvisor({
+        input: args.input,
+        country: args.country,
+        requestKind: args.requestKind,
+        products: describedDetails,
+        mode: "recommend",
+      });
 
   const footer = `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
   const adviceText = String(advice || "").trim();
@@ -5994,6 +6116,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
       state.catalog.returnList = undefined;
+      state.catalog.adviceContext = undefined;
       state.catalog.filters = { modalidad: keepRental ? "Arriendo" : "Venta" };
       state.catalog.pending = undefined;
       state.catalog.skipRadioTechFrequency = undefined;
@@ -6010,10 +6133,33 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (state.catalog.lastList && state.catalog.lastList.length) {
     const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
+    const usageContext = extractCatalogUsageContext(input);
+    if (state.catalog.adviceContext?.awaitingUsageContext && usageContext) {
+      const followUp = await buildCatalogAdviceFollowUpReply({
+        input: state.catalog.adviceContext.lastInput,
+        country: "CL",
+        requestKind: state.catalog.requestKind,
+        list: state.catalog.lastList,
+        mode: state.catalog.adviceContext.mode,
+        referencedNumbers: state.catalog.adviceContext.referencedNumbers,
+        usageContext,
+      });
+      if (followUp) {
+        state.catalog.adviceContext.awaitingUsageContext = false;
+        return followUp;
+      }
+    }
     if (isCatalogPriceRequest(input)) {
+      state.catalog.adviceContext = undefined;
       return await buildCatalogPriceListReply({ country: "CL", list: state.catalog.lastList });
     }
     if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
+      state.catalog.adviceContext = {
+        mode: isCatalogComparisonRequest(input) ? "compare" : "recommend",
+        lastInput: input,
+        referencedNumbers: extractReferencedChoiceNumbers(input, max),
+        awaitingUsageContext: true,
+      };
       return await buildCatalogAdviceReply({
         input,
         country: "CL",
@@ -6023,6 +6169,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     }
     const n = isNumericChoice(t, max) ?? extractChoiceNumberFromText(input, max);
     if (n) {
+      state.catalog.adviceContext = undefined;
       const chosen = state.catalog.lastList[n - 1];
       state.catalog.selectedProductId = chosen.product_id;
       const detail = await loadProductDetailByCountry("CL", chosen.product_id);
@@ -6036,6 +6183,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     }));
     const match = matchPendingOption(input, productOptions);
     if (match.value) {
+      state.catalog.adviceContext = undefined;
       state.catalog.selectedProductId = match.value;
       const detail = await loadProductDetailByCountry("CL", match.value);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
@@ -6047,6 +6195,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
+      state.catalog.adviceContext = undefined;
       const strictFound = await queryProductsByName(state.catalog.filters, modelQuery);
       const relaxedFound = strictFound.length
         ? strictFound
@@ -6081,7 +6230,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
           lines,
           "",
           `Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.`,
-          "Si quieres, también puedo recomendarte una alternativa o explicarte las diferencias entre estos modelos.",
+          "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
         ].join("\n");
       }
       return [
@@ -6089,6 +6238,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         `Puedes elegir un número (1–${max}) de la lista o decirme otro modelo.`,
         `También puedes escribir: Nueva búsqueda o Menú.`,
       ].join("\n");
+    }
+
+    if (state.catalog.adviceContext?.awaitingUsageContext && shouldKeepCatalogAdviceThread(input)) {
+      return "Perfecto. Si me indicas si será para terreno, vehículo, base fija, interior o exterior, continúo la recomendación sobre estos mismos modelos.";
     }
 
     return `Indícame el número (1–${max}) o el nombre del producto/modelo (ej: TLK100).`;
@@ -6150,7 +6303,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
           lines,
           "",
           "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre.",
-          "Si quieres, también puedo recomendarte una alternativa o explicarte las diferencias entre estos modelos.",
+          "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
         ].join("\n");
       }
       const menu = await getSuggestedCatalogTypes("CL", state.catalog.filters.modalidad);
@@ -6178,6 +6331,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     : products.slice(0, CATALOG_MAX_LIST_ITEMS);
   state.catalog.lastList = shown;
   state.catalog.returnList = undefined;
+  state.catalog.adviceContext = undefined;
   const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
     `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
@@ -6185,7 +6339,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     lines,
     "",
     "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre (ej: Motorola DP250).",
-    "Si quieres, también puedo recomendarte una alternativa o explicarte las diferencias entre estos modelos.",
+    "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
   ].join("\n");
 }
 
@@ -6479,6 +6633,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       state.catalog.selectedProductId = undefined;
       state.catalog.lastList = undefined;
       state.catalog.returnList = undefined;
+      state.catalog.adviceContext = undefined;
       state.catalog.filters = { modalidad: "Venta" };
       state.catalog.pending = undefined;
       state.catalog.skipRadioTechFrequency = undefined;
@@ -6493,10 +6648,33 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
   if (state.catalog.lastList?.length) {
     const max = Math.min(CATALOG_MAX_LIST_ITEMS, state.catalog.lastList.length);
+    const usageContext = extractCatalogUsageContext(input);
+    if (state.catalog.adviceContext?.awaitingUsageContext && usageContext) {
+      const followUp = await buildCatalogAdviceFollowUpReply({
+        input: state.catalog.adviceContext.lastInput,
+        country: "UY",
+        requestKind: state.catalog.requestKind,
+        list: state.catalog.lastList,
+        mode: state.catalog.adviceContext.mode,
+        referencedNumbers: state.catalog.adviceContext.referencedNumbers,
+        usageContext,
+      });
+      if (followUp) {
+        state.catalog.adviceContext.awaitingUsageContext = false;
+        return followUp;
+      }
+    }
     if (isCatalogPriceRequest(input)) {
+      state.catalog.adviceContext = undefined;
       return await buildCatalogPriceListReply({ country: "UY", list: state.catalog.lastList });
     }
     if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
+      state.catalog.adviceContext = {
+        mode: isCatalogComparisonRequest(input) ? "compare" : "recommend",
+        lastInput: input,
+        referencedNumbers: extractReferencedChoiceNumbers(input, max),
+        awaitingUsageContext: true,
+      };
       return await buildCatalogAdviceReply({
         input,
         country: "UY",
@@ -6506,6 +6684,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     }
     const n = isNumericChoice(t, max) ?? extractChoiceNumberFromText(input, max);
     if (n) {
+      state.catalog.adviceContext = undefined;
       const chosen = state.catalog.lastList[n - 1];
       state.catalog.selectedProductId = chosen.product_id;
       const detail = await loadProductDetailByCountry("UY", chosen.product_id);
@@ -6519,6 +6698,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     }));
     const match = matchPendingOption(input, productOptions);
     if (match.value) {
+      state.catalog.adviceContext = undefined;
       state.catalog.selectedProductId = match.value;
       const detail = await loadProductDetailByCountry("UY", match.value);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
@@ -6530,6 +6710,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
+      state.catalog.adviceContext = undefined;
       const strictFound = await queryProductsByNameUY(state.catalog.filters, modelQuery);
       const relaxedFound = strictFound.length
         ? strictFound
@@ -6564,7 +6745,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
           lines,
           "",
           `Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.`,
-          "Si quieres, también puedo recomendarte una alternativa o explicarte las diferencias entre estos modelos.",
+          "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
         ].join("\n");
       }
       return [
@@ -6572,6 +6753,10 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         `Puedes elegir un número (1–${max}) de la lista o decirme otro modelo.`,
         `También puedes escribir: Nueva búsqueda o Menú.`,
       ].join("\n");
+    }
+
+    if (state.catalog.adviceContext?.awaitingUsageContext && shouldKeepCatalogAdviceThread(input)) {
+      return "Perfecto. Si me indicas si será para terreno, vehículo, base fija, interior o exterior, continúo la recomendación sobre estos mismos modelos.";
     }
 
     return `Indícame el número (1–${max}) o el nombre del producto/modelo (ej: TLK100).`;
@@ -6606,7 +6791,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
           lines,
           "",
           "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre.",
-          "Si quieres, también puedo recomendarte una alternativa o explicarte las diferencias entre estos modelos.",
+          "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
         ].join("\n");
       }
       const menu = await getSuggestedCatalogTypes("UY", state.catalog.filters.modalidad);
@@ -6634,6 +6819,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     : products.slice(0, CATALOG_MAX_LIST_ITEMS);
   state.catalog.lastList = shown;
   state.catalog.returnList = undefined;
+  state.catalog.adviceContext = undefined;
   const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
   return [
     `Estos son los que encontré (máx. ${CATALOG_MAX_LIST_ITEMS}):`,
@@ -6641,7 +6827,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     lines,
     "",
     "Indícame qué opción quieres para mostrarte su ficha. También puedes decir el nombre (ej: DEP250).",
-    "Si quieres, también puedo recomendarte una alternativa o explicarte las diferencias entre estos modelos.",
+    "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
   ].join("\n");
 }
 
