@@ -1100,18 +1100,17 @@ async function buildOpenBusinessOverviewReply(country: Country, input: string) {
   if (!kind) return "";
   if (kind === "empresa") {
     const content = await loadManagedSectionContent("empresa", country);
-    const facts = [
+    const knowledgeText = [content.openingText, normalizeInstitutionalKnowledgeText(content.knowledgeText)].filter(Boolean).join("\n\n");
+    const ai = await generateKnowledgeAiAnswer({ role: "empresa", input, knowledgeText });
+    if (ai) return ai;
+    return [
       content.openingText,
-      content.knowledgeText,
       country === "UY"
-        ? "Si necesitas, también puedo orientarte con compra de equipos, proyectos, servicio técnico o soluciones Cambium."
-        : "Si quieres avanzar, también puedo orientarte con compra o arriendo de equipos, proyectos, servicio técnico o puntos de venta.",
-    ].filter(Boolean);
-    return await generateAiRewrite({
-      kind: "fuera_menu",
-      input,
-      facts,
-    });
+        ? "Si quieres, también puedo orientarte con compra de equipos, proyectos, servicio técnico o soluciones Cambium."
+        : "Si quieres, también puedo orientarte con compra o arriendo de equipos, proyectos, servicio técnico o puntos de venta.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
   const facts = getOpenBusinessOverviewFacts(country, kind, input);
   return await generateAiRewrite({
@@ -3175,17 +3174,27 @@ function getDefaultCompanyOpeningText(country: Country) {
 }
 
 function getDefaultCompanyKnowledgeText(country: Country) {
-  const closing =
-    country === "UY"
-      ? "Si el cliente quiere avanzar, también se le puede orientar hacia compra, proyectos, servicio técnico o soluciones Cambium."
-      : "Si el cliente quiere avanzar, también se le puede orientar hacia compra, arriendo, proyectos, servicio técnico o puntos de venta.";
   return [
-    "Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.",
+    "Diseñamos e implementamos soluciones para mejorar la operación de nuestros clientes.",
     "Nos enfocamos en operaciones críticas, donde la comunicación, la seguridad y la continuidad operacional son factores clave.",
-    "Podemos apoyar con radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto del cliente.",
-    "La respuesta debe sonar institucional, clara y profesional, sin exageraciones ni promesas no respaldadas.",
-    closing,
+    "InterWins puede apoyar con radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto del proyecto.",
+    country === "UY"
+      ? "También orientamos requerimientos vinculados a compra, proyectos, servicio técnico y soluciones Cambium."
+      : "También orientamos requerimientos vinculados a compra, arriendo, proyectos, servicio técnico y puntos de venta.",
   ].join("\n");
+}
+
+function normalizeInstitutionalKnowledgeText(text: string) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^la respuesta debe sonar\b/i.test(line))
+    .filter((line) => !/^si el cliente quiere avanzar\b/i.test(line))
+    .filter((line) => !/^si quieres usar este contenido\b/i.test(line))
+    .join("\n");
 }
 
 function getDefaultProjectsOpeningText() {
@@ -3959,7 +3968,7 @@ async function generateCatalogAiAnswer(args: {
   }
 }
 
-async function generateKnowledgeAiAnswer(args: { role: "proyectos" | "cambium"; input: string; knowledgeText: string }) {
+async function generateKnowledgeAiAnswer(args: { role: "proyectos" | "cambium" | "empresa"; input: string; knowledgeText: string }) {
   const input = (args.input || "").trim();
   const knowledgeText = (args.knowledgeText || "").trim();
   if (!input) return "";
@@ -3982,7 +3991,15 @@ async function generateKnowledgeAiAnswer(args: { role: "proyectos" | "cambium"; 
   const systemExtra =
     args.role === "proyectos"
       ? ["Enfócate en explicar proyectos, capacidades, certificaciones y enfoque de trabajo."]
-      : ["Enfócate en explicar Cambium Networks, sus soluciones y orientar la elección de categoría/producto."];
+      : args.role === "empresa"
+        ? [
+            "Enfócate en responder consultas institucionales sobre la empresa, su enfoque, capacidades y tipo de soluciones.",
+            "Si el usuario pregunta qué es la empresa o a qué se dedica, sintetiza la respuesta en lenguaje natural, sin pegar frases literales una detrás de otra.",
+            "Si el usuario hace una pregunta específica sobre la empresa, responde esa consulta usando la base disponible.",
+            "No uses frases internas o indirectas como 'si el cliente quiere avanzar', 'la respuesta debe sonar' o similares.",
+            "Si corresponde cerrar, usa una sola invitación breve y natural, orientada directamente al usuario.",
+          ]
+        : ["Enfócate en explicar Cambium Networks, sus soluciones y orientar la elección de categoría/producto."];
   const system = [...systemBase, ...systemExtra].join(" ");
 
   const user = [

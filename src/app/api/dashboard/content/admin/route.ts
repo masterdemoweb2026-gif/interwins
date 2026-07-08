@@ -93,15 +93,13 @@ function getDefaultCompanyOpeningText(country: Country) {
 }
 
 function getDefaultCompanyKnowledgeText(country: Country) {
-  const closing =
-    country === "UY"
-      ? "Si quieres usar este contenido en el asistente, mantenlo con tono institucional y orientado a compra, proyectos, servicio técnico o soluciones Cambium."
-      : "Si quieres usar este contenido en el asistente, mantenlo con tono institucional y orientado a compra, arriendo, proyectos, servicio técnico o puntos de venta.";
   return [
-    "Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.",
+    "Diseñamos e implementamos soluciones para mejorar la operación de nuestros clientes.",
     "Nos enfocamos en soluciones para operaciones críticas que aumentan la seguridad de las personas y maximizan la eficiencia productiva.",
-    "Podemos comunicar capacidades como radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto comercial.",
-    closing,
+    "InterWins puede apoyar con radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto del proyecto.",
+    country === "UY"
+      ? "También orientamos requerimientos vinculados a compra, proyectos, servicio técnico y soluciones Cambium."
+      : "También orientamos requerimientos vinculados a compra, arriendo, proyectos, servicio técnico y puntos de venta.",
   ].join("\n");
 }
 

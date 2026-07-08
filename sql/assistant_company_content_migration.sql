@@ -26,10 +26,10 @@ values
     'InterWins es una empresa que diseña e implementa soluciones para operaciones críticas, orientadas a impactar positivamente la continuidad operativa, la seguridad en terreno y la eficiencia productiva de sus clientes.
 
 En Chile, acompañamos a empresas con soluciones de radiocomunicación profesional, conectividad, soporte técnico y proyectos tecnológicos especializados.',
-    'Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.
+    'Diseñamos e implementamos soluciones para mejorar la operación de nuestros clientes.
 Nos enfocamos en soluciones para operaciones críticas que aumentan la seguridad de las personas y maximizan la eficiencia productiva.
-Podemos comunicar capacidades como radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto comercial.
-Si el cliente quiere avanzar, también se le puede orientar hacia compra, arriendo, proyectos, servicio técnico o puntos de venta.'
+InterWins puede apoyar con radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto del proyecto.
+También orientamos requerimientos vinculados a compra, arriendo, proyectos, servicio técnico y puntos de venta.'
   ),
   (
     'empresa',
@@ -37,10 +37,10 @@ Si el cliente quiere avanzar, también se le puede orientar hacia compra, arrien
     'InterWins es una empresa que diseña e implementa soluciones para operaciones críticas, orientadas a impactar positivamente la continuidad operativa, la seguridad en terreno y la eficiencia productiva de sus clientes.
 
 En Uruguay, también orientamos soluciones de conectividad y proyectos empresariales especializados.',
-    'Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.
+    'Diseñamos e implementamos soluciones para mejorar la operación de nuestros clientes.
 Nos enfocamos en soluciones para operaciones críticas que aumentan la seguridad de las personas y maximizan la eficiencia productiva.
-Podemos comunicar capacidades como radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto comercial.
-Si el cliente quiere avanzar, también se le puede orientar hacia compra, proyectos, servicio técnico o soluciones Cambium.'
+InterWins puede apoyar con radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto del proyecto.
+También orientamos requerimientos vinculados a compra, proyectos, servicio técnico y soluciones Cambium.'
   )
 on conflict (section_key, country) do update
 set opening_text = excluded.opening_text,
