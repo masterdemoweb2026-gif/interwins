@@ -915,14 +915,12 @@ async function buildUnsupportedCommercialReplyDynamic(country: Country, productL
       ? [
           `No comercializamos ${productLabel}.`,
           "Nuestro portafolio en Uruguay está orientado a radiocomunicación profesional, servicio técnico, proyectos y soluciones Cambium.",
-          "Responde con un tono técnico, profesional y claro.",
-          "Invita al usuario a continuar con una necesidad relacionada al portafolio disponible.",
+          "Si lo deseas, puedo orientarte con compra de equipos, servicio técnico, proyectos o soluciones Cambium.",
         ]
       : [
           `No comercializamos ${productLabel}.`,
           "Nuestro portafolio está orientado a radiocomunicación profesional, incluyendo radios portátiles, radios móviles, repetidores, accesorios, cámaras corporales y servicios asociados.",
-          "Responde con un tono técnico, profesional y claro.",
-          "Invita al usuario a continuar con compra, arriendo, servicio técnico, proyectos o puntos de venta.",
+          "Si lo deseas, puedo orientarte con compra o arriendo de equipos, servicio técnico, proyectos o puntos de venta.",
         ];
   const rewritten = await minimaxRewrite({
     kind: "fuera_menu",
