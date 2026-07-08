@@ -3993,19 +3993,54 @@ function sanitizeAiOutput(raw: string) {
 }
 
 function formatCatalogComparisonOutput(raw: string) {
-  const text = String(raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-  if (!text) return "";
-
-  return text
-    .replace(/:\s*(1\))/g, ":\n\n$1")
-    .replace(/\s+(?=([2-9]\)))/g, "\n\n")
-    .replace(/([^\n])\s+(-\s+Precio referencial:)/g, "$1\n$2")
-    .replace(/([^\n])\s+(-\s+Diferencia principal:)/g, "$1\n$2")
-    .replace(/([^\n])\s+(-\s+Lo principal:)/g, "$1\n$2")
-    .replace(/([^\n])\s+(En términos generales,)/g, "$1\n\nConclusión general: $2")
-    .replace(/(^|\n)(En términos generales,)/g, "$1Conclusión general: $2")
-    .replace(/\n{3,}/g, "\n\n")
+  const compact = String(raw || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
+  if (!compact) return "";
+
+  const header = "Estas son las diferencias más relevantes entre los modelos consultados:";
+  const body = compact
+    .replace(/^estas son las diferencias mas relevantes entre los modelos consultados:\s*/i, "")
+    .replace(/^estas son las diferencias más relevantes entre los modelos consultados:\s*/i, "")
+    .trim();
+
+  const sectionRegex = /(\d+\)\s+[\s\S]*?)(?=\s+\d+\)\s+|\s+Conclusión general:|\s+En términos generales,|$)/gi;
+  const rawSections = Array.from(body.matchAll(sectionRegex))
+    .map((match) => String(match[1] || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const formattedSections = rawSections.map((section) =>
+    section
+      .replace(/\s+[💰]?\s*Precio referencial:/i, "\n- Precio referencial:")
+      .replace(/\s+-?\s*Diferencia principal:/i, "\n- Diferencia principal:")
+      .replace(/\s+-?\s*Lo principal:/i, "\n- Lo principal:")
+      .replace(/\s+-\s+/g, "\n- ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  );
+
+  const conclusionMatch = body.match(/(?:Conclusión general:|En términos generales,)\s+([\s\S]+)$/i);
+  const extractedConclusion = conclusionMatch?.[1]?.trim() ?? "";
+  const modelNames = formattedSections
+    .map((section) => section.match(/^\d+\)\s+([^\n-]+)/)?.[1]?.trim() ?? "")
+    .filter(Boolean);
+
+  const fallbackConclusion =
+    modelNames.length >= 2
+      ? `${modelNames[0]} y ${modelNames[1]} cubren necesidades similares, pero con diferencias de prestaciones y enfoque de uso. La mejor elección depende del nivel de exigencia operativa y de las funciones que se prioricen.`
+      : "Los modelos consultados presentan diferencias de enfoque y prestaciones. La elección más conveniente depende del nivel de exigencia operativa y del tipo de uso previsto.";
+
+  const conclusion = extractedConclusion || fallbackConclusion;
+
+  if (!formattedSections.length) {
+    return [header, "", `Conclusión general: ${conclusion}`].join("\n");
+  }
+
+  return [header, "", ...formattedSections, "", `Conclusión general: ${conclusion}`].join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function sanitizeServiceTechAiOutput(raw: string) {
