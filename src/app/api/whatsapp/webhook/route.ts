@@ -3743,8 +3743,7 @@ async function minimaxCatalogAdvisor(args: {
     const top = args.products.slice(0, 3);
     const names = top.map((p) => cleanProductName(p.nombre)).filter(Boolean);
     const pick = (p: ProductDetail) => {
-      const summary = (p.shortFinal || p.fullDescription || "").replace(/\s+/g, " ").trim();
-      const shortSummary = summary.length > 140 ? `${summary.slice(0, 137).trim()}...` : summary;
+      const shortSummary = buildProductExecutiveSummary(p, 220);
       const price = formatFriendlyPrice(p.precio ?? "", args.country);
       return {
         name: cleanProductName(p.nombre),
@@ -3792,6 +3791,8 @@ async function minimaxCatalogAdvisor(args: {
     "Si hay precio disponible, puedes mencionarlo como precio referencial.",
     "Si el cliente pide recomendación, sugiere 1 o 2 opciones y explica brevemente por qué.",
     "Si el cliente pide diferencias, compara de forma breve y útil las opciones relevantes.",
+    "Analiza la descripción de cada producto y sintetiza la información; no copies bloques largos ni concatines frases sin procesarlas.",
+    "Prioriza en tu respuesta: uso recomendado, capacidades clave y diferencias reales entre modelos.",
     "No uses tablas ni markdown complejo; la respuesta debe quedar lista para WhatsApp.",
     "No incluyas instrucciones de navegación como 'elige un número' o 'indícame el número'; eso lo agrega el sistema.",
     "Nunca menciones que eres una IA.",
@@ -3802,8 +3803,8 @@ async function minimaxCatalogAdvisor(args: {
       [
         `${index + 1}. ${cleanProductName(product.nombre)}`,
         product.precio ? `Precio: ${formatFriendlyPrice(product.precio, args.country).replace(/^💰\s*/, "")}` : "",
-        product.shortFinal ? `Resumen: ${product.shortFinal}` : "",
-        product.fullDescription ? `Detalle: ${product.fullDescription.slice(0, 500)}` : "",
+        `Resumen ejecutivo: ${buildProductExecutiveSummary(product, 260)}`,
+        product.fullDescription ? `Descripción base: ${getProductDescriptionText(product).slice(0, 700)}` : "",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -4593,6 +4594,82 @@ function splitForWhatsapp(text: string, chunkSize = 900, maxParts = 3) {
   return [...head, last].slice(0, maxParts);
 }
 
+function getProductDescriptionText(detail: ProductDetail) {
+  return htmlToParagraphText(`${detail.fullDescription || ""}\n${detail.shortFinal || ""}`.trim()).replace(/\s+/g, " ").trim();
+}
+
+function cleanProductSummarySentence(text: string) {
+  return text
+    .replace(/^[-•\d.)\s]+/, "")
+    .replace(/\s+/g, " ")
+    .replace(/\b(ver|revisa|descarga)\s+ficha\s+tecnica\b/gi, "")
+    .replace(/\bSKU\b[:\s-]*[A-Z0-9-]+/gi, "")
+    .trim();
+}
+
+function scoreProductSummarySentence(sentence: string, productName: string) {
+  const s = cleanProductSummarySentence(sentence);
+  if (!s) return -100;
+  const norm = normalizeText(s);
+  const nameNorm = normalizeText(cleanProductName(productName));
+  let score = 0;
+  if (s.length >= 45 && s.length <= 220) score += 3;
+  if (s.length > 220 && s.length <= 320) score += 1;
+  if (norm.includes("ideal para") || norm.includes("disenado para") || norm.includes("diseñado para")) score += 4;
+  if (norm.includes("incluye") || norm.includes("permite") || norm.includes("ofrece") || norm.includes("cuenta con")) score += 3;
+  if (norm.includes("audio") || norm.includes("cobertura") || norm.includes("alcance")) score += 3;
+  if (norm.includes("bateria") || norm.includes("batería") || norm.includes("autonomia") || norm.includes("autonomía")) score += 2;
+  if (norm.includes("bluetooth") || norm.includes("gps") || norm.includes("wifi") || norm.includes("lte")) score += 2;
+  if (norm.includes("vehiculo") || norm.includes("vehículo") || norm.includes("base fija")) score += 3;
+  if (norm.includes("terreno") || norm.includes("faena") || norm.includes("exterior") || norm.includes("interior")) score += 3;
+  if (norm.includes("resistente") || norm.includes("duradero") || norm.includes("rugged") || /\bip\d{2}\b/i.test(s)) score += 2;
+  if (norm.includes(nameNorm) && norm.length <= Math.max(20, nameNorm.length + 12)) score -= 4;
+  if (/^\d+\)$/.test(s)) score -= 10;
+  return score;
+}
+
+function extractProductSummarySentences(detail: ProductDetail, maxItems = 2) {
+  const text = getProductDescriptionText(detail);
+  if (!text) return [] as string[];
+  const rawSentences = text
+    .split(/(?<=[.!?])\s+|\n+/g)
+    .map((sentence) => cleanProductSummarySentence(sentence))
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const ranked = rawSentences
+    .map((sentence, idx) => ({
+      sentence,
+      idx,
+      score: scoreProductSummarySentence(sentence, detail.nombre),
+    }))
+    .filter((item) => item.score > -20)
+    .sort((a, b) => (b.score === a.score ? a.idx - b.idx : b.score - a.score));
+
+  const picked: string[] = [];
+  for (const item of ranked) {
+    const norm = normalizeText(item.sentence).replace(/[^\w]+/g, " ").trim();
+    if (!norm || seen.has(norm)) continue;
+    if (picked.some((existing) => norm.includes(normalizeText(existing)) || normalizeText(existing).includes(norm))) continue;
+    seen.add(norm);
+    picked.push(item.sentence);
+    if (picked.length >= maxItems) break;
+  }
+  return picked;
+}
+
+function buildProductExecutiveSummary(detail: ProductDetail, maxLen = 260) {
+  const sentences = extractProductSummarySentences(detail, 2);
+  if (!sentences.length) {
+    const fallback = getProductDescriptionText(detail);
+    if (!fallback) return "Sin detalle suficiente para resumir este modelo con precisión en este momento.";
+    return fallback.length > maxLen ? `${fallback.slice(0, Math.max(1, maxLen - 3)).trim()}...` : fallback;
+  }
+  const summary = sentences.join(" ");
+  if (summary.length <= maxLen) return summary;
+  const cut = summary.lastIndexOf(" ", Math.max(1, maxLen - 3));
+  return `${summary.slice(0, cut > 0 ? cut : Math.max(1, maxLen - 3)).trim()}...`;
+}
+
 function extractCatalogComparisonTags(detail: ProductDetail) {
   const hay = normalizeText([detail.nombre, detail.shortFinal, detail.fullDescription].filter(Boolean).join(" "));
   if (!hay) return [] as string[];
@@ -4625,9 +4702,7 @@ function extractCatalogComparisonTags(detail: ProductDetail) {
 }
 
 function summarizeForComparison(detail: ProductDetail) {
-  const raw = String(detail.shortFinal || detail.fullDescription || "").replace(/\s+/g, " ").trim();
-  if (!raw) return "Sin detalle suficiente para resumir en este momento.";
-  return raw.length > 170 ? `${raw.slice(0, 167).trim()}...` : raw;
+  return buildProductExecutiveSummary(detail, 240);
 }
 
 function buildCatalogComparisonDiffLines(products: ProductDetail[]) {
@@ -4678,7 +4753,7 @@ function buildCatalogComparisonReply(args: {
       `${n}) ${name}`,
       price ? `- ${price.replace(/^💰\s*/, "")}` : "- Precio referencial: Por confirmar",
       tagLine,
-      `- Lo principal: ${summary}`,
+      `- Resumen ejecutivo: ${summary}`,
     ]
       .filter(Boolean)
       .join("\n");
