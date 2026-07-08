@@ -3420,8 +3420,8 @@ async function generateAiRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre
         { role: "system", content: system },
         { role: "user", content: userParts },
       ],
-      temperature: 0.7,
-      max_tokens: 300,
+      temperature: 0.1,
+      max_tokens: 900,
     }),
   });
   if (!res.ok) {
@@ -3507,8 +3507,8 @@ async function generateServiceTechAiAnswer(args: { input: string; knowledge: Arr
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: 0.4,
-        max_tokens: 380,
+        temperature: 0.1,
+        max_tokens: 900,
       }),
     });
     if (!res.ok) return fallback();
@@ -3808,8 +3808,8 @@ async function generateCatalogAiAnswer(args: {
       [
         `${index + 1}. ${cleanProductName(product.nombre)}`,
         product.precio ? `Precio: ${formatFriendlyPrice(product.precio, args.country).replace(/^💰\s*/, "")}` : "",
-        `Resumen ejecutivo: ${buildProductExecutiveSummary(product, 260)}`,
-        product.fullDescription ? `Descripción base: ${getProductDescriptionText(product).slice(0, 700)}` : "",
+        `Resumen ejecutivo: ${buildProductExecutiveSummary(product, 520)}`,
+        product.fullDescription ? `Descripción base: ${getProductDescriptionText(product)}` : "",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -3842,8 +3842,8 @@ async function generateCatalogAiAnswer(args: {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: 0.45,
-        max_tokens: 900,
+        temperature: 0.1,
+        max_tokens: 1800,
       }),
     });
     if (!res.ok) return fallback();
@@ -3892,7 +3892,7 @@ async function generateKnowledgeAiAnswer(args: { role: "proyectos" | "cambium"; 
     `Mensaje del cliente: ${input}`,
     "",
     "Base de conocimiento:",
-    knowledgeText.length > 5000 ? `${knowledgeText.slice(0, 5000).trim()}...` : knowledgeText,
+    knowledgeText,
     "",
     "Responde con una orientación útil y concreta en un único mensaje.",
   ].join("\n");
@@ -3910,8 +3910,8 @@ async function generateKnowledgeAiAnswer(args: { role: "proyectos" | "cambium"; 
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: 0.4,
-        max_tokens: 350,
+        temperature: 0.1,
+        max_tokens: 1200,
       }),
     });
     if (!res.ok) return "";
@@ -3969,7 +3969,7 @@ function sanitizeAiOutput(raw: string) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!merged) return "";
-  return merged.length > 6000 ? `${merged.slice(0, 6000).trim()}...` : merged;
+  return merged;
 }
 
 function sanitizeServiceTechAiOutput(raw: string) {
@@ -4418,7 +4418,7 @@ async function loadProductDetail(productId: string) {
   const descPlano = htmlToParagraphText(parentDescription || desc || descCorta);
   const shortSource = parentDescription || desc || descCorta;
   const shortText = htmlToParagraphText(shortSource).slice(0, 600).trim();
-  const shortFinal = shortText.length >= 590 ? `${shortText.slice(0, 590).trim()}...` : shortText;
+  const shortFinal = shortText.length >= 590 ? shortText.slice(0, 590).trim() : shortText;
 
   return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
 }
@@ -4567,7 +4567,7 @@ async function loadProductDetailUY(productId: string) {
   const descCompleta = htmlToParagraphText(`${descCorta}\n${desc}`);
   const descPlano = htmlToParagraphText(desc || descCorta);
   const shortText = descCorta.trim() ? htmlToParagraphText(descCorta).slice(0, 600).trim() : descPlano.slice(0, 600).trim();
-  const shortFinal = shortText.length >= 590 ? `${shortText.slice(0, 590).trim()}...` : shortText;
+  const shortFinal = shortText.length >= 590 ? shortText.slice(0, 590).trim() : shortText;
   return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
 }
 
@@ -4594,11 +4594,7 @@ function splitForWhatsapp(text: string, chunkSize = 900, maxParts = 3) {
   const chunks = chunkText(String(text || ""), chunkSize);
   if (!chunks.length) return [] as string[];
   if (chunks.length <= maxParts) return chunks;
-  const head = chunks.slice(0, Math.max(1, maxParts - 1));
-  const tail = chunks.slice(head.length).join("\n\n").trim();
-  if (!tail) return head;
-  const last = tail.length > chunkSize ? `${tail.slice(0, Math.max(1, chunkSize - 3)).trim()}...` : tail;
-  return [...head, last].slice(0, maxParts);
+  return chunks;
 }
 
 function getProductDescriptionText(detail: ProductDetail) {
@@ -4669,12 +4665,13 @@ function buildProductExecutiveSummary(detail: ProductDetail, maxLen = 260) {
   if (!sentences.length) {
     const fallback = getProductDescriptionText(detail);
     if (!fallback) return "Sin detalle suficiente para resumir este modelo con precisión en este momento.";
-    return fallback.length > maxLen ? `${fallback.slice(0, Math.max(1, maxLen - 3)).trim()}...` : fallback;
+    const chunks = splitLongText(fallback, maxLen);
+    return chunks[0] || fallback;
   }
   const summary = sentences.join(" ");
   if (summary.length <= maxLen) return summary;
-  const cut = summary.lastIndexOf(" ", Math.max(1, maxLen - 3));
-  return `${summary.slice(0, cut > 0 ? cut : Math.max(1, maxLen - 3)).trim()}...`;
+  const chunks = splitLongText(summary, maxLen);
+  return chunks[0] || summary;
 }
 
 function extractCatalogComparisonTags(detail: ProductDetail) {
