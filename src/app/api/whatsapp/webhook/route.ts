@@ -469,10 +469,12 @@ type PointsState = {
 };
 
 type ContactFormKind =
+  | "cl_compra_asesoria"
   | "cl_proyectos"
   | "cl_dealer"
   | "cl_servicio_tecnico"
   | "cl_arriendo_precio"
+  | "uy_compra_asesoria"
   | "uy_proyectos"
   | "uy_servicio_tecnico";
 
@@ -1541,6 +1543,12 @@ function getArriendoPriceLeadIntro() {
     "",
     "¿A qué número de teléfono o correo prefieres que te enviemos el detalle de precios? Déjanos tus datos de contacto y te responderemos a la brevedad.",
   ].join("\n");
+}
+
+function getPurchaseAdviceLeadIntro(country: Country) {
+  return country === "UY"
+    ? "Muy bien. Derivaré tu solicitud para que un asesor comercial te contacte y te oriente con la compra del equipo adecuado. Comencemos con tus datos."
+    : "Muy bien. Derivaré tu solicitud para que un asesor comercial te contacte y te oriente con la compra del equipo adecuado. Comencemos con tus datos.";
 }
 
 async function loadProductPriceByCountry(country: Country, productId: string, nombre?: string) {
@@ -2944,8 +2952,8 @@ function buildRadioFrequencyTechnologyOptions(): CatalogPendingOption[] {
       applyFilters: { frecuencia: "VHF", tecnologia: "DIGITAL" },
     },
     {
-      label: "No estoy seguro / Necesito asesoría",
-      value: "No estoy seguro / Necesito asesoría",
+      label: "No estoy seguro / Contactar con un asesor",
+      value: "No estoy seguro / Contactar con un asesor",
       skipRadioTechFrequency: true,
     },
   ];
@@ -4352,8 +4360,8 @@ async function buildAvailableRadioFrequencyTechnologyOptionsCL(filters: CatalogF
   push("VHF", "DIGITAL");
 
   out.push({
-    label: "No estoy seguro / Necesito asesoría",
-    value: "No estoy seguro / Necesito asesoría",
+    label: "No estoy seguro / Contactar con un asesor",
+    value: "No estoy seguro / Contactar con un asesor",
     skipRadioTechFrequency: true,
   });
 
@@ -6344,9 +6352,18 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (selectedPendingOption?.skipRadioTechFrequency) {
     state.catalog.skipRadioTechFrequency = undefined;
-    const options = (await buildAvailableRadioFrequencyTechnologyOptionsCL(state.catalog.filters)).filter((o) => !o.skipRadioTechFrequency);
-    state.catalog.pending = { attr: "frecuencia", options };
-    return buildCatalogPendingAdviceReply({ country: "CL", pending: state.catalog.pending });
+    state.catalog.pending = undefined;
+    if (state.catalog.requestKind === "arriendo") {
+      return await startContactForm(state, userPhone, "cl_arriendo_precio", {
+        intro: getArriendoPriceLeadIntro(),
+      });
+    }
+    return await startContactForm(state, userPhone, "cl_compra_asesoria", {
+      intro: getPurchaseAdviceLeadIntro("CL"),
+      presetData: {
+        mensaje: "Solicitud de asesoría de compra desde selección de frecuencia.",
+      },
+    });
   }
 
   if (!state.catalog.filters.tipo_producto) {
@@ -6866,9 +6883,13 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
 
   if (selectedPendingOption?.skipRadioTechFrequency) {
     state.catalog.skipRadioTechFrequency = undefined;
-    const options = buildRadioFrequencyTechnologyOptions().filter((o) => !o.skipRadioTechFrequency);
-    state.catalog.pending = { attr: "frecuencia", options };
-    return buildCatalogPendingAdviceReply({ country: "UY", pending: state.catalog.pending });
+    state.catalog.pending = undefined;
+    return await startContactForm(state, userPhone, "uy_compra_asesoria", {
+      intro: getPurchaseAdviceLeadIntro("UY"),
+      presetData: {
+        mensaje: "Solicitud de asesoría de compra desde selección de frecuencia.",
+      },
+    });
   }
 
   if (!state.catalog.filters.tipo_producto) {
@@ -7376,6 +7397,9 @@ function isServiceContactKind(kind: ContactFormKind) {
 
 function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormState["data"]) {
   switch (kind) {
+    case "cl_compra_asesoria":
+    case "uy_compra_asesoria":
+      return "Asesoría de compra";
     case "cl_proyectos":
     case "uy_proyectos":
       return "Asesoría en proyectos";
@@ -7392,6 +7416,8 @@ function getContactFormRequestLabel(kind: ContactFormKind, data?: ContactFormSta
 
 function getContactFormStartIntro(kind: ContactFormKind) {
   switch (kind) {
+    case "cl_compra_asesoria":
+      return getPurchaseAdviceLeadIntro("CL");
     case "cl_proyectos":
       return "Muy bien. Armemos tu solicitud de asesoría en proyectos.";
     case "cl_arriendo_precio":
@@ -7400,6 +7426,8 @@ function getContactFormStartIntro(kind: ContactFormKind) {
       return "Muy bien. Armemos tu solicitud para que un dealer de tu región te contacte.";
     case "cl_servicio_tecnico":
       return "Muy bien. Armemos tu solicitud de servicio técnico.";
+    case "uy_compra_asesoria":
+      return getPurchaseAdviceLeadIntro("UY");
     case "uy_proyectos":
       return "Muy bien. Armemos tu solicitud de asesoría en proyectos.";
     case "uy_servicio_tecnico":
@@ -7409,6 +7437,9 @@ function getContactFormStartIntro(kind: ContactFormKind) {
 
 function getContactFormReviewTitle(kind: ContactFormKind, data?: ContactFormState["data"]) {
   switch (kind) {
+    case "cl_compra_asesoria":
+    case "uy_compra_asesoria":
+      return "Muy bien. Este es el resumen de tu solicitud de asesoría de compra:";
     case "cl_proyectos":
     case "uy_proyectos":
       return "Muy bien. Este es el resumen de tu solicitud de asesoría en proyectos:";
@@ -7425,6 +7456,9 @@ function getContactFormReviewTitle(kind: ContactFormKind, data?: ContactFormStat
 
 function getContactFormSuccessMessage(kind: ContactFormKind, data?: ContactFormState["data"]) {
   switch (kind) {
+    case "cl_compra_asesoria":
+    case "uy_compra_asesoria":
+      return "✅ Tu solicitud de asesoría de compra fue enviada correctamente. Te contactaremos a la brevedad.";
     case "cl_proyectos":
     case "uy_proyectos":
       return "✅ Tu solicitud de asesoría en proyectos fue enviada correctamente. Te contactaremos a la brevedad.";
@@ -7638,6 +7672,9 @@ function getFormInProgressText() {
 
 function getContactFormMessagePrompt(kind: ContactFormKind) {
   switch (kind) {
+    case "cl_compra_asesoria":
+    case "uy_compra_asesoria":
+      return "¿Qué equipo o necesidad de compra quieres revisar con el asesor? (mensaje)";
     case "cl_proyectos":
     case "uy_proyectos":
       return "¿Qué proyecto o necesidad tienes? (mensaje)";
