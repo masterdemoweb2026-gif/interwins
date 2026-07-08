@@ -4662,10 +4662,69 @@ async function loadProductDetailByCountry(country: Country, productId: string): 
 }
 
 function splitForWhatsapp(text: string, chunkSize = 900, maxParts = 3) {
-  const chunks = chunkText(String(text || ""), chunkSize);
-  if (!chunks.length) return [] as string[];
-  if (chunks.length <= maxParts) return chunks;
-  return chunks;
+  const source = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!source) return [] as string[];
+
+  const paragraphs = source
+    .split(/\n{2,}/g)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  const out: string[] = [];
+  let current = "";
+
+  const flush = () => {
+    const value = current.trim();
+    if (value) out.push(value);
+    current = "";
+  };
+
+  const splitBlockPreservingLines = (block: string) => {
+    const lines = block.split("\n");
+    let local = "";
+
+    const flushLocal = () => {
+      const value = local.trim();
+      if (value) out.push(value);
+      local = "";
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine.trimEnd();
+      if (!line.trim()) continue;
+      const candidate = local ? `${local}\n${line}` : line;
+      if (candidate.length <= chunkSize) {
+        local = candidate;
+        continue;
+      }
+      if (local) flushLocal();
+      if (line.length <= chunkSize) {
+        local = line;
+        continue;
+      }
+      out.push(...splitLongText(line, chunkSize));
+    }
+
+    flushLocal();
+  };
+
+  for (const paragraph of paragraphs) {
+    const candidate = current ? `${current}\n\n${paragraph}` : paragraph;
+    if (candidate.length <= chunkSize) {
+      current = candidate;
+      continue;
+    }
+    if (current) flush();
+    if (paragraph.length <= chunkSize) {
+      current = paragraph;
+      continue;
+    }
+    splitBlockPreservingLines(paragraph);
+  }
+
+  flush();
+  if (out.length <= maxParts) return out;
+  return out;
 }
 
 function getProductDescriptionText(detail: ProductDetail) {
