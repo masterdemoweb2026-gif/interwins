@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 
 type Country = "CL" | "UY";
-type SectionKey = "proyectos" | "servicio_tecnico";
-type ActiveTab = "proyectos" | "servicio_tecnico";
+type SectionKey = "proyectos" | "servicio_tecnico" | "empresa";
+type ActiveTab = "proyectos" | "servicio_tecnico" | "empresa";
 
 type SectionContentPayload = {
   section: SectionKey;
@@ -99,6 +99,13 @@ function emptyKnowledge(country: Country): Omit<ServiceKnowledgeRow, "id" | "sou
 export default function ContentManagementPanel() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("proyectos");
 
+  const [companyCountry, setCompanyCountry] = useState<Country>("CL");
+  const [companyContent, setCompanyContent] = useState<SectionContentPayload>(emptySection("empresa", "CL"));
+  const [companyLoading, setCompanyLoading] = useState(true);
+  const [companySaving, setCompanySaving] = useState(false);
+  const [companyError, setCompanyError] = useState("");
+  const [companyWarning, setCompanyWarning] = useState("");
+
   const [projectsCountry, setProjectsCountry] = useState<Country>("CL");
   const [projectsContent, setProjectsContent] = useState<SectionContentPayload>(emptySection("proyectos", "CL"));
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -171,6 +178,29 @@ export default function ContentManagementPanel() {
     }
     return json;
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setCompanyLoading(true);
+      setCompanyError("");
+      try {
+        const json = await loadSectionContent("empresa", companyCountry);
+        if (cancelled) return;
+        setCompanyContent(json.content);
+        setCompanyWarning(json.warning || "");
+      } catch (err) {
+        if (cancelled) return;
+        setCompanyError(String(err));
+      } finally {
+        if (cancelled) return;
+        setCompanyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyCountry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -305,6 +335,23 @@ export default function ContentManagementPanel() {
       setProjectsError(String(err));
     } finally {
       setProjectsSaving(false);
+    }
+  }
+
+  async function handleSaveCompanyContent() {
+    setCompanySaving(true);
+    setCompanyError("");
+    try {
+      const json = await saveSectionContent("empresa", companyCountry, {
+        openingText: companyContent.openingText,
+        knowledgeText: companyContent.knowledgeText,
+      });
+      setCompanyContent(json.content);
+      setCompanyWarning(json.warning || "");
+    } catch (err) {
+      setCompanyError(String(err));
+    } finally {
+      setCompanySaving(false);
     }
   }
 
@@ -561,12 +608,13 @@ export default function ContentManagementPanel() {
           <div>
             <h2 className="text-xl font-semibold tracking-tight">Gestión de contenido</h2>
             <p className="mt-1 max-w-3xl text-sm text-zinc-400">
-              Administra la apertura de ramas, el conocimiento que usa la IA y el contenido estático de proyectos y servicio técnico.
+              Administra la apertura de ramas, el conocimiento que usa la IA y el contenido institucional, de proyectos y de servicio técnico.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
             {[
+              { value: "empresa" as const, label: "Empresa" },
               { value: "proyectos" as const, label: "Proyectos" },
               { value: "servicio_tecnico" as const, label: "Servicio Técnico" },
             ].map((tab) => {
@@ -590,7 +638,70 @@ export default function ContentManagementPanel() {
           </div>
         </div>
 
-        {activeTab === "proyectos" ? (
+        {activeTab === "empresa" ? (
+          <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-white">Configuración Institucional</div>
+                <div className="mt-1 text-xs text-zinc-500">Última actualización: {formatDate(companyContent.updatedAt)}</div>
+              </div>
+              <div className="flex gap-3">
+                {(["CL", "UY"] as Country[]).map((country) => (
+                  <button
+                    key={country}
+                    type="button"
+                    onClick={() => setCompanyCountry(country)}
+                    className={[
+                      "inline-flex h-10 items-center rounded-xl border px-4 text-sm font-medium transition",
+                      companyCountry === country
+                        ? "border-cyan-300/50 bg-cyan-400 text-slate-950"
+                        : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    {country === "CL" ? "Chile" : "Uruguay"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {companyWarning ? <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">{companyWarning}</div> : null}
+            {companyError ? <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{companyError}</div> : null}
+
+            <div className="mt-5 grid gap-5 xl:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Resumen institucional</label>
+                <textarea
+                  value={companyContent.openingText}
+                  onChange={(e) => setCompanyContent((prev) => ({ ...prev, openingText: e.target.value }))}
+                  rows={14}
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Conocimiento institucional IA</label>
+                <textarea
+                  value={companyContent.knowledgeText}
+                  onChange={(e) => setCompanyContent((prev) => ({ ...prev, knowledgeText: e.target.value }))}
+                  rows={14}
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleSaveCompanyContent}
+                disabled={companyLoading || companySaving}
+                className="inline-flex h-11 items-center rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {companySaving ? "Guardando..." : "Guardar configuración institucional"}
+              </button>
+              <div className="text-xs text-zinc-500">Este contenido se usa para responder preguntas como qué es InterWins, quiénes son o a qué se dedican.</div>
+            </div>
+          </div>
+        ) : activeTab === "proyectos" ? (
           <div className="grid gap-5 xl:grid-cols-[1.1fr_1fr]">
             <div className="space-y-5">
               <div className="rounded-3xl border border-white/10 bg-black/20 p-5">

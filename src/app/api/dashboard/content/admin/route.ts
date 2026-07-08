@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 type Country = "CL" | "UY";
-type SectionKey = "proyectos" | "servicio_tecnico";
+type SectionKey = "proyectos" | "servicio_tecnico" | "empresa";
 type JsonRecord = Record<string, unknown>;
 
 function getSupabaseUrl() {
@@ -82,6 +82,29 @@ function getDefaultProjectsOpeningText() {
   ].join("\n");
 }
 
+function getDefaultCompanyOpeningText(country: Country) {
+  return [
+    "InterWins es una empresa que diseña e implementa soluciones para operaciones críticas, orientadas a impactar positivamente la continuidad operativa, la seguridad en terreno y la eficiencia productiva de sus clientes.",
+    "",
+    country === "UY"
+      ? "En Uruguay, también orientamos soluciones de conectividad y proyectos empresariales especializados."
+      : "En Chile, acompañamos a empresas con soluciones de radiocomunicación profesional, conectividad, soporte técnico y proyectos tecnológicos especializados.",
+  ].join("\n");
+}
+
+function getDefaultCompanyKnowledgeText(country: Country) {
+  const closing =
+    country === "UY"
+      ? "Si quieres usar este contenido en el asistente, mantenlo con tono institucional y orientado a compra, proyectos, servicio técnico o soluciones Cambium."
+      : "Si quieres usar este contenido en el asistente, mantenlo con tono institucional y orientado a compra, arriendo, proyectos, servicio técnico o puntos de venta.";
+  return [
+    "Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.",
+    "Nos enfocamos en soluciones para operaciones críticas que aumentan la seguridad de las personas y maximizan la eficiencia productiva.",
+    "Podemos comunicar capacidades como radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto comercial.",
+    closing,
+  ].join("\n");
+}
+
 function getDefaultServiceTechOpeningText(country: Country) {
   if (country === "UY") {
     return [
@@ -126,6 +149,13 @@ function getDefaultSectionContent(section: SectionKey, country: Country) {
     };
   }
 
+  if (section === "empresa") {
+    return {
+      openingText: getDefaultCompanyOpeningText(country),
+      knowledgeText: getDefaultCompanyKnowledgeText(country),
+    };
+  }
+
   return {
     openingText: getDefaultServiceTechOpeningText(country),
     knowledgeText: country === "UY" ? readLocalTextFile(path.join("instructivo", "uruguay", "servicio_tecnico.txt")).trim() : "",
@@ -137,7 +167,9 @@ function normalizeCountry(value: string): Country {
 }
 
 function normalizeSection(value: string): SectionKey {
-  return value === "servicio_tecnico" ? "servicio_tecnico" : "proyectos";
+  if (value === "servicio_tecnico") return "servicio_tecnico";
+  if (value === "empresa") return "empresa";
+  return "proyectos";
 }
 
 export async function GET(request: Request) {

@@ -941,7 +941,7 @@ async function buildUnsupportedCommercialReplyDynamic(country: Country, productL
   return rewritten || buildUnsupportedCommercialReply(country, productLabel);
 }
 
-type OpenBusinessOverviewKind = "productos" | "servicios" | "general" | "marca";
+type OpenBusinessOverviewKind = "productos" | "servicios" | "general" | "marca" | "empresa";
 
 function isQuestionLikeCommercialText(text: string) {
   const raw = String(text ?? "").trim();
@@ -1004,6 +1004,21 @@ function detectOpenBusinessOverviewIntent(text: string): OpenBusinessOverviewKin
     t.includes("a qué se dedican") ||
     t.includes("como me pueden ayudar") ||
     t.includes("cómo me pueden ayudar");
+  const asksCompany =
+    t.includes("que es interwins") ||
+    t.includes("qué es interwins") ||
+    t.includes("quien es interwins") ||
+    t.includes("quién es interwins") ||
+    t.includes("quienes son") ||
+    t.includes("quiénes son") ||
+    t.includes("informacion de interwins") ||
+    t.includes("información de interwins") ||
+    t.includes("sobre interwins") ||
+    t.includes("empresa interwins") ||
+    t.includes("interwins que hace") ||
+    t.includes("interwins qué hace") ||
+    t.includes("a que se dedica interwins") ||
+    t.includes("a qué se dedica interwins");
   const asksBrand =
     Boolean(extractBrandHint(text)) &&
     (isQuestionLikeCommercialText(text) ||
@@ -1012,6 +1027,7 @@ function detectOpenBusinessOverviewIntent(text: string): OpenBusinessOverviewKin
       t.includes("tienen") ||
       t.includes("ofrecen"));
 
+  if (asksCompany) return "empresa";
   if (asksBrand) return "marca";
   if (asksProducts) return "productos";
   if (asksServices) return "servicios";
@@ -1082,6 +1098,21 @@ function getOpenBusinessOverviewFacts(country: Country, kind: OpenBusinessOvervi
 async function buildOpenBusinessOverviewReply(country: Country, input: string) {
   const kind = detectOpenBusinessOverviewIntent(input);
   if (!kind) return "";
+  if (kind === "empresa") {
+    const content = await loadManagedSectionContent("empresa", country);
+    const facts = [
+      content.openingText,
+      content.knowledgeText,
+      country === "UY"
+        ? "Si necesitas, también puedo orientarte con compra de equipos, proyectos, servicio técnico o soluciones Cambium."
+        : "Si quieres avanzar, también puedo orientarte con compra o arriendo de equipos, proyectos, servicio técnico o puntos de venta.",
+    ].filter(Boolean);
+    return await generateAiRewrite({
+      kind: "fuera_menu",
+      input,
+      facts,
+    });
+  }
   const facts = getOpenBusinessOverviewFacts(country, kind, input);
   return await generateAiRewrite({
     kind: "fuera_menu",
@@ -3131,7 +3162,31 @@ function loadUyServicioTecnicoText() {
   return readLocalTextFile(path.join("instructivo", "uruguay", "servicio_tecnico.txt")).trim();
 }
 
-type ManagedSectionKey = "proyectos" | "servicio_tecnico";
+type ManagedSectionKey = "proyectos" | "servicio_tecnico" | "empresa";
+
+function getDefaultCompanyOpeningText(country: Country) {
+  return [
+    "InterWins es una empresa que diseña e implementa soluciones para operaciones críticas, orientadas a impactar positivamente la continuidad operativa, la seguridad en terreno y la eficiencia productiva de sus clientes.",
+    "",
+    country === "UY"
+      ? "En Uruguay, además de radiocomunicación profesional, también orientamos proyectos de conectividad y soluciones empresariales especializadas."
+      : "En Chile, acompañamos a empresas con soluciones de radiocomunicación profesional, conectividad, soporte técnico y proyectos tecnológicos especializados.",
+  ].join("\n");
+}
+
+function getDefaultCompanyKnowledgeText(country: Country) {
+  const closing =
+    country === "UY"
+      ? "Si el cliente quiere avanzar, también se le puede orientar hacia compra, proyectos, servicio técnico o soluciones Cambium."
+      : "Si el cliente quiere avanzar, también se le puede orientar hacia compra, arriendo, proyectos, servicio técnico o puntos de venta.";
+  return [
+    "Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.",
+    "Nos enfocamos en operaciones críticas, donde la comunicación, la seguridad y la continuidad operacional son factores clave.",
+    "Podemos apoyar con radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto del cliente.",
+    "La respuesta debe sonar institucional, clara y profesional, sin exageraciones ni promesas no respaldadas.",
+    closing,
+  ].join("\n");
+}
 
 function getDefaultProjectsOpeningText() {
   return [
@@ -3148,15 +3203,24 @@ function getDefaultProjectsOpeningText() {
 }
 
 async function loadManagedSectionContent(section: ManagedSectionKey, country: Country) {
-  const defaultOpeningText = section === "proyectos" ? getDefaultProjectsOpeningText() : country === "UY" ? buildServicioTecnicoInfoMessageUY() : buildServicioTecnicoInfoMessage();
+  const defaultOpeningText =
+    section === "proyectos"
+      ? getDefaultProjectsOpeningText()
+      : section === "empresa"
+        ? getDefaultCompanyOpeningText(country)
+        : country === "UY"
+          ? buildServicioTecnicoInfoMessageUY()
+          : buildServicioTecnicoInfoMessage();
   const defaultKnowledgeText =
     section === "proyectos"
       ? country === "UY"
         ? loadUyProjectsData().bankText
         : ""
-      : country === "UY"
-        ? loadUyServicioTecnicoText()
-        : "";
+      : section === "empresa"
+        ? getDefaultCompanyKnowledgeText(country)
+        : country === "UY"
+          ? loadUyServicioTecnicoText()
+          : "";
   const q = `assistant_section_content?select=opening_text,knowledge_text&limit=1&section_key=eq.${section}&country=eq.${country}`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) {

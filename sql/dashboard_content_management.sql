@@ -1,6 +1,6 @@
 create table if not exists public.assistant_section_content (
   id bigint generated always as identity primary key,
-  section_key text not null check (section_key in ('proyectos', 'servicio_tecnico')),
+  section_key text not null check (section_key in ('proyectos', 'servicio_tecnico', 'empresa')),
   country text not null check (country in ('CL', 'UY')),
   opening_text text not null default '',
   knowledge_text text not null default '',
@@ -22,6 +22,28 @@ create index if not exists proyectos_country_id_idx
 
 insert into public.assistant_section_content (section_key, country, opening_text, knowledge_text)
 values
+  (
+    'empresa',
+    'CL',
+    'InterWins es una empresa que diseña e implementa soluciones para operaciones críticas, orientadas a impactar positivamente la continuidad operativa, la seguridad en terreno y la eficiencia productiva de sus clientes.
+
+En Chile, acompañamos a empresas con soluciones de radiocomunicación profesional, conectividad, soporte técnico y proyectos tecnológicos especializados.',
+    'Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.
+Nos enfocamos en soluciones para operaciones críticas que aumentan la seguridad de las personas y maximizan la eficiencia productiva.
+Podemos comunicar capacidades como radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto comercial.
+Si el cliente quiere avanzar, también se le puede orientar hacia compra, arriendo, proyectos, servicio técnico o puntos de venta.'
+  ),
+  (
+    'empresa',
+    'UY',
+    'InterWins es una empresa que diseña e implementa soluciones para operaciones críticas, orientadas a impactar positivamente la continuidad operativa, la seguridad en terreno y la eficiencia productiva de sus clientes.
+
+En Uruguay, también orientamos soluciones de conectividad y proyectos empresariales especializados.',
+    'Somos una empresa que diseña e implementa soluciones para mejorar la operación de nuestros clientes.
+Nos enfocamos en soluciones para operaciones críticas que aumentan la seguridad de las personas y maximizan la eficiencia productiva.
+Podemos comunicar capacidades como radiocomunicación profesional, conectividad empresarial, infraestructura de telecomunicaciones, automatización, ciberseguridad y redes IP según el contexto comercial.
+Si el cliente quiere avanzar, también se le puede orientar hacia compra, proyectos, servicio técnico o soluciones Cambium.'
+  ),
   (
     'proyectos',
     'CL',
