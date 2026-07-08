@@ -580,21 +580,26 @@ function getSupabaseKey() {
   return process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? "";
 }
 
-function getMinimaxApiKey() {
-  return process.env.MINIMAX_API_KEY ?? "";
+function getAiApiKey() {
+  return process.env.AI_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? process.env.MINIMAX_API_KEY ?? "";
 }
 
-function getMinimaxBaseUrl() {
-  return (process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1").replace(/\/+$/, "");
+function getAiBaseUrl() {
+  return (
+    process.env.AI_BASE_URL ??
+    process.env.DEEPSEEK_BASE_URL ??
+    process.env.MINIMAX_BASE_URL ??
+    "https://opencode.ai/zen/go/v1/chat/completions"
+  ).replace(/\/+$/, "");
 }
 
-function getMinimaxChatCompletionsUrl() {
-  const baseUrl = getMinimaxBaseUrl();
+function getAiChatCompletionsUrl() {
+  const baseUrl = getAiBaseUrl();
   return /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
 }
 
-function getMinimaxModel() {
-  return "DeepSeek V4 Flash";
+function getAiModel() {
+  return process.env.AI_MODEL ?? process.env.DEEPSEEK_MODEL ?? "DeepSeek V4 Flash";
 }
 
 function normalizeText(value: string) {
@@ -928,7 +933,7 @@ async function buildUnsupportedCommercialReplyDynamic(country: Country, productL
           "Nuestro portafolio está orientado a radiocomunicación profesional, incluyendo radios portátiles, radios móviles, repetidores, accesorios, cámaras corporales y servicios asociados.",
           "Si lo deseas, puedo orientarte con compra o arriendo de equipos, servicio técnico, proyectos o puntos de venta.",
         ];
-  const rewritten = await minimaxRewrite({
+  const rewritten = await generateAiRewrite({
     kind: "fuera_menu",
     input,
     facts,
@@ -1078,7 +1083,7 @@ async function buildOpenBusinessOverviewReply(country: Country, input: string) {
   const kind = detectOpenBusinessOverviewIntent(input);
   if (!kind) return "";
   const facts = getOpenBusinessOverviewFacts(country, kind, input);
-  return await minimaxRewrite({
+  return await generateAiRewrite({
     kind: "fuera_menu",
     input,
     facts,
@@ -3371,13 +3376,13 @@ async function sendChatPresence(phone: string, action: "start" | "stop") {
   } catch {}
 }
 
-async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" | "empatia"; input?: string; facts: string[] }) {
-  const key = getMinimaxApiKey();
+async function generateAiRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" | "empatia"; input?: string; facts: string[] }) {
+  const key = getAiApiKey();
   if (!key) {
     return args.facts.filter(Boolean).join("\n");
   }
 
-  const completionsUrl = getMinimaxChatCompletionsUrl();
+  const completionsUrl = getAiChatCompletionsUrl();
   const system = [
     "Eres un asesor humano de ventas y soporte para una empresa chilena de telecomunicaciones y radiocomunicación.",
     "Hablas en español chileno, tono cordial, profesional y claro.",
@@ -3410,7 +3415,7 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: getMinimaxModel(),
+        model: getAiModel(),
       messages: [
         { role: "system", content: system },
         { role: "user", content: userParts },
@@ -3428,13 +3433,13 @@ async function minimaxRewrite(args: { kind: "saludo" | "fuera_menu" | "cierre" |
   const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
   const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
   if (typeof content === "string" && content.trim()) {
-    const cleaned = sanitizeMinimaxOutput(content);
+    const cleaned = sanitizeAiOutput(content);
     if (cleaned) return cleaned;
   }
   return args.facts.filter(Boolean).join("\n");
 }
 
-async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Array<{ tema: string; info: string }> }) {
+async function generateServiceTechAiAnswer(args: { input: string; knowledge: Array<{ tema: string; info: string }> }) {
   const input = (args.input || "").trim();
   const knowledge = args.knowledge ?? [];
 
@@ -3455,10 +3460,10 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
     ].join("\n");
   };
 
-  const key = getMinimaxApiKey();
+  const key = getAiApiKey();
   if (!key) return fallback();
 
-  const completionsUrl = getMinimaxChatCompletionsUrl();
+  const completionsUrl = getAiChatCompletionsUrl();
   const system = [
     "Eres un asesor humano de soporte técnico para una empresa de radiocomunicación.",
     "Hablas en español chileno, tono cordial, profesional y claro.",
@@ -3497,7 +3502,7 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: getMinimaxModel(),
+        model: getAiModel(),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -3513,7 +3518,7 @@ async function minimaxServicioTecnicoAnswer(args: { input: string; knowledge: Ar
     const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
     const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
     if (typeof content === "string" && content.trim()) {
-      const cleaned = sanitizeServiceTechMinimaxOutput(sanitizeMinimaxOutput(content));
+      const cleaned = sanitizeServiceTechAiOutput(sanitizeAiOutput(content));
       if (cleaned) return cleaned;
     }
     return fallback();
@@ -3634,9 +3639,12 @@ async function buildCatalogAdviceFollowUpReply(args: {
   if (!details.length) return "";
 
   const preface = `Perfecto. Consideraré ${args.usageContext} para orientarte mejor.`;
-  const footer = `Si quieres ver la ficha completa, indícame el número (${args.referencedNumbers?.length ? args.referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
+  const footer =
+    args.mode === "compare"
+      ? ""
+      : `Si quieres ver la ficha completa, indícame el número (${args.referencedNumbers?.length ? args.referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
   const augmentedInput = `${args.input}\nContexto adicional del cliente: ${args.usageContext}.`;
-  const advice = await minimaxCatalogAdvisor({
+  const advice = await generateCatalogAiAnswer({
     input: augmentedInput,
     country: args.country,
     requestKind: args.requestKind,
@@ -3720,7 +3728,7 @@ function extractReferencedChoiceNumbers(input: string, max: number) {
   return Array.from(new Set(matches)).slice(0, 4);
 }
 
-async function minimaxCatalogAdvisor(args: {
+async function generateCatalogAiAnswer(args: {
   input: string;
   country: Country;
   requestKind?: CatalogRequestKind;
@@ -3729,7 +3737,6 @@ async function minimaxCatalogAdvisor(args: {
 }) {
   const fallback = () => {
     const top = args.products.slice(0, 3);
-    const names = top.map((p) => cleanProductName(p.nombre)).filter(Boolean);
     const pick = (p: ProductDetail) => {
       const shortSummary = buildProductExecutiveSummary(p, 220);
       const price = formatFriendlyPrice(p.precio ?? "", args.country);
@@ -3741,17 +3748,25 @@ async function minimaxCatalogAdvisor(args: {
     };
     const bullets = top.map(pick);
     if (args.mode === "compare") {
-      const sectionA = bullets[0] ? [`1) ${bullets[0].name}`, bullets[0].price].filter(Boolean).join("\n") : "";
-      const sectionB = bullets[1] ? [`2) ${bullets[1].name}`, bullets[1].price].filter(Boolean).join("\n") : "";
-      const diffs = [
-        "🆚 Diferencias clave (rápidas)",
+      const compared = bullets.slice(0, 3).map((b, idx) => {
+        const head = `${idx + 1}) ${b.name}`;
+        const price = b.price ? `- ${b.price}` : "";
+        const reason = `- Diferencia principal: ${b.summary}`;
+        return [head, price, reason].filter(Boolean).join("\n");
+      });
+      const closing =
+        bullets.length >= 2
+          ? `En términos generales, ${bullets[0]?.name} conviene si buscas una alternativa más estándar, mientras que ${bullets[1]?.name} apunta a un uso más exigente o con mayores prestaciones dentro de la misma familia.`
+          : "Con la información disponible, esa es la diferencia principal entre los modelos consultados.";
+      return [
+        "Estas son las diferencias más relevantes entre los modelos consultados:",
         "",
-        "1) Uso/entorno: dime si será interior/urbano o exterior/abierto.",
-        "2) Flota actual: dime si ya tienes radios y qué tecnología usan.",
-        "3) Prioridad: audio, alcance, accesorios o presupuesto.",
-      ].join("\n");
-      const question = "❓Pregunta rápida: ¿los usarás en terreno, vehículo o base fija?";
-      return [sectionA, sectionB, diffs, "", question].filter(Boolean).join("\n\n");
+        ...compared,
+        "",
+        closing,
+      ]
+        .filter(Boolean)
+        .join("\n");
     }
     const recommended = bullets.slice(0, 2);
     const recLines = recommended.map((b, idx) => {
@@ -3760,16 +3775,15 @@ async function minimaxCatalogAdvisor(args: {
       const price = b.price ? `- ${b.price}` : "";
       return [head, reason, price].filter(Boolean).join("\n");
     });
-    const alt = bullets[2] ? [`🔎 Alternativa: ${bullets[2].name}`, `- ${bullets[2].summary}`].join("\n") : "";
+    const alt = bullets[2] ? [`Alternativa adicional: ${bullets[2].name}`, `- ${bullets[2].summary}`].join("\n") : "";
     const context = args.requestKind === "arriendo" ? "📌 Contexto: arriendo" : "📌 Contexto: compra/cotización";
-    const question = "❓Pregunta rápida: ¿los usarás en terreno, vehículo o base fija?";
-    return [context, ...recLines, alt, question].filter(Boolean).join("\n\n");
+    return [context, ...recLines, alt].filter(Boolean).join("\n\n");
   };
 
-  const key = getMinimaxApiKey();
+  const key = getAiApiKey();
   if (!key) return fallback();
 
-  const completionsUrl = getMinimaxChatCompletionsUrl();
+  const completionsUrl = getAiChatCompletionsUrl();
   const system = [
     "Eres un asesor humano de ventas para una empresa de radiocomunicación.",
     "Hablas en español, tono profesional, claro y cercano.",
@@ -3783,7 +3797,7 @@ async function minimaxCatalogAdvisor(args: {
     "Prioriza en tu respuesta: uso recomendado, capacidades clave y diferencias reales entre modelos.",
     "Cuando compares, explica en lenguaje natural qué aporta cada modelo y para qué escenario conviene más.",
     "Evita encabezados rígidos como 'Resumen ejecutivo', 'Perfil técnico', 'Lectura rápida' o listados plantilla salvo que sean realmente necesarios.",
-    "Si la consulta no trae suficiente contexto, al final haz solo una pregunta breve para afinar la recomendación.",
+    "No cierres con preguntas ni solicites más datos si el cliente solo pidió diferencias o recomendación general.",
     "No uses tablas ni markdown complejo; la respuesta debe quedar lista para WhatsApp.",
     "No incluyas instrucciones de navegación como 'elige un número' o 'indícame el número'; eso lo agrega el sistema.",
     "Nunca menciones que eres una IA.",
@@ -3823,7 +3837,7 @@ async function minimaxCatalogAdvisor(args: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: getMinimaxModel(),
+        model: getAiModel(),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -3839,7 +3853,7 @@ async function minimaxCatalogAdvisor(args: {
     const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
     const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
     if (typeof content === "string" && content.trim()) {
-      const cleaned = sanitizeMinimaxOutput(content);
+      const cleaned = sanitizeAiOutput(content);
       if (cleaned) return cleaned;
     }
     return fallback();
@@ -3848,15 +3862,15 @@ async function minimaxCatalogAdvisor(args: {
   }
 }
 
-async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium"; input: string; knowledgeText: string }) {
+async function generateKnowledgeAiAnswer(args: { role: "proyectos" | "cambium"; input: string; knowledgeText: string }) {
   const input = (args.input || "").trim();
   const knowledgeText = (args.knowledgeText || "").trim();
   if (!input) return "";
 
-  const key = getMinimaxApiKey();
+  const key = getAiApiKey();
   if (!key || !knowledgeText) return "";
 
-  const completionsUrl = getMinimaxChatCompletionsUrl();
+  const completionsUrl = getAiChatCompletionsUrl();
   const systemBase = [
     "Eres un asesor humano para una empresa de telecomunicaciones y radiocomunicación.",
     "Hablas en español, tono cordial, profesional y claro.",
@@ -3891,7 +3905,7 @@ async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium";
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: getMinimaxModel(),
+        model: getAiModel(),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -3907,7 +3921,7 @@ async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium";
     const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
     const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
     if (typeof content === "string" && content.trim()) {
-      const cleaned = sanitizeMinimaxOutput(content);
+      const cleaned = sanitizeAiOutput(content);
       return cleaned || "";
     }
     return "";
@@ -3916,7 +3930,7 @@ async function minimaxAnswerFromKnowledge(args: { role: "proyectos" | "cambium";
   }
 }
 
-function sanitizeMinimaxOutput(raw: string) {
+function sanitizeAiOutput(raw: string) {
   const withoutThink = raw
     .replace(/<think[\s\S]*?<\/think>\s*/gi, "")
     .replace(/<analysis[\s\S]*?<\/analysis>\s*/gi, "")
@@ -3958,7 +3972,7 @@ function sanitizeMinimaxOutput(raw: string) {
   return merged.length > 6000 ? `${merged.slice(0, 6000).trim()}...` : merged;
 }
 
-function sanitizeServiceTechMinimaxOutput(raw: string) {
+function sanitizeServiceTechAiOutput(raw: string) {
   return raw
     .replace(/(?:^|\n)\s*(?:hola[!,. ]*)?(?:gracias por (?:tu consulta|escribirnos)[^.:\n]*[.:]?)\s*/gim, "")
     .replace(/no (?:cuento|tengo) con la informacion[^.]*\.\s*/gim, "")
@@ -4816,7 +4830,7 @@ async function buildCatalogAdviceReply(args: {
   }
 
   const isComparison = isCatalogComparisonRequest(args.input);
-  const advice = await minimaxCatalogAdvisor({
+  const advice = await generateCatalogAiAnswer({
     input: args.input,
     country: args.country,
     requestKind: args.requestKind,
@@ -4824,7 +4838,9 @@ async function buildCatalogAdviceReply(args: {
     mode: isComparison ? "compare" : "recommend",
   });
 
-  const footer = `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
+  const footer = isComparison
+    ? ""
+    : `Si quieres ver el detalle completo, indícame el número (${referencedNumbers.length ? referencedNumbers.join(", ") : `1–${max}`}) o el nombre del producto.`;
   const adviceText = String(advice || "").trim();
   const parts = splitForWhatsapp(adviceText, 650, 4);
   const footerSignal = "si quieres ver el detalle completo";
@@ -5586,7 +5602,7 @@ async function completeCatalogQuote(state: UserState, userPhone: string, input: 
         const d = await loadProductDetail(id);
         if (d?.nombre) names.push(cleanProductName(d.nombre));
       }
-      return await minimaxRewrite({
+      return await generateAiRewrite({
         kind: "cierre",
         input,
         facts: [
@@ -5715,7 +5731,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     if (t.includes("cancel")) {
       state.catalog = { filters: {}, status: "idle" };
       state.activeBranch = "menu";
-      const msg = await minimaxRewrite({
+      const msg = await generateAiRewrite({
         kind: "empatia",
         input,
         facts: ["Ok, dejé la cotización cancelada."],
@@ -5729,7 +5745,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.recommended.includedIds.push(...state.catalog.recommended.remainingIds);
       state.catalog.recommended.remainingIds = [];
       state.catalog.status = "wait_finish_cotizacion";
-      return await minimaxRewrite({
+      return await generateAiRewrite({
         kind: "cierre",
         input,
         facts: [
@@ -5755,7 +5771,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     if (t.startsWith("3") && state.catalog.recommended?.mode === "offer") {
       state.catalog.recommended.rejectedIds.push(...state.catalog.recommended.remainingIds);
       state.catalog.recommended.remainingIds = [];
-      return await minimaxRewrite({
+      return await generateAiRewrite({
         kind: "empatia",
         input,
         facts: ["Muy bien, dejamos los recomendados fuera.", "¿Quieres terminar o cancelar la cotización?", "Responde: Terminar / Cancelar."],
@@ -5791,7 +5807,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         state.catalog.recommended.currentId = undefined;
         state.catalog.recommended.mode = "list";
         if (!state.catalog.recommended.remainingIds.length) {
-          return await minimaxRewrite({
+          return await generateAiRewrite({
             kind: "cierre",
             input,
             facts: [
@@ -5809,7 +5825,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         state.catalog.recommended.currentId = undefined;
         state.catalog.recommended.mode = "list";
         if (!state.catalog.recommended.remainingIds.length) {
-          return await minimaxRewrite({
+          return await generateAiRewrite({
             kind: "cierre",
             input,
             facts: [
@@ -6453,7 +6469,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (t.includes("cancel")) {
       state.catalog = { filters: {}, status: "idle" };
       state.activeBranch = "menu";
-      const msg = await minimaxRewrite({
+      const msg = await generateAiRewrite({
         kind: "empatia",
         input,
         facts: ["Ok, dejé la cotización cancelada."],
@@ -7068,7 +7084,7 @@ async function handleProjects(state: UserState, text: string, userPhone: string)
   }
   const projectKnowledge = (await loadManagedSectionContent("proyectos", "CL")).knowledgeText;
   if (knowledgeHints.some((h) => t.includes(normalizeText(h))) && projectKnowledge) {
-    const ai = await minimaxAnswerFromKnowledge({ role: "proyectos", input, knowledgeText: projectKnowledge });
+    const ai = await generateKnowledgeAiAnswer({ role: "proyectos", input, knowledgeText: projectKnowledge });
     if (ai) return [ai, "", getProjectsCtaText()].join("\n");
     const clipped = projectKnowledge.length > 1400 ? `${projectKnowledge.slice(0, 1400).trim()}...` : projectKnowledge;
     return [clipped, "", getProjectsCtaText()].join("\n");
@@ -7887,7 +7903,7 @@ async function handleProjectsUY(state: UserState, text: string, userPhone: strin
 
   const projectKnowledge = (await loadManagedSectionContent("proyectos", "UY")).knowledgeText || loadUyProjectsData().bankText;
   if (knowledgeHints.some((h) => t.includes(normalizeText(h))) && projectKnowledge) {
-    const ai = await minimaxAnswerFromKnowledge({ role: "proyectos", input, knowledgeText: projectKnowledge });
+    const ai = await generateKnowledgeAiAnswer({ role: "proyectos", input, knowledgeText: projectKnowledge });
     if (ai) return [ai, "", getProjectsCtaText()].join("\n");
     const clipped = projectKnowledge.length > 1400 ? `${projectKnowledge.slice(0, 1400).trim()}...` : projectKnowledge;
     return [clipped, "", getProjectsCtaText()].join("\n");
@@ -7953,7 +7969,7 @@ async function handleServicioTecnicoUY(state: UserState, text: string, userPhone
 
   const structuredHits = (await answerStructuredServiceKnowledge("UY", input)) ?? [];
   const knowledgeText = managedContent.knowledgeText || loadUyServicioTecnicoText();
-  const ai = await minimaxServicioTecnicoAnswer({
+  const ai = await generateServiceTechAiAnswer({
     input,
     knowledge: [
       ...structuredHits.map((h) => ({ tema: h.tema, info: h.info })),
@@ -8033,7 +8049,7 @@ async function handleServicioTecnico(state: UserState, text: string, userPhone: 
     ...mergedHits.map((h) => ({ tema: h.tema, info: h.info })),
     ...(managedContent.knowledgeText ? [{ tema: "Servicio técnico (Chile)", info: managedContent.knowledgeText }] : []),
   ];
-  const ai = await minimaxServicioTecnicoAnswer({ input: q, knowledge });
+  const ai = await generateServiceTechAiAnswer({ input: q, knowledge });
   const footer = buildServicioTecnicoChatFooter("CL");
   if (!ai) return [managedContent.openingText, "", footer].join("\n");
 
@@ -8160,7 +8176,7 @@ async function handleCambium(state: UserState, text: string, userPhone: string):
     if (wantsCon) cambium.category = "conectividad";
     else if (wantsRad) cambium.category = "radioenlaces";
     else {
-      const ai = await minimaxAnswerFromKnowledge({ role: "cambium", input, knowledgeText: `${data.intro}\n\n${data.bankText}`.trim() });
+      const ai = await generateKnowledgeAiAnswer({ role: "cambium", input, knowledgeText: `${data.intro}\n\n${data.bankText}`.trim() });
       return ai ? [ai, "", "Si quieres ver productos, elige: 1) Conectividad empresarial / 2) Radioenlaces"].join("\n") : intro;
     }
   }
@@ -8185,7 +8201,7 @@ async function handleCambium(state: UserState, text: string, userPhone: string):
       const head = [`*${category.title}*`, category.detail ? category.detail : "", ""].filter(Boolean).join("\n");
       return [head, "Estos son algunos productos:", "", lines, "", "Elige uno por número o nombre. Para cambiar categoría: Cambiar categoría."].join("\n");
     } else {
-      const ai = await minimaxAnswerFromKnowledge({ role: "cambium", input, knowledgeText: `${category.detail}\n\n${data.bankText}`.trim() });
+      const ai = await generateKnowledgeAiAnswer({ role: "cambium", input, knowledgeText: `${category.detail}\n\n${data.bankText}`.trim() });
       if (ai) return [ai, "", "Si quieres ver productos, dime: Listar o elige 1–8."].join("\n");
       const lines = products.slice(0, 8).map((p, i) => `${i + 1}) ${p.name}`).join("\n");
       return ["No caché cuál producto querías.", "", lines, "", "Responde con el número o nombre."].join("\n");
@@ -8657,7 +8673,7 @@ export async function POST(request: Request) {
             if (overviewReply) {
               reply = overviewReply;
             } else {
-              const msg = await minimaxRewrite({
+              const msg = await generateAiRewrite({
                 kind: "fuera_menu",
                 input: inboundText,
                 facts:

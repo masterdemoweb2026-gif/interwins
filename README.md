@@ -57,10 +57,12 @@ Este proyecto recibe mensajes entrantes por webhook y responde vía GOWA. Ademá
 
 El estado conversacional por usuario se persiste en la tabla `message_buffer` (columna `full_message`) usando como key `user_phone`.
 
-### MiniMax (redacción humanizada)
+### AI / DeepSeek (redacción humanizada)
 
-- `MINIMAX_API_KEY` (string) API Key para MiniMax
-- `MINIMAX_BASE_URL` (string, opcional) Default: `https://api.minimax.io/v1`
+- `AI_API_KEY` (string, recomendado) API Key canónica para la capa de completions
+- `AI_BASE_URL` (string, opcional) Default: `https://opencode.ai/zen/go/v1/chat/completions`
+- `AI_MODEL` (string, opcional) Default: `DeepSeek V4 Flash`
+- Compatibilidad hacia atrás: también se aceptan `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL` y, temporalmente, `MINIMAX_API_KEY` / `MINIMAX_BASE_URL`
 
 ### App
 
