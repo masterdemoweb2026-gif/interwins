@@ -820,6 +820,109 @@ function buildUnsupportedCommercialReply(country: Country, productLabel: string)
   return [`Actualmente no comercializamos ${productLabel}.`, focus, guidance].join("\n");
 }
 
+type OpenBusinessOverviewKind = "productos" | "servicios" | "general";
+
+function detectOpenBusinessOverviewIntent(text: string): OpenBusinessOverviewKind | null {
+  const t = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return null;
+
+  const asksProducts =
+    t.includes("que productos") ||
+    t.includes("qué productos") ||
+    t.includes("tipo de productos") ||
+    t.includes("tipos de productos") ||
+    t.includes("que venden") ||
+    t.includes("qué venden") ||
+    t.includes("que manejan") ||
+    t.includes("qué manejan") ||
+    t.includes("que ofrecen") ||
+    t.includes("qué ofrecen") ||
+    t.includes("que equipos") ||
+    t.includes("qué equipos") ||
+    t.includes("catalogo") ||
+    t.includes("catálogo");
+
+  const asksServices =
+    t.includes("que servicios") ||
+    t.includes("qué servicios") ||
+    t.includes("servicios tienen") ||
+    t.includes("servicios ofrecen") ||
+    t.includes("en que ayudan") ||
+    t.includes("en qué ayudan") ||
+    t.includes("que hacen") ||
+    t.includes("qué hacen");
+
+  const asksGeneral =
+    t.includes("que tienen") ||
+    t.includes("qué tienen") ||
+    t.includes("a que se dedican") ||
+    t.includes("a qué se dedican") ||
+    t.includes("como me pueden ayudar") ||
+    t.includes("cómo me pueden ayudar");
+
+  if (asksProducts) return "productos";
+  if (asksServices) return "servicios";
+  if (asksGeneral) return "general";
+  return null;
+}
+
+function getOpenBusinessOverviewFacts(country: Country, kind: OpenBusinessOverviewKind) {
+  if (country === "UY") {
+    if (kind === "productos") {
+      return [
+        "Sí, trabajamos con soluciones de radiocomunicación profesional.",
+        "Podemos orientarte en equipos de radio, accesorios y soluciones de conectividad empresarial.",
+        "Además, te ayudamos con servicio técnico, proyectos y soluciones Cambium en Uruguay.",
+        "Si quieres, puedes seguir el menú disponible o decirme directamente qué equipo o solución estás buscando.",
+      ];
+    }
+    if (kind === "servicios") {
+      return [
+        "Podemos ayudarte con compra de equipos, servicio técnico, proyectos y soluciones Cambium en Uruguay.",
+        "Si me dices qué necesitas, te oriento a la ruta correcta de inmediato.",
+      ];
+    }
+    return [
+      "Podemos ayudarte con radiocomunicación profesional, servicio técnico, proyectos y soluciones Cambium en Uruguay.",
+      "Si quieres, puedes seguir el menú disponible o escribir directamente lo que estás buscando.",
+    ];
+  }
+
+  if (kind === "productos") {
+    return [
+      "Sí, contamos con soluciones de radiocomunicación profesional.",
+      "Trabajamos con radios portátiles, radios móviles, repetidores, accesorios y cámaras corporales.",
+      "Además, podemos apoyarte con compra, arriendo, servicio técnico, proyectos y puntos de venta.",
+      "Si quieres, puedes seguir el menú disponible o decirme directamente qué equipo necesitas.",
+    ];
+  }
+  if (kind === "servicios") {
+    return [
+      "Podemos ayudarte con compra de equipos, arriendo, servicio técnico, asesoría en proyectos y puntos de venta.",
+      "Si me dices qué necesitas, te oriento de inmediato a la opción correcta.",
+    ];
+  }
+  return [
+    "Podemos ayudarte con soluciones de radiocomunicación profesional y servicios asociados.",
+    "Trabajamos con equipos, accesorios, cámaras corporales, servicio técnico, proyectos y puntos de venta.",
+    "Si quieres, puedes seguir el menú disponible o escribir directamente qué necesitas.",
+  ];
+}
+
+async function buildOpenBusinessOverviewReply(country: Country, input: string) {
+  const kind = detectOpenBusinessOverviewIntent(input);
+  if (!kind) return "";
+  const facts = getOpenBusinessOverviewFacts(country, kind);
+  return await minimaxRewrite({
+    kind: "fuera_menu",
+    input,
+    facts,
+  });
+}
+
 function extractLocationQuery(text: string) {
   const raw = text.trim();
   if (!raw) return "";
@@ -5041,6 +5144,7 @@ async function buildArriendoProfileReviewMessage(state: UserState) {
     "",
     "Si todo está correcto, escribe: Confirmar solicitud",
     "Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono",
+    getCancelMenuHintText(),
   ].filter(Boolean);
   return lines.join("\n");
 }
@@ -5072,6 +5176,7 @@ async function buildCotizacionProfileReviewMessage(state: UserState) {
     "",
     "Si todo está correcto, escribe: Confirmar cotización",
     "Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono",
+    getCancelMenuHintText(),
   ].filter(Boolean);
   return lines.join("\n");
 }
@@ -5482,7 +5587,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       }
       if (fieldToEdit) {
         if (fieldToEdit === "ciudad_region") {
-          return "Para arriendo no necesito ciudad ni región. Si todo está correcto, escribe: Confirmar solicitud.";
+          return `Para arriendo no necesito ciudad ni región. Si todo está correcto, escribe: Confirmar solicitud. ${getCancelMenuHintText()}`;
         }
         state.catalog.reviewEditField = fieldToEdit;
         return fieldToEdit === "empresa" ? getRentalPromptForStep("empresa", "CL") : getRentalPromptForStep(fieldToEdit, "CL");
@@ -5490,7 +5595,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       if (isStockQuestion(input)) {
         return "Para confirmar stock inmediato y tiempos de entrega del arriendo, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.";
       }
-      return "Si todo está correcto, escribe: Confirmar solicitud. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono.";
+      return `Si todo está correcto, escribe: Confirmar solicitud. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono. ${getCancelMenuHintText()}`;
     }
 
     if (state.catalog.reviewMode === "cotizacion") {
@@ -5520,7 +5625,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         state.catalog.reviewEditField = fieldToEdit;
         return getQuoteFieldPrompt(fieldToEdit, "CL");
       }
-      return "Si todo está correcto, escribe: Confirmar cotización. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono.";
+      return `Si todo está correcto, escribe: Confirmar cotización. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono. ${getCancelMenuHintText()}`;
     }
 
     const setAndNext = (key: keyof CatalogQuote["data"], value: string, next: CatalogQuoteStep) => {
@@ -6027,7 +6132,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
         state.catalog.reviewEditField = fieldToEdit;
         return getQuoteFieldPrompt(fieldToEdit, "UY");
       }
-      return "Si todo está correcto, escribe: Confirmar cotización. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar correo.";
+      return `Si todo está correcto, escribe: Confirmar cotización. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar correo. ${getCancelMenuHintText()}`;
     }
 
     const setAndNext = (key: keyof CatalogQuote["data"], value: string, next: CatalogQuoteStep) => {
@@ -6830,12 +6935,16 @@ function getCancelReminderText() {
   return "Si en algun momento quieres salir de este proceso, solo escribe: Cancelar.";
 }
 
+function getCancelMenuHintText() {
+  return "Si deseas volver al menú escribe cancelar.";
+}
+
 function getCancelConfirmationText() {
   return "Muy bien, cancelé esta solicitud. Volvamos al menú principal.";
 }
 
 function getFormInProgressText() {
-  return "Ahora mismo estamos completando una solicitud. Si prefieres salir de este proceso, solo escribe: Cancelar.";
+  return `Ahora mismo estamos completando una solicitud. ${getCancelMenuHintText()}`;
 }
 
 function getContactFormMessagePrompt(kind: ContactFormKind) {
@@ -6993,6 +7102,7 @@ async function buildContactFormReviewMessage(state: UserState) {
       "",
       "Si todo está correcto, escribe: Confirmar solicitud",
       "Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono",
+      getCancelMenuHintText(),
     ].filter(Boolean);
     return lines.join("\n");
   }
@@ -7009,6 +7119,7 @@ async function buildContactFormReviewMessage(state: UserState) {
       "",
       "Si todo está correcto, escribe: Confirmar solicitud",
       "Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono",
+      getCancelMenuHintText(),
     ].filter(Boolean);
     return lines.join("\n");
   }
@@ -7038,6 +7149,7 @@ async function buildContactFormReviewMessage(state: UserState) {
     "",
     "Si todo está correcto, escribe: Confirmar solicitud",
     "Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono",
+    getCancelMenuHintText(),
   ].filter(Boolean);
   return lines.join("\n");
 }
@@ -7236,7 +7348,7 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
       state.contactForm = form;
       return getContactFormStepPrompt(fieldToEdit, form.kind);
     }
-    return "Si todo está correcto, escribe: Confirmar solicitud. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono.";
+    return `Si todo está correcto, escribe: Confirmar solicitud. Si necesitas ajustar un dato, puedes decir por ejemplo: cambiar teléfono. ${getCancelMenuHintText()}`;
   }
 
   const error = applyContactFieldValue(form, form.step as Exclude<ContactFormStep, "final">, input);
@@ -8096,23 +8208,28 @@ export async function POST(request: Request) {
           } else if (detectQuoteIntent(inboundText)) {
             reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
-            const msg = await minimaxRewrite({
-              kind: "fuera_menu",
-              input: inboundText,
-              facts:
-                country === "UY"
-                  ? [
-                      "Estoy atento a tu consulta.",
-                      "Puedo ayudarte con compra de equipos y accesorios, servicio técnico, proyectos y soluciones Cambium.",
-                      "Indícame qué necesitas y con gusto te orientaré.",
-                    ]
-                  : [
-                      "Estoy atento a tu consulta.",
-                      "Puedo ayudarte con compra o arriendo de equipos, servicio técnico, proyectos y puntos de venta.",
-                      "Indícame qué necesitas y con gusto te orientaré.",
-                    ],
-            });
-            reply = msg;
+            const overviewReply = await buildOpenBusinessOverviewReply(country, inboundText);
+            if (overviewReply) {
+              reply = overviewReply;
+            } else {
+              const msg = await minimaxRewrite({
+                kind: "fuera_menu",
+                input: inboundText,
+                facts:
+                  country === "UY"
+                    ? [
+                        "Estoy atento a tu consulta.",
+                        "Puedo ayudarte con compra de equipos y accesorios, servicio técnico, proyectos y soluciones Cambium.",
+                        "Indícame qué necesitas y con gusto te orientaré.",
+                      ]
+                    : [
+                        "Estoy atento a tu consulta.",
+                        "Puedo ayudarte con compra o arriendo de equipos, servicio técnico, proyectos y puntos de venta.",
+                        "Indícame qué necesitas y con gusto te orientaré.",
+                      ],
+              });
+              reply = msg;
+            }
           }
         } else {
           if (detectQuoteIntent(inboundText) && state.activeBranch !== "catalogo") {
