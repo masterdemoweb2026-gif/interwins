@@ -1367,6 +1367,19 @@ function buildProductsListMessage(products: Array<{ product_id: string; nombre: 
   ].join("\n");
 }
 
+function buildUnsupportedProductInActiveListReply(
+  country: Country,
+  productLabel: string,
+  products: Array<{ product_id: string; nombre: string }>,
+) {
+  const intro =
+    country === "UY"
+      ? `No trabajamos con ese tipo de producto: ${productLabel}. Puedes continuar con este proceso y escoger alguna de las opciones que ya revisamos:`
+      : `No trabajamos con ese tipo de producto: ${productLabel}. Puedes continuar con este proceso y escoger alguna de las opciones que ya revisamos:`;
+  const example = country === "UY" ? "DEP250" : "Motorola DP250";
+  return prependReplyContext(buildProductsListMessage(products, example), intro);
+}
+
 function formatFriendlyPrice(price: string, country: Country = "CL") {
   const raw = String(price || "").trim();
   if (!raw) return "";
@@ -6016,6 +6029,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
         ]);
   }
 
+  if (unsupportedCommercialProduct && state.catalog.lastList?.length && !state.catalog.selectedProductId) {
+    return buildUnsupportedProductInActiveListReply("CL", unsupportedCommercialProduct, state.catalog.lastList);
+  }
+
   if (unsupportedCommercialProduct) {
     const unsupportedReply = await buildUnsupportedCommercialReplyDynamic("CL", unsupportedCommercialProduct, input);
     return prependReplyContext(
@@ -6618,6 +6635,10 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       "Perfecto. Volvamos al menú principal para que elijas la opción que necesitas.",
     ][crypto.randomInt(0, 3)];
     return [lead, "", buildMainMenuText(state.country ?? "UY", "return")].join("\n");
+  }
+
+  if (unsupportedCommercialProduct && state.catalog.lastList?.length && !state.catalog.selectedProductId) {
+    return buildUnsupportedProductInActiveListReply("UY", unsupportedCommercialProduct, state.catalog.lastList);
   }
 
   if (unsupportedCommercialProduct) {
