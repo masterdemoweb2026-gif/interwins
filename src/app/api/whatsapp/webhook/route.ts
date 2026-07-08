@@ -3798,9 +3798,15 @@ async function generateCatalogAiAnswer(args: {
     "Cuando compares, explica en lenguaje natural qué aporta cada modelo y para qué escenario conviene más.",
     "Evita encabezados rígidos como 'Resumen ejecutivo', 'Perfil técnico', 'Lectura rápida' o listados plantilla salvo que sean realmente necesarios.",
     "No cierres con preguntas ni solicites más datos si el cliente solo pidió diferencias o recomendación general.",
+    "Para comparaciones, ordena la respuesta con un encabezado breve y luego bloques numerados: 1), 2), 3).",
+    "Cada bloque debe comenzar con el nombre del modelo y luego continuar en líneas separadas con precio referencial y diferencia principal.",
+    "Después de los bloques numerados, puedes cerrar con una conclusión breve en un párrafo aparte.",
     "No uses tablas ni markdown complejo; la respuesta debe quedar lista para WhatsApp.",
     "No incluyas instrucciones de navegación como 'elige un número' o 'indícame el número'; eso lo agrega el sistema.",
     "Nunca menciones que eres una IA.",
+    args.requestKind === "arriendo"
+      ? "Si el contexto es arriendo, orienta la comparación hacia continuidad operativa, facilidad de uso, robustez y conveniencia para operación temporal. No inventes ni entregues precios de arriendo."
+      : "Si el contexto es compra/cotización, orienta la comparación hacia conveniencia técnica y operativa para una decisión comercial.",
   ].join(" ");
 
   const productsBlock = args.products
@@ -3825,7 +3831,20 @@ async function generateCatalogAiAnswer(args: {
     productsBlock,
     "",
     args.mode === "compare"
-      ? "Responde en un solo mensaje final, natural y útil. Compara solo las diferencias más relevantes entre 2 o 3 modelos, orienta cuál conviene según el escenario y evita repetir texto del catálogo."
+      ? [
+          "Responde en un solo mensaje final, natural y útil.",
+          "Compara solo las diferencias más relevantes entre 2 o 3 modelos, orienta cuál conviene según el escenario y evita repetir texto del catálogo.",
+          "Usa este orden de salida:",
+          "Estas son las diferencias más relevantes entre los modelos consultados:",
+          "1) [Modelo]",
+          "- Precio referencial: ...",
+          "- Diferencia principal: ...",
+          "2) [Modelo]",
+          "- Precio referencial: ...",
+          "- Diferencia principal: ...",
+          "Conclusión general: ...",
+          "Cierra con una conclusión breve en un párrafo aparte.",
+        ].join("\n")
       : "Responde en un solo mensaje breve, útil y orientado a decisión.",
   ].join("\n");
 
@@ -3853,7 +3872,8 @@ async function generateCatalogAiAnswer(args: {
     const message = isRecord(first) ? getRecordValue(first, "message") : undefined;
     const content = isRecord(message) ? getRecordValue(message, "content") : undefined;
     if (typeof content === "string" && content.trim()) {
-      const cleaned = sanitizeAiOutput(content);
+      const cleanedBase = sanitizeAiOutput(content);
+      const cleaned = args.mode === "compare" ? formatCatalogComparisonOutput(cleanedBase) : cleanedBase;
       if (cleaned) return cleaned;
     }
     return fallback();
@@ -3970,6 +3990,22 @@ function sanitizeAiOutput(raw: string) {
     .trim();
   if (!merged) return "";
   return merged;
+}
+
+function formatCatalogComparisonOutput(raw: string) {
+  const text = String(raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!text) return "";
+
+  return text
+    .replace(/:\s*(1\))/g, ":\n\n$1")
+    .replace(/\s+(?=([2-9]\)))/g, "\n\n")
+    .replace(/([^\n])\s+(-\s+Precio referencial:)/g, "$1\n$2")
+    .replace(/([^\n])\s+(-\s+Diferencia principal:)/g, "$1\n$2")
+    .replace(/([^\n])\s+(-\s+Lo principal:)/g, "$1\n$2")
+    .replace(/([^\n])\s+(En términos generales,)/g, "$1\n\nConclusión general: $2")
+    .replace(/(^|\n)(En términos generales,)/g, "$1Conclusión general: $2")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function sanitizeServiceTechAiOutput(raw: string) {
