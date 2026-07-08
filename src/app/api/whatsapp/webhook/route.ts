@@ -764,19 +764,6 @@ function extractUnsupportedCommercialProduct(text: string) {
     .replace(/\s+/g, " ")
     .trim();
   if (!t) return "";
-  const hasCommercialContext =
-    detectQuoteIntent(text) ||
-    isRentalIntent(text) ||
-    t.includes("venden") ||
-    t.includes("vende") ||
-    t.includes("tienen") ||
-    t.includes("ofrecen") ||
-    t.includes("manejan") ||
-    t.includes("comercializan") ||
-    t.includes("busco") ||
-    t.includes("necesito") ||
-    t.includes("quiero");
-  if (!hasCommercialContext) return "";
   const supportedHints = ["radio", "radios", "repetidor", "repetidores", "accesorio", "accesorios", "camara corporal", "bodycam"];
   if (supportedHints.some((hint) => t.includes(hint))) return "";
   const unsupportedGroups = [
@@ -784,9 +771,40 @@ function extractUnsupportedCommercialProduct(text: string) {
     { label: "tablets", terms: ["tablet", "tablets", "ipad"] },
     { label: "notebooks o laptops", terms: ["notebook", "notebooks", "laptop", "laptops"] },
   ];
-  for (const group of unsupportedGroups) {
-    if (group.terms.some((term) => t.includes(normalizeText(term)))) return group.label;
-  }
+  const label = unsupportedGroups.find((group) => group.terms.some((term) => t.includes(normalizeText(term))))?.label ?? "";
+  if (!label) return "";
+
+  const hasCommercialContext =
+    detectQuoteIntent(text) ||
+    isRentalIntent(text) ||
+    t.includes("venden") ||
+    t.includes("vende") ||
+    t.includes("vender") ||
+    t.includes("tienen") ||
+    t.includes("tiene") ||
+    t.includes("tienes") ||
+    t.includes("hay") ||
+    t.includes("disponible") ||
+    t.includes("disponibilidad") ||
+    t.includes("ofrecen") ||
+    t.includes("ofrece") ||
+    t.includes("manejan") ||
+    t.includes("maneja") ||
+    t.includes("comercializan") ||
+    t.includes("comercializa") ||
+    t.includes("trabajan con") ||
+    t.includes("busco") ||
+    t.includes("necesito") ||
+    t.includes("quiero");
+
+  const isQuestionLike =
+    /\?\s*$/.test(String(text ?? "").trim()) ||
+    t.startsWith("tiene ") ||
+    t.startsWith("tienes ") ||
+    t.startsWith("tienen ") ||
+    t.startsWith("hay ");
+
+  if (hasCommercialContext || isQuestionLike) return label;
   return "";
 }
 
@@ -8076,7 +8094,7 @@ export async function POST(request: Request) {
           if (choice) {
             reply = await runMainMenuAction(state, userKey, choice, inboundText);
           } else if (unsupportedCommercialProduct) {
-            reply = withMainMenu(buildUnsupportedCommercialReply(country, unsupportedCommercialProduct), state, country, menuShownToday ? "return" : "welcome");
+            reply = [buildUnsupportedCommercialReply(country, unsupportedCommercialProduct), "", getNaturalMenuReminderText()].join("\n\n");
           } else if (detectQuoteIntent(inboundText)) {
             reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
