@@ -820,7 +820,28 @@ function buildUnsupportedCommercialReply(country: Country, productLabel: string)
   return [`Actualmente no comercializamos ${productLabel}.`, focus, guidance].join("\n");
 }
 
-type OpenBusinessOverviewKind = "productos" | "servicios" | "general";
+type OpenBusinessOverviewKind = "productos" | "servicios" | "general" | "marca";
+
+function isQuestionLikeCommercialText(text: string) {
+  const raw = String(text ?? "").trim();
+  const t = normalizeText(raw)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return false;
+  return (
+    /\?\s*$/.test(raw) ||
+    t.startsWith("que ") ||
+    t.startsWith("qué ") ||
+    t.startsWith("como ") ||
+    t.startsWith("cómo ") ||
+    t.startsWith("tienen ") ||
+    t.startsWith("tiene ") ||
+    t.startsWith("trabajan ") ||
+    t.startsWith("manejan ") ||
+    t.startsWith("ofrecen ")
+  );
+}
 
 function detectOpenBusinessOverviewIntent(text: string): OpenBusinessOverviewKind | null {
   const t = normalizeText(text)
@@ -862,60 +883,85 @@ function detectOpenBusinessOverviewIntent(text: string): OpenBusinessOverviewKin
     t.includes("a qué se dedican") ||
     t.includes("como me pueden ayudar") ||
     t.includes("cómo me pueden ayudar");
+  const asksBrand =
+    Boolean(extractBrandHint(text)) &&
+    (isQuestionLikeCommercialText(text) ||
+      t.includes("trabajan con") ||
+      t.includes("manejan") ||
+      t.includes("tienen") ||
+      t.includes("ofrecen"));
 
+  if (asksBrand) return "marca";
   if (asksProducts) return "productos";
   if (asksServices) return "servicios";
   if (asksGeneral) return "general";
   return null;
 }
 
-function getOpenBusinessOverviewFacts(country: Country, kind: OpenBusinessOverviewKind) {
+function getOpenBusinessOverviewFacts(country: Country, kind: OpenBusinessOverviewKind, input: string) {
+  const brand = extractBrandHint(input);
   if (country === "UY") {
+    if (kind === "marca") {
+      return [
+        brand ? `Sí, podemos orientarte con soluciones asociadas a ${brand} dentro de nuestro portafolio.` : "Sí, trabajamos con distintas soluciones de radiocomunicación profesional.",
+        "Podemos ayudarte con equipos de radio, accesorios y soluciones de conectividad empresarial.",
+        "Si quieres avanzar ahora, responde Compra y te ayudo a cotizar según el equipo o modelo que necesitas.",
+        "Si necesitas servicio técnico, proyectos o soluciones Cambium, también puedes escribir directamente esa opción y te llevo por esa ruta.",
+      ];
+    }
     if (kind === "productos") {
       return [
         "Sí, trabajamos con soluciones de radiocomunicación profesional.",
         "Podemos orientarte en equipos de radio, accesorios y soluciones de conectividad empresarial.",
-        "Además, te ayudamos con servicio técnico, proyectos y soluciones Cambium en Uruguay.",
-        "Si quieres, puedes seguir el menú disponible o decirme directamente qué equipo o solución estás buscando.",
+        "Si quieres avanzar ahora, responde Compra y te ayudo a cotizar según el equipo o modelo que necesitas.",
+        "Si necesitas servicio técnico, proyectos o soluciones Cambium, también puedes escribir directamente esa opción y te llevo por esa ruta.",
       ];
     }
     if (kind === "servicios") {
       return [
         "Podemos ayudarte con compra de equipos, servicio técnico, proyectos y soluciones Cambium en Uruguay.",
-        "Si me dices qué necesitas, te oriento a la ruta correcta de inmediato.",
+        "Si quieres avanzar ahora, escribe Compra, Servicio técnico, Proyectos o Cambium y continúo por esa ruta.",
       ];
     }
     return [
       "Podemos ayudarte con radiocomunicación profesional, servicio técnico, proyectos y soluciones Cambium en Uruguay.",
-      "Si quieres, puedes seguir el menú disponible o escribir directamente lo que estás buscando.",
+      "Si quieres avanzar ahora, escribe Compra, Servicio técnico, Proyectos o Cambium y continúo por esa ruta.",
     ];
   }
 
+  if (kind === "marca") {
+    return [
+      brand ? `Sí, podemos orientarte con soluciones asociadas a ${brand} dentro de nuestro portafolio.` : "Sí, trabajamos con soluciones de radiocomunicación profesional.",
+      "Contamos con radios portátiles, radios móviles, repetidores, accesorios y cámaras corporales.",
+      "Si quieres avanzar ahora, responde Compra para cotizar o Arriendo para revisar disponibilidad temporal.",
+      "Si necesitas servicio técnico, proyectos o puntos de venta, también puedes escribir directamente esa opción y te llevo por esa ruta.",
+    ];
+  }
   if (kind === "productos") {
     return [
       "Sí, contamos con soluciones de radiocomunicación profesional.",
       "Trabajamos con radios portátiles, radios móviles, repetidores, accesorios y cámaras corporales.",
-      "Además, podemos apoyarte con compra, arriendo, servicio técnico, proyectos y puntos de venta.",
-      "Si quieres, puedes seguir el menú disponible o decirme directamente qué equipo necesitas.",
+      "Si quieres avanzar ahora, responde Compra para cotizar o Arriendo para revisar disponibilidad temporal.",
+      "Si necesitas servicio técnico, proyectos o puntos de venta, también puedes escribir directamente esa opción y te llevo por esa ruta.",
     ];
   }
   if (kind === "servicios") {
     return [
       "Podemos ayudarte con compra de equipos, arriendo, servicio técnico, asesoría en proyectos y puntos de venta.",
-      "Si me dices qué necesitas, te oriento de inmediato a la opción correcta.",
+      "Si quieres avanzar ahora, escribe Compra, Arriendo, Servicio técnico, Proyectos o Puntos de venta y continúo por esa ruta.",
     ];
   }
   return [
     "Podemos ayudarte con soluciones de radiocomunicación profesional y servicios asociados.",
     "Trabajamos con equipos, accesorios, cámaras corporales, servicio técnico, proyectos y puntos de venta.",
-    "Si quieres, puedes seguir el menú disponible o escribir directamente qué necesitas.",
+    "Si quieres avanzar ahora, escribe Compra, Arriendo, Servicio técnico, Proyectos o Puntos de venta y continúo por esa ruta.",
   ];
 }
 
 async function buildOpenBusinessOverviewReply(country: Country, input: string) {
   const kind = detectOpenBusinessOverviewIntent(input);
   if (!kind) return "";
-  const facts = getOpenBusinessOverviewFacts(country, kind);
+  const facts = getOpenBusinessOverviewFacts(country, kind, input);
   return await minimaxRewrite({
     kind: "fuera_menu",
     input,
@@ -8218,14 +8264,14 @@ export async function POST(request: Request) {
                 facts:
                   country === "UY"
                     ? [
-                        "Estoy atento a tu consulta.",
                         "Puedo ayudarte con compra de equipos y accesorios, servicio técnico, proyectos y soluciones Cambium.",
-                        "Indícame qué necesitas y con gusto te orientaré.",
+                        "Si me dices qué estás buscando, te oriento de inmediato a la ruta correcta.",
+                        "Si quieres avanzar ahora, escribe Compra, Servicio técnico, Proyectos o Cambium.",
                       ]
                     : [
-                        "Estoy atento a tu consulta.",
                         "Puedo ayudarte con compra o arriendo de equipos, servicio técnico, proyectos y puntos de venta.",
-                        "Indícame qué necesitas y con gusto te orientaré.",
+                        "Si me dices qué estás buscando, te oriento de inmediato a la ruta correcta.",
+                        "Si quieres avanzar ahora, escribe Compra, Arriendo, Servicio técnico, Proyectos o Puntos de venta.",
                       ],
               });
               reply = msg;
