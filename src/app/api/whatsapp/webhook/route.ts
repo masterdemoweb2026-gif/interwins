@@ -5391,15 +5391,14 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (unsupportedCommercialProduct) {
-    return [
-      buildUnsupportedCommercialReply("CL", unsupportedCommercialProduct),
-      "",
-      ...buildCotizarProductMenuMessage([
+    return prependReplyContext(
+      buildCotizarProductMenuMessage([
         { label: "📻 Equipos Radio", value: "equipos-radio" },
         { label: "🎧 Accesorios", value: "accesorios" },
         { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
       ]),
-    ].join("\n");
+      buildUnsupportedCommercialReply("CL", unsupportedCommercialProduct),
+    );
   }
 
   if (!state.catalog.quote && !state.catalog.pending && !state.catalog.selectedProductId && input) {
@@ -5963,15 +5962,14 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (unsupportedCommercialProduct) {
-    return [
-      buildUnsupportedCommercialReply("UY", unsupportedCommercialProduct),
-      "",
-      ...buildCotizarProductMenuMessage([
+    return prependReplyContext(
+      buildCotizarProductMenuMessage([
         { label: "📻 Equipos Radio", value: "equipos-radio" },
         { label: "🎧 Accesorios", value: "accesorios" },
         { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
       ]),
-    ].join("\n");
+      buildUnsupportedCommercialReply("UY", unsupportedCommercialProduct),
+    );
   }
 
   if (!state.catalog.quote && !state.catalog.pending && !state.catalog.selectedProductId && input) {
