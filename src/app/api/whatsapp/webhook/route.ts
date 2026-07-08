@@ -909,6 +909,29 @@ function buildUnsupportedCommercialReply(country: Country, productLabel: string)
   return [intro, focus, guidance].join("\n");
 }
 
+async function buildUnsupportedCommercialReplyDynamic(country: Country, productLabel: string, input: string) {
+  const facts =
+    country === "UY"
+      ? [
+          `No comercializamos ${productLabel}.`,
+          "Nuestro portafolio en Uruguay está orientado a radiocomunicación profesional, servicio técnico, proyectos y soluciones Cambium.",
+          "Responde con un tono técnico, profesional y claro.",
+          "Invita al usuario a continuar con una necesidad relacionada al portafolio disponible.",
+        ]
+      : [
+          `No comercializamos ${productLabel}.`,
+          "Nuestro portafolio está orientado a radiocomunicación profesional, incluyendo radios portátiles, radios móviles, repetidores, accesorios, cámaras corporales y servicios asociados.",
+          "Responde con un tono técnico, profesional y claro.",
+          "Invita al usuario a continuar con compra, arriendo, servicio técnico, proyectos o puntos de venta.",
+        ];
+  const rewritten = await minimaxRewrite({
+    kind: "fuera_menu",
+    input,
+    facts,
+  });
+  return rewritten || buildUnsupportedCommercialReply(country, productLabel);
+}
+
 type OpenBusinessOverviewKind = "productos" | "servicios" | "general" | "marca";
 
 function isQuestionLikeCommercialText(text: string) {
@@ -5631,13 +5654,14 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (unsupportedCommercialProduct) {
+    const unsupportedReply = await buildUnsupportedCommercialReplyDynamic("CL", unsupportedCommercialProduct, input);
     return prependReplyContext(
       buildCotizarProductMenuMessage([
         { label: "📻 Equipos Radio", value: "equipos-radio" },
         { label: "🎧 Accesorios", value: "accesorios" },
         { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
       ]),
-      buildUnsupportedCommercialReply("CL", unsupportedCommercialProduct),
+      unsupportedReply,
     );
   }
 
@@ -6202,13 +6226,14 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (unsupportedCommercialProduct) {
+    const unsupportedReply = await buildUnsupportedCommercialReplyDynamic("UY", unsupportedCommercialProduct, input);
     return prependReplyContext(
       buildCotizarProductMenuMessage([
         { label: "📻 Equipos Radio", value: "equipos-radio" },
         { label: "🎧 Accesorios", value: "accesorios" },
         { label: "📷 Cámaras Corporales", value: "camaras-corporales" },
       ]),
-      buildUnsupportedCommercialReply("UY", unsupportedCommercialProduct),
+      unsupportedReply,
     );
   }
 
@@ -8339,7 +8364,8 @@ export async function POST(request: Request) {
           if (choice) {
             reply = await runMainMenuAction(state, userKey, choice, inboundText);
           } else if (unsupportedCommercialProduct) {
-            reply = [buildUnsupportedCommercialReply(country, unsupportedCommercialProduct), "", getNaturalMenuReminderText()].join("\n\n");
+            const unsupportedReply = await buildUnsupportedCommercialReplyDynamic(country, unsupportedCommercialProduct, inboundText);
+            reply = [unsupportedReply, "", getNaturalMenuReminderText()].join("\n\n");
           } else if (detectQuoteIntent(inboundText)) {
             reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
