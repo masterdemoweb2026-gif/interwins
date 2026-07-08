@@ -4388,12 +4388,13 @@ async function queryProductsByNameUY(filters: CatalogFilters, query: string): Pr
     .filter((r) => r.product_id && r.nombre);
 }
 async function loadProductDetail(productId: string) {
-  const select = encodeURIComponent(`ID,Nombre,"Descripción corta","Descripción","Imágenes","Precio normal"`);
+  const select = encodeURIComponent(`ID,Tipo,Nombre,"Descripción corta","Descripción","Imágenes","Precio normal"`);
   const q = `inter_products_staging?select=${select}&ID=eq.${encodeURIComponent(productId)}&limit=1`;
   const res = await supabaseFetch(q, { method: "GET" });
   if (!res.ok || !Array.isArray(res.data)) return null;
   const row = (res.data as unknown[])[0];
   if (!row) return null;
+  const tipo = toTrimmedString(getRecordValue(row, "Tipo"));
   const nombre = toTrimmedString(getRecordValue(row, "Nombre"));
   const descCorta = toTrimmedString(getRecordValue(row, "Descripción corta"));
   const desc = toTrimmedString(getRecordValue(row, "Descripción"));
@@ -4403,13 +4404,41 @@ async function loadProductDetail(productId: string) {
     .split(",")
     .map((s: string) => s.trim())
     .filter(Boolean)[0];
-  const fichaUrl = extractFichaTecnicaUrl(`${descCorta}\n${desc}`);
-  const descCompleta = htmlToParagraphText(`${descCorta}\n${desc}`);
-  const descPlano = htmlToParagraphText(desc || descCorta);
-  const shortText = descCorta.trim() ? htmlToParagraphText(descCorta).slice(0, 600).trim() : descPlano.slice(0, 600).trim();
+  const parentDescription = tipo.toLowerCase() === "variation" ? await loadParentStagingDescription(nombre) : "";
+  const fichaUrl = extractFichaTecnicaUrl(`${parentDescription}\n${descCorta}\n${desc}`);
+  const descCompleta = htmlToParagraphText([parentDescription, desc, descCorta].filter(Boolean).join("\n"));
+  const descPlano = htmlToParagraphText(parentDescription || desc || descCorta);
+  const shortSource = parentDescription || desc || descCorta;
+  const shortText = htmlToParagraphText(shortSource).slice(0, 600).trim();
   const shortFinal = shortText.length >= 590 ? `${shortText.slice(0, 590).trim()}...` : shortText;
 
   return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
+}
+
+function buildStagingParentNameCandidates(nombre: string) {
+  const raw = toTrimmedString(nombre);
+  if (!raw) return [] as string[];
+  const parts = raw.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
+  const candidates: string[] = [];
+  for (let i = parts.length - 1; i >= 1; i -= 1) {
+    candidates.push(parts.slice(0, i).join(" - "));
+  }
+  return Array.from(new Set([raw, ...candidates].filter(Boolean)));
+}
+
+async function loadParentStagingDescription(nombre: string) {
+  const candidates = buildStagingParentNameCandidates(nombre).slice(1);
+  for (const candidate of candidates) {
+    const select = encodeURIComponent(`ID,Tipo,Nombre,"Descripción"`);
+    const q = `inter_products_staging?select=${select}&Nombre=eq.${encodeURIComponent(candidate)}&Tipo=neq.variation&limit=1`;
+    const res = await supabaseFetch(q, { method: "GET" });
+    if (!res.ok || !Array.isArray(res.data)) continue;
+    const row = (res.data as unknown[])[0];
+    if (!row) continue;
+    const description = toTrimmedString(getRecordValue(row, "Descripción"));
+    if (description) return description;
+  }
+  return "";
 }
 
 async function loadCatalogProductCommercialData(args: { productId?: string; nombre?: string }) {
@@ -4463,7 +4492,7 @@ async function loadCatalogProductCommercialData(args: { productId?: string; nomb
   return {
     precio,
     descripcionCorta: toTrimmedString(getRecordValue(row, "caracteristicas")),
-    descripcion: toTrimmedString(getRecordValue(row, "descripcion")),
+    descripcion: (await loadParentStagingDescription(nombre)) || toTrimmedString(getRecordValue(row, "descripcion")),
     imageUrl: "",
     recomendados: getRecordValue(row, "recomendados"),
   };
