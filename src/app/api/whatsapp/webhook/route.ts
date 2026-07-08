@@ -7505,7 +7505,7 @@ function parseProjectsEntryChoice(text: string) {
   if (isAffirmative(text) && (t.includes("mejor") || t.includes("implem") || t.includes("sistema") || t.includes("comunic"))) return 1 as const;
   if (t.includes("mejorar") || t.includes("implementar") || t.includes("asesoria") || t.includes("asesoría")) return 1 as const;
   if (t.includes("conocer") || t.includes("ver proyectos") || t.includes("proyectos")) return 2 as const;
-  if (t.includes("volver al menu") || t.includes("volver al menú") || t === "menu" || t === "menú") return 3 as const;
+  if (t === "volver" || t.includes("volver al menu") || t.includes("volver al menú") || t === "menu" || t === "menú") return 3 as const;
   return null;
 }
 
@@ -7588,20 +7588,20 @@ function buildServicioTecnicoChatIntro(country: Country = "CL") {
         "Muy bien. Ya puedes consultar al sistema de soporte para Uruguay.",
         "Cuéntame el equipo, modelo o la situación y te ayudo a revisarla.",
         "",
-        "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.",
+        "Si quieres volver al menú en cualquier momento, escribe 4, Menú o Volver.",
       ].join("\n")
     : [
         "Muy bien. Ya puedes conversar con el sistema.",
         "Cuéntame el equipo, modelo o la situación y te ayudo a revisarla.",
         "",
-        "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.",
+        "Si quieres volver al menú en cualquier momento, escribe 4, Menú o Volver.",
       ].join("\n");
 }
 
 function buildServicioTecnicoChatFooter(country: Country = "CL") {
   return country === "UY"
-    ? "Si quieres volver al menú principal en cualquier momento, escribe 4 o Menú."
-    : "Si quieres volver al menú en cualquier momento, escribe 4 o Menú.";
+    ? "Si quieres volver al menú principal en cualquier momento, escribe 4, Menú o Volver."
+    : "Si quieres volver al menú en cualquier momento, escribe 4, Menú o Volver.";
 }
 
 function parseServicioTecnicoChoice(text: string) {
@@ -7616,7 +7616,7 @@ function parseServicioTecnicoChoice(text: string) {
   if (t.includes("reparacion") || t.includes("reparación")) return 2 as const;
   if (t.includes("conversar con el sistema") || t.includes("hablar con el sistema")) return 3 as const;
   if ((t.includes("conversar") || t.includes("consulta") || t.includes("pregunta")) && t.includes("sistema")) return 3 as const;
-  if (t.includes("volver al menu") || t.includes("volver al menú") || t === "menu" || t === "menú") return 4 as const;
+  if (t === "volver" || t.includes("volver al menu") || t.includes("volver al menú") || t === "menu" || t === "menú") return 4 as const;
   return null;
 }
 
