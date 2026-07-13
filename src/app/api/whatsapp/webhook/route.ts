@@ -468,6 +468,17 @@ type PointsState = {
   awaitingDealerOffer?: boolean;
 };
 
+type ConversationLeadOffer = {
+  kind: ContactFormKind;
+  intro?: string;
+  presetData?: Partial<ContactFormState["data"]>;
+};
+
+type ConversationState = {
+  lastIntent?: Branch | "empresa";
+  pendingLeadOffer?: ConversationLeadOffer;
+};
+
 type ContactFormKind =
   | "cl_compra_asesoria"
   | "cl_proyectos"
@@ -546,6 +557,7 @@ type UserState = {
   points: PointsState;
   contactForm?: ContactFormState;
   cambium?: CambiumState;
+  conversation?: ConversationState;
   postCotizacion?: {
     awaitingAction?: boolean;
     awaitingReuseConfirm?: boolean;
@@ -1120,6 +1132,260 @@ async function buildOpenBusinessOverviewReply(country: Country, input: string) {
     input,
     facts,
   });
+}
+
+function clearPendingLeadOffer(state: UserState) {
+  if (!state.conversation) return;
+  state.conversation.pendingLeadOffer = undefined;
+  if (!state.conversation.lastIntent) {
+    state.conversation = undefined;
+  }
+}
+
+function setPendingLeadOffer(state: UserState, lastIntent: Branch | "empresa", offer: ConversationLeadOffer) {
+  state.conversation = {
+    ...(state.conversation ?? {}),
+    lastIntent,
+    pendingLeadOffer: offer,
+  };
+}
+
+function isDirectLeadCaptureIntent(text: string) {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    t.includes("contact") ||
+    t.includes("asesor") ||
+    t.includes("ejecutivo") ||
+    t.includes("vendedor") ||
+    t.includes("deriv") ||
+    t.includes("llamen") ||
+    t.includes("llamar") ||
+    t.includes("hablar con ventas") ||
+    t.includes("hablar con un asesor") ||
+    t.includes("me contacten") ||
+    t.includes("me contactes") ||
+    t.includes("solicitud") ||
+    t.includes("quiero que me contacten")
+  );
+}
+
+function hasEnoughCatalogContextForLead(text: string, hints: CatalogEntityHints) {
+  const model = extractCatalogModelQuery(text);
+  if (model) return true;
+  if (hints.categoryKey && hints.quantity) return true;
+  if (hints.categoryKey && hints.brand) return true;
+  if (hints.categoryKey && hints.location) return true;
+  if (hints.portabilidadHint && hints.quantity) return true;
+  if (hints.frequencyBand && hints.technologyHint) return true;
+  return false;
+}
+
+function buildNaturalCatalogClarifier(args: { text: string; requestKind: CatalogRequestKind; hints: CatalogEntityHints }) {
+  const model = extractCatalogModelQuery(args.text);
+  if (args.requestKind === "arriendo") {
+    if (!args.hints.quantity) return "Para orientarte mejor, indícame cuántos equipos necesitas y por cuánto tiempo los requieren.";
+    if (!args.hints.location) return "Perfecto. ¿En qué ciudad o zona los necesitan y si será para faena, evento o trabajo en terreno?";
+    return "Perfecto. Si te parece, indícame el plazo estimado y si además necesitas accesorios o cobertura adicional.";
+  }
+  if (args.hints.categoryKey === "accesorio_radio" && !model) {
+    return "Para orientarte bien, indícame el modelo del equipo o el accesorio específico que buscas, por ejemplo batería, cargador, antena o micrófono.";
+  }
+  if (!model && !args.hints.quantity) {
+    return "Para recomendarte una opción adecuada, indícame cuántos equipos necesitas y en qué contexto los usarán.";
+  }
+  if (!args.hints.location && !model) {
+    return "Cuéntame si el uso será en interior, terreno, faena, seguridad o cobertura amplia, y te oriento con más precisión.";
+  }
+  return "Compárteme un poco más de contexto del uso o el modelo exacto que buscas y te orientaré sin pasar por el menú.";
+}
+
+async function maybeHandleNaturalConversation(args: {
+  state: UserState;
+  text: string;
+  userKey: string;
+  country: Country;
+  branchIntent: { branch: Branch | null; wantsMenu: boolean };
+}) {
+  const { state, text, userKey, country, branchIntent } = args;
+  const input = text.trim();
+  if (!input) return { handled: false, reply: "" as Reply };
+  if (isMenuCommand(input) || isLikelyMainMenuSelectionOnly(input, country)) {
+    return { handled: false, reply: "" as Reply };
+  }
+
+  const pendingLeadOffer = state.conversation?.pendingLeadOffer;
+  if (pendingLeadOffer) {
+    if (isAffirmative(input)) {
+      clearPendingLeadOffer(state);
+      return {
+        handled: true,
+        reply: await startContactForm(state, userKey, pendingLeadOffer.kind, {
+          intro: pendingLeadOffer.intro,
+          presetData: pendingLeadOffer.presetData,
+        }),
+      };
+    }
+    if (isNegative(input)) {
+      clearPendingLeadOffer(state);
+      return {
+        handled: true,
+        reply: "Muy bien. Continuemos por aquí. Cuéntame un poco más de lo que necesitas y te sigo orientando.",
+      };
+    }
+  }
+
+  const unsupportedCommercialProduct = extractUnsupportedCommercialProduct(input);
+  if (unsupportedCommercialProduct && (state.activeBranch === "menu" || branchIntent.branch === "catalogo")) {
+    clearPendingLeadOffer(state);
+    return {
+      handled: true,
+      reply: await buildUnsupportedCommercialReplyDynamic(country, unsupportedCommercialProduct, input),
+    };
+  }
+
+  const overviewReply = await buildOpenBusinessOverviewReply(country, input);
+  if (overviewReply) {
+    clearPendingLeadOffer(state);
+    state.conversation = {
+      ...(state.conversation ?? {}),
+      lastIntent: "empresa",
+    };
+    return { handled: true, reply: overviewReply };
+  }
+
+  if (branchIntent.branch === "servicio_tecnico") {
+    clearPendingLeadOffer(state);
+    state.conversation = {
+      ...(state.conversation ?? {}),
+      lastIntent: "servicio_tecnico",
+    };
+    state.activeBranch = "servicio_tecnico";
+    state.serviceTech ??= {};
+    return {
+      handled: true,
+      reply: country === "UY" ? await handleServicioTecnicoUY(state, input, userKey) : await handleServicioTecnico(state, input, userKey),
+    };
+  }
+
+  if (branchIntent.branch === "puntos_venta" && country !== "UY") {
+    clearPendingLeadOffer(state);
+    state.conversation = {
+      ...(state.conversation ?? {}),
+      lastIntent: "puntos_venta",
+    };
+    state.activeBranch = "puntos_venta";
+    return {
+      handled: true,
+      reply: await handlePoints(state, input, userKey),
+    };
+  }
+
+  if (branchIntent.branch === "proyectos") {
+    clearPendingLeadOffer(state);
+    const leadKind = country === "UY" ? "uy_proyectos" : "cl_proyectos";
+    const presetMessage = `Solicitud iniciada desde conversación de proyectos: ${input}`;
+    if (isDirectLeadCaptureIntent(input) || normalizeText(input).includes("solicitar asesoria") || normalizeText(input).includes("solicitar asesoría")) {
+      return {
+        handled: true,
+        reply: await startContactForm(state, userKey, leadKind, {
+          intro: getProjectsContactIntro(),
+          presetData: { mensaje: presetMessage },
+        }),
+      };
+    }
+
+    const projectKnowledge = country === "UY" ? (await loadManagedSectionContent("proyectos", "UY")).knowledgeText || loadUyProjectsData().bankText : (await loadManagedSectionContent("proyectos", "CL")).knowledgeText;
+    if (!projectKnowledge) return { handled: false, reply: "" as Reply };
+    const ai = await generateKnowledgeAiAnswer({ role: "proyectos", input, knowledgeText: projectKnowledge });
+    const fallback = projectKnowledge.length > 1400 ? `${projectKnowledge.slice(0, 1400).trim()}...` : projectKnowledge;
+    setPendingLeadOffer(state, "proyectos", {
+      kind: leadKind,
+      intro: getProjectsContactIntro(),
+      presetData: { mensaje: presetMessage },
+    });
+    return {
+      handled: true,
+      reply: [ai || fallback, "", "Si quieres, también puedo dejar tu solicitud para que un especialista te contacte. Si te parece bien, responde: Sí."].join(
+        "\n",
+      ),
+    };
+  }
+
+  if (branchIntent.branch === "catalogo") {
+    clearPendingLeadOffer(state);
+    const hints = extractCatalogEntityHints(input);
+    const requestKind: CatalogRequestKind = country === "CL" && isRentalIntent(input) ? "arriendo" : "cotizacion";
+    const previous = state.activeBranch;
+    state.activeBranch = "catalogo";
+    if (previous !== "catalogo") {
+      resetBranchState(state, previous);
+    }
+    resetBranchState(state, "catalogo");
+    state.catalog.requestKind = requestKind;
+    state.catalog.filters.modalidad = requestKind === "arriendo" ? "Arriendo" : "Venta";
+    await applyCatalogEntityHintsToState(state, country, input, { mode: requestKind });
+
+    const leadKind =
+      requestKind === "arriendo"
+        ? "cl_arriendo_precio"
+        : country === "UY"
+          ? "uy_compra_asesoria"
+          : "cl_compra_asesoria";
+    const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
+    const presetData: Partial<ContactFormState["data"]> = {
+      mensaje: `Solicitud iniciada desde conversación comercial: ${input}`,
+    };
+
+    if (requestKind === "arriendo" && country === "CL" && (isRentalPriceIntent(input) || isDirectLeadCaptureIntent(input) || hasEnoughCatalogContextForLead(input, hints))) {
+      return {
+        handled: true,
+        reply: await startContactForm(state, userKey, "cl_arriendo_precio", {
+          intro: contextLine ? [contextLine, "", getArriendoPriceLeadIntro()].join("\n") : getArriendoPriceLeadIntro(),
+          presetData,
+        }),
+      };
+    }
+
+    if (requestKind === "cotizacion" && (isDirectLeadCaptureIntent(input) || (detectQuoteIntent(input) && hasEnoughCatalogContextForLead(input, hints)))) {
+      return {
+        handled: true,
+        reply: await startContactForm(state, userKey, leadKind, {
+          intro: contextLine ? [contextLine, "", getPurchaseAdviceLeadIntro(country)].join("\n") : getPurchaseAdviceLeadIntro(country),
+          presetData,
+        }),
+      };
+    }
+
+    setPendingLeadOffer(state, "catalogo", {
+      kind: leadKind,
+      intro:
+        requestKind === "arriendo"
+          ? contextLine
+            ? [contextLine, "", getArriendoPriceLeadIntro()].join("\n")
+            : getArriendoPriceLeadIntro()
+          : contextLine
+            ? [contextLine, "", getPurchaseAdviceLeadIntro(country)].join("\n")
+            : getPurchaseAdviceLeadIntro(country),
+      presetData,
+    });
+
+    return {
+      handled: true,
+      reply: [
+        contextLine ||
+          (requestKind === "arriendo"
+            ? "Puedo ayudarte con arriendo de equipos y accesorios de radiocomunicación."
+            : "Puedo ayudarte con compra de equipos y accesorios de radiocomunicación."),
+        "",
+        buildNaturalCatalogClarifier({ text: input, requestKind, hints }),
+        "",
+        "Si prefieres, también puedo dejar tu solicitud para que un asesor te contacte. Si te parece bien, responde: Sí.",
+      ].join("\n"),
+    };
+  }
+
+  return { handled: false, reply: "" as Reply };
 }
 
 function extractLocationQuery(text: string) {
@@ -4191,6 +4457,7 @@ function returnToCasualState(state: UserState) {
   resetBranchState(state, "proyectos");
   resetBranchState(state, "puntos_venta");
   resetBranchState(state, "cambium");
+  clearPendingLeadOffer(state);
 }
 
 async function listDistinctTipoProducto(): Promise<string[]> {
@@ -8813,6 +9080,25 @@ export async function POST(request: Request) {
       } else if (!isFormLockActive(state) && state.activeBranch === "menu" && !menuShownToday && !casualChoice) {
         returnToCasualState(state);
         reply = withMainMenu("", state, country, "welcome");
+      } else if (
+        !isFormLockActive(state) &&
+        (state.conversation?.pendingLeadOffer ||
+          ((!state.postCotizacion?.awaitingAction && !isLikelyMainMenuSelectionOnly(inboundText, country)) &&
+            (state.activeBranch === "menu" || (branchIntent.branch && branchIntent.branch !== state.activeBranch))))
+      ) {
+        const natural = await maybeHandleNaturalConversation({
+          state,
+          text: inboundText,
+          userKey,
+          country,
+          branchIntent,
+        });
+        if (natural.handled) {
+          reply = natural.reply;
+        } else if (state.activeBranch === "menu" && !menuShownToday && !casualChoice) {
+          returnToCasualState(state);
+          reply = withMainMenu("", state, country, "welcome");
+        }
       } else if (isFormLockActive(state)) {
         const t0 = normalizeText(inboundText);
         const wantsNav = isMenuCommand(inboundText) || branchIntent.wantsMenu || Boolean(isNumericChoice(t0, 4));
