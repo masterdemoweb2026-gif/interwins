@@ -3056,6 +3056,26 @@ function scoreDirectCatalogCandidate(
   return score;
 }
 
+function matchesDirectCatalogKind(candidate: CatalogProductCandidate, targetKind: "equipment" | "accessory" | "bodycam") {
+  const isAccessory = isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre);
+  const isBodycam = isBodycamTipoProducto(candidate.tipo_producto) || scoreBodycamCandidateName(candidate.nombre) > 0;
+  const isRadioEquipment = isRadioEquipmentTipoProducto(candidate.tipo_producto);
+  if (targetKind === "equipment") return isRadioEquipment && !isAccessory && !isBodycam;
+  if (targetKind === "accessory") return isAccessory;
+  return isBodycam && !isAccessory;
+}
+
+function matchesExplicitDirectCatalogHints(
+  candidate: CatalogProductCandidate,
+  hints: Pick<CatalogEntityHints, "frequencyBand" | "technologyHint">,
+  targetKind: "equipment" | "accessory" | "bodycam",
+) {
+  if (!matchesDirectCatalogKind(candidate, targetKind)) return false;
+  if (hints.frequencyBand && !matchesSelectedFrequencyBand(candidate.frecuencia || candidate.nombre, hints.frequencyBand)) return false;
+  if (hints.technologyHint && !matchesSelectedTechnology(candidate.tecnologia || candidate.nombre, hints.technologyHint)) return false;
+  return true;
+}
+
 function buildDirectCatalogMissReply(args: {
   modelQuery: string;
   targetKind: "equipment" | "accessory" | "bodycam";
@@ -4712,6 +4732,7 @@ async function queryDirectCatalogCandidatesBroad(
 async function tryDirectCatalogModelLookup(state: UserState, country: Country, input: string): Promise<Reply | null> {
   const modelQuery = extractCatalogModelQuery(input);
   if (!modelQuery) return null;
+  const inputHints = extractCatalogEntityHints(input);
 
   const strictFound = state.catalog.filters.tipo_producto ? await (country === "UY" ? queryProductsByNameUY(state.catalog.filters, modelQuery) : queryProductsByName(state.catalog.filters, modelQuery)) : [];
   const relaxedFound =
@@ -4759,9 +4780,21 @@ async function tryDirectCatalogModelLookup(state: UserState, country: Country, i
       : prioritized.slice(0, CATALOG_MAX_LIST_ITEMS);
   const top = ranked[0];
   const second = ranked[1];
+  const explicitVariantMatches = ranked.filter((entry) =>
+    matchesExplicitDirectCatalogHints(
+      entry.candidate,
+      {
+        frequencyBand: inputHints.frequencyBand,
+        technologyHint: inputHints.technologyHint,
+      },
+      targetKind,
+    ),
+  );
   const chosen =
     shown.length === 1
       ? shown[0]!
+      : explicitVariantMatches.length === 1
+        ? { product_id: explicitVariantMatches[0]!.candidate.product_id, nombre: explicitVariantMatches[0]!.candidate.nombre }
       : top && top.score >= 110 && (!second || top.score - second.score >= 18)
         ? { product_id: top.candidate.product_id, nombre: top.candidate.nombre }
         : null;
