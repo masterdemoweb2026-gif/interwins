@@ -6888,48 +6888,8 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
       state.catalog.adviceContext = undefined;
-      const strictFound = await queryProductsByName(state.catalog.filters, modelQuery);
-      const relaxedFound = strictFound.length
-        ? strictFound
-        : await queryProductsByName(
-            { ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined },
-            modelQuery,
-          );
-      const found = relaxedFound.length
-        ? relaxedFound
-        : await queryProductsByNameBroad("CL", state.catalog.filters.modalidad, modelQuery);
-      if (found.length) {
-        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("CL", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
-        if (shown.length === 1) {
-          const only = shown[0]!;
-          const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
-          state.catalog.selectedProductId = only.product_id;
-          if (previousList?.length) {
-            state.catalog.returnList = previousList;
-          } else {
-            state.catalog.lastList = shown;
-            state.catalog.returnList = undefined;
-          }
-          const detail = await loadProductDetailByCountry("CL", only.product_id);
-          if (detail) return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind, country: "CL" });
-        }
-        state.catalog.lastList = shown;
-        state.catalog.returnList = undefined;
-        const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
-        return [
-          `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
-          "",
-          lines,
-          "",
-          `Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.`,
-          "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
-        ].join("\n");
-      }
-      return [
-        `No encontré "${modelQuery.toUpperCase()}" en el catálogo.`,
-        `Puedes elegir un número (1–${max}) de la lista o decirme otro modelo.`,
-        `También puedes escribir: Nueva búsqueda o Menú.`,
-      ].join("\n");
+      const directReply = await tryDirectCatalogModelLookup(state, "CL", input);
+      if (directReply) return directReply;
     }
 
     if (state.catalog.adviceContext?.awaitingUsageContext && shouldKeepCatalogAdviceThread(input)) {
@@ -7411,48 +7371,8 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
       state.catalog.adviceContext = undefined;
-      const strictFound = await queryProductsByNameUY(state.catalog.filters, modelQuery);
-      const relaxedFound = strictFound.length
-        ? strictFound
-        : await queryProductsByNameUY(
-            { ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined },
-            modelQuery,
-          );
-      const found = relaxedFound.length
-        ? relaxedFound
-        : await queryProductsByNameBroad("UY", state.catalog.filters.modalidad, modelQuery);
-      if (found.length) {
-        const shown = isBodycamTipoProducto(state.catalog.filters.tipo_producto) ? await pickBestBodycamList("UY", found) : found.slice(0, CATALOG_MAX_LIST_ITEMS);
-        if (shown.length === 1) {
-          const only = shown[0]!;
-          const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
-          state.catalog.selectedProductId = only.product_id;
-          if (previousList?.length) {
-            state.catalog.returnList = previousList;
-          } else {
-            state.catalog.lastList = shown;
-            state.catalog.returnList = undefined;
-          }
-          const detail = await loadProductDetailByCountry("UY", only.product_id);
-          if (detail) return buildProductFichaMessages(detail, { country: "UY", requestKind: state.catalog.requestKind });
-        }
-        state.catalog.lastList = shown;
-        state.catalog.returnList = undefined;
-        const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
-        return [
-          `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
-          "",
-          lines,
-          "",
-          `Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.`,
-          "Si quieres, también puedo compararlos brevemente o sugerirte la opción más conveniente según tu uso.",
-        ].join("\n");
-      }
-      return [
-        `No encontré "${modelQuery.toUpperCase()}" en el catálogo.`,
-        `Puedes elegir un número (1–${max}) de la lista o decirme otro modelo.`,
-        `También puedes escribir: Nueva búsqueda o Menú.`,
-      ].join("\n");
+      const directReply = await tryDirectCatalogModelLookup(state, "UY", input);
+      if (directReply) return directReply;
     }
 
     if (state.catalog.adviceContext?.awaitingUsageContext && shouldKeepCatalogAdviceThread(input)) {
