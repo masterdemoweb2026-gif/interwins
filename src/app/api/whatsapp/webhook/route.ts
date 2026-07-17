@@ -1374,6 +1374,50 @@ function extractCatalogModelQuery(text: string) {
   return "";
 }
 
+function isDirectCatalogLookupIntent(text: string) {
+  const modelQuery = extractCatalogModelQuery(text);
+  if (!modelQuery) return false;
+  const t = normalizeText(text)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return false;
+  const hasServiceContext =
+    t.includes("repar") ||
+    t.includes("falla") ||
+    t.includes("mantencion") ||
+    t.includes("mantención") ||
+    t.includes("servicio tecnico") ||
+    t.includes("servicio técnico") ||
+    t.includes("soporte tecnico") ||
+    t.includes("soporte técnico");
+  if (hasServiceContext) return false;
+  return (
+    detectQuoteIntent(text) ||
+    isQuestionLikeCommercialText(text) ||
+    t.includes("ficha") ||
+    t.includes("detalle") ||
+    t.includes("especificacion") ||
+    t.includes("especificación") ||
+    t.includes("caracteristica") ||
+    t.includes("características") ||
+    t.includes("caracteristicas") ||
+    t.includes("informacion") ||
+    t.includes("información") ||
+    t.includes("producto") ||
+    t.includes("modelo") ||
+    t.includes("equipo") ||
+    t.includes("equipos") ||
+    t.includes("venden") ||
+    t.includes("vende") ||
+    t.includes("busco") ||
+    t.includes("buscando") ||
+    t.includes("necesito") ||
+    t.includes("quiero") ||
+    t.includes("me interesa")
+  );
+}
+
 type ProductDetail = {
   productId: string;
   nombre: string;
@@ -1811,16 +1855,17 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
     t.includes("arrendar") ||
     t.includes("arriendo") ||
     t.includes("alquilar");
+  const mentionsDirectCatalogLookup = isDirectCatalogLookupIntent(text);
   const mentionsServicio = t.includes("servicio tecnico") || t.includes("servicio técnico") || t.includes("soporte tecnico") || t.includes("soporte técnico");
   const mentionsProjects = isProjectsIntentNormalized(t);
   const mentionsCambium = t.includes("cambium") || t.includes("cnmaestro") || t.includes("epmp") || t.includes("radioenlace") || t.includes("radioenlaces");
   const mentionsPoints = country !== "UY" && (isPuntosVentaIntentNormalized(t) || isLocationSupportIntent(text, country));
 
-  if (mentionsCatalog) return { branch: "catalogo", wantsMenu };
   if (mentionsServicio) return { branch: "servicio_tecnico", wantsMenu };
   if (mentionsProjects) return { branch: "proyectos", wantsMenu };
   if (mentionsCambium) return { branch: "cambium", wantsMenu };
   if (mentionsPoints) return { branch: "puntos_venta", wantsMenu };
+  if (mentionsCatalog || mentionsDirectCatalogLookup) return { branch: "catalogo", wantsMenu };
   return { branch: null, wantsMenu };
 }
 
@@ -2845,6 +2890,155 @@ function cleanProductName(rawName: string) {
     name = tokens.slice(idx).join(" ");
   }
   return name;
+}
+
+type CatalogProductCandidate = {
+  product_id: string;
+  nombre: string;
+  tipo_producto?: string;
+  modalidad?: string;
+  tecnologia?: string;
+  frecuencia?: string;
+};
+
+function isAccessoryTipoProducto(tipoProducto?: string) {
+  return normalizeText(tipoProducto || "").includes("accesor");
+}
+
+function isAccessoryLikeProductName(name: string) {
+  const t = normalizeText(name);
+  if (!t) return false;
+  return [
+    "antena",
+    "auricular",
+    "microfono",
+    "micrófono",
+    "bateria",
+    "batería",
+    "cargador",
+    "clip",
+    "estuche",
+    "correa",
+    "repuesto",
+    "adaptador",
+    "cable",
+    "kit",
+    "tubo acustico",
+    "tubo acústico",
+    "ptt",
+    "manos libres",
+    "parlante microfono",
+    "parlante micrófono",
+    "audifono",
+    "audífono",
+    "base de carga",
+  ].some((token) => t.includes(normalizeText(token)));
+}
+
+function detectDirectCatalogTargetKind(input: string, filters: CatalogFilters, leadContext?: CatalogState["leadContext"]) {
+  const t = normalizeText(input);
+  if (leadContext?.categoryKey === "camara_corporal" || isBodycamTipoProducto(filters.tipo_producto)) return "bodycam" as const;
+  if (
+    leadContext?.categoryKey === "accesorio_radio" ||
+    isAccessoryTipoProducto(filters.tipo_producto) ||
+    [
+      "accesorio",
+      "accesorios",
+      "antena",
+      "bateria",
+      "batería",
+      "cargador",
+      "auricular",
+      "microfono",
+      "micrófono",
+      "manos libres",
+    ].some((token) => t.includes(normalizeText(token)))
+  ) {
+    return "accessory" as const;
+  }
+  return "equipment" as const;
+}
+
+function dedupeCatalogCandidates(candidates: CatalogProductCandidate[]) {
+  const seen = new Set<string>();
+  const out: CatalogProductCandidate[] = [];
+  for (const candidate of candidates) {
+    const key = compactCatalogModelText(cleanProductName(candidate.nombre || "") || candidate.nombre || candidate.product_id);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(candidate);
+  }
+  return out;
+}
+
+function scoreDirectCatalogCandidate(
+  candidate: CatalogProductCandidate,
+  modelQuery: string,
+  filters: CatalogFilters,
+  targetKind: "equipment" | "accessory" | "bodycam",
+) {
+  const compactQuery = compactCatalogModelText(modelQuery);
+  const compactName = compactCatalogModelText(candidate.nombre);
+  const compactCleanName = compactCatalogModelText(cleanProductName(candidate.nombre));
+  const compactId = compactCatalogModelText(candidate.product_id);
+  const nameNorm = normalizeText(candidate.nombre);
+  const queryNorm = normalizeText(modelQuery);
+  const isAccessory = isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre);
+  const isBodycam = isBodycamTipoProducto(candidate.tipo_producto) || scoreBodycamCandidateName(candidate.nombre) > 0;
+  const isRadioEquipment = isRadioEquipmentTipoProducto(candidate.tipo_producto);
+  let score = 0;
+
+  if (compactId === compactQuery) score += 140;
+  if (compactCleanName === compactQuery || compactName === compactQuery) score += 160;
+  if (compactCleanName.startsWith(compactQuery) || compactName.startsWith(compactQuery)) score += 95;
+  if (compactCleanName.includes(compactQuery) || compactName.includes(compactQuery) || compactId.includes(compactQuery)) score += 60;
+  if (queryNorm && new RegExp(`\\b${escapeRegexLiteral(queryNorm).replace(/\s+/g, "\\s+")}\\b`).test(nameNorm)) score += 40;
+
+  if (targetKind === "equipment") {
+    if (isRadioEquipment) score += 70;
+    if (isAccessory) score -= 140;
+    if (isBodycam) score -= 60;
+    if (/\bcompatibilidad\b/.test(nameNorm)) score -= 40;
+  } else if (targetKind === "accessory") {
+    if (isAccessory) score += 80;
+    if (isRadioEquipment) score -= 20;
+  } else {
+    if (isBodycam) score += 90;
+    if (isAccessory) score -= 60;
+  }
+
+  if (filters.frecuencia) {
+    score += matchesSelectedFrequencyBand(candidate.frecuencia || candidate.nombre, filters.frecuencia) ? 28 : -28;
+  }
+  if (filters.tecnologia) {
+    score += matchesSelectedTechnology(candidate.tecnologia || candidate.nombre, filters.tecnologia) ? 24 : -24;
+  }
+  if (filters.modalidad && candidate.modalidad) {
+    const wanted = normalizeText(filters.modalidad);
+    const actual = normalizeText(candidate.modalidad);
+    score += actual.includes(wanted) || (wanted === "venta" && !actual) ? 8 : -12;
+  }
+
+  return score;
+}
+
+function buildDirectCatalogMissReply(args: {
+  modelQuery: string;
+  targetKind: "equipment" | "accessory" | "bodycam";
+  requestKind?: CatalogRequestKind;
+  accessoryMatches?: number;
+}) {
+  const model = args.modelQuery.toUpperCase();
+  if (args.targetKind === "equipment" && (args.accessoryMatches ?? 0) > 0) {
+    return [
+      `No encontré ${model} como equipo disponible en el catálogo actual de ${args.requestKind === "arriendo" ? "arriendo" : "venta"}.`,
+      `Sí veo accesorios compatibles asociados a ese modelo, pero no corresponde mostrarte solo eso si estás buscando el equipo.`,
+      args.requestKind === "arriendo"
+        ? "Si quieres, te ayudo a buscar un equipo equivalente para arriendo."
+        : "Si quieres, te ayudo a buscar una alternativa vigente o, si en realidad necesitas accesorios, te los muestro por categoría.",
+    ].join("\n");
+  }
+  return [`No encontré "${model}" en el catálogo.`, "Si quieres, dime otro modelo o hago una nueva búsqueda contigo."].join("\n");
 }
 
 function isRadioEquipmentTipoProducto(tipoProducto?: string) {
@@ -4443,6 +4637,44 @@ async function queryProductsByNameBroad(
     .slice(0, 25);
 }
 
+async function queryDirectCatalogCandidatesBroad(
+  country: Country,
+  filters: CatalogFilters,
+  query: string,
+): Promise<CatalogProductCandidate[]> {
+  const patterns = buildCatalogNameSearchPatterns(query);
+  if (!patterns.length) return [];
+  const pattern = patterns[patterns.length - 1]!;
+  const table = country === "UY" ? getUyProductsTable() : "inter_products";
+  const params: string[] = [
+    `select=product_id,nombre,tipo_producto,modalidad,tecnologia,frecuencia`,
+    `nombre=ilike.${encodeIlikePattern(pattern)}`,
+    `limit=40`,
+    `order=nombre.asc`,
+  ];
+  if (filters.modalidad) {
+    const m = filters.modalidad.trim();
+    if (normalizeText(m) === "venta") {
+      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
+    } else {
+      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
+    }
+  }
+  const q = `${table}?${params.join("&")}`;
+  const res = await supabaseFetch(q, { method: "GET" });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return (res.data as unknown[])
+    .map((r) => ({
+      product_id: toTrimmedString(getRecordValue(r, "product_id")),
+      nombre: toTrimmedString(getRecordValue(r, "nombre")),
+      tipo_producto: toTrimmedString(getRecordValue(r, "tipo_producto")),
+      modalidad: toTrimmedString(getRecordValue(r, "modalidad")),
+      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
+      frecuencia: toTrimmedString(getRecordValue(r, "frecuencia")),
+    }))
+    .filter((r) => r.product_id && r.nombre);
+}
+
 async function tryDirectCatalogModelLookup(state: UserState, country: Country, input: string): Promise<Reply | null> {
   const modelQuery = extractCatalogModelQuery(input);
   if (!modelQuery) return null;
@@ -4454,19 +4686,51 @@ async function tryDirectCatalogModelLookup(state: UserState, country: Country, i
       : await (country === "UY"
           ? queryProductsByNameUY({ ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined }, modelQuery)
           : queryProductsByName({ ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined }, modelQuery));
-  const found = relaxedFound.length ? relaxedFound : await queryProductsByNameBroad(country, state.catalog.filters.modalidad, modelQuery);
+  const broadCandidates = relaxedFound.length ? [] : await queryDirectCatalogCandidatesBroad(country, state.catalog.filters, modelQuery);
+  const searchBase: CatalogProductCandidate[] = relaxedFound.length
+    ? relaxedFound.map((item) => ({ ...item }))
+    : broadCandidates;
 
-  if (!found.length) {
-    return [`No encontré "${modelQuery.toUpperCase()}" en el catálogo.`, "Si quieres, dime otro modelo o haz una nueva búsqueda."].join("\n");
+  if (!searchBase.length) {
+    return buildDirectCatalogMissReply({
+      modelQuery,
+      targetKind: detectDirectCatalogTargetKind(input, state.catalog.filters, state.catalog.leadContext),
+      requestKind: state.catalog.requestKind,
+    });
   }
 
+  const targetKind = detectDirectCatalogTargetKind(input, state.catalog.filters, state.catalog.leadContext);
+  const ranked = dedupeCatalogCandidates(searchBase)
+    .map((candidate) => ({
+      candidate,
+      score: scoreDirectCatalogCandidate(candidate, modelQuery, state.catalog.filters, targetKind),
+    }))
+    .sort((a, b) => b.score - a.score || a.candidate.nombre.localeCompare(b.candidate.nombre, "es"));
+
+  const topScore = ranked[0]?.score ?? 0;
+  const accessoryMatches = searchBase.filter((candidate) => isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre)).length;
+  if (!ranked.length || topScore < 35) {
+    return buildDirectCatalogMissReply({
+      modelQuery,
+      targetKind,
+      requestKind: state.catalog.requestKind,
+      accessoryMatches,
+    });
+  }
+
+  const prioritized = ranked.map((entry) => ({ product_id: entry.candidate.product_id, nombre: entry.candidate.nombre }));
   const shown =
-    state.catalog.filters.tipo_producto && isBodycamTipoProducto(state.catalog.filters.tipo_producto)
-      ? await pickBestBodycamList(country, found)
-      : found.slice(0, CATALOG_MAX_LIST_ITEMS);
-  const compactQuery = compactCatalogModelText(modelQuery);
-  const exactMatches = shown.filter((p) => compactCatalogModelText(`${p.product_id} ${p.nombre}`).includes(compactQuery));
-  const chosen = exactMatches.length === 1 ? exactMatches[0]! : shown.length === 1 ? shown[0]! : null;
+    targetKind === "bodycam" && state.catalog.filters.tipo_producto && isBodycamTipoProducto(state.catalog.filters.tipo_producto)
+      ? await pickBestBodycamList(country, prioritized)
+      : prioritized.slice(0, CATALOG_MAX_LIST_ITEMS);
+  const top = ranked[0];
+  const second = ranked[1];
+  const chosen =
+    shown.length === 1
+      ? shown[0]!
+      : top && top.score >= 110 && (!second || top.score - second.score >= 18)
+        ? { product_id: top.candidate.product_id, nombre: top.candidate.nombre }
+        : null;
 
   if (chosen) {
     const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
