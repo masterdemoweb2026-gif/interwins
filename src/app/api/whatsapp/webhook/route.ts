@@ -4839,7 +4839,7 @@ async function tryDirectCatalogModelLookup(state: UserState, country: Country, i
     state.catalog.selectedProductId = chosen.product_id;
     state.catalog.lastList = shown;
     state.catalog.returnList = previousList?.length ? previousList : undefined;
-    const detail = await loadProductDetailByCountry(country, chosen.product_id);
+    const detail = await loadProductDetailByCountry(country, chosen.product_id, chosen.nombre);
     if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
     return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind, country });
   }
@@ -4963,6 +4963,98 @@ async function loadProductDetail(productId: string) {
   const shortFinal = shortText.length >= 590 ? shortText.slice(0, 590).trim() : shortText;
 
   return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
+}
+
+async function buildProductDetailFromStagingRow(
+  row: unknown,
+  preferredName?: string,
+): Promise<ProductDetail | null> {
+  if (!row) return null;
+  const productId = toTrimmedString(getRecordValue(row, "ID")) || toTrimmedString(getRecordValue(row, "product_id"));
+  const tipo = toTrimmedString(getRecordValue(row, "Tipo"));
+  const nombre = toTrimmedString(getRecordValue(row, "Nombre")) || toTrimmedString(getRecordValue(row, "nombre"));
+  if (!productId && !nombre) return null;
+  const descCorta = toTrimmedString(getRecordValue(row, "Descripción corta")) || toTrimmedString(getRecordValue(row, "descripcion_corta"));
+  const desc = toTrimmedString(getRecordValue(row, "Descripción")) || toTrimmedString(getRecordValue(row, "descripcion"));
+  const imagenes = toTrimmedString(getRecordValue(row, "Imágenes")) || toTrimmedString(getRecordValue(row, "image_url"));
+  const precio = toTrimmedString(getRecordValue(row, "Precio normal")) || toTrimmedString(getRecordValue(row, "precio"));
+  const imageUrl = imagenes
+    .split(",")
+    .map((s: string) => s.trim())
+    .filter(Boolean)[0];
+  const parentDescription = tipo.toLowerCase() === "variation" ? await loadParentStagingDescription(nombre) : "";
+  const fichaUrl = extractFichaTecnicaUrl(`${parentDescription}\n${descCorta}\n${desc}`);
+  const descCompleta = htmlToParagraphText([parentDescription, desc, descCorta].filter(Boolean).join("\n"));
+  const shortSource = parentDescription || desc || descCorta;
+  const shortText = htmlToParagraphText(shortSource).slice(0, 600).trim();
+  const shortFinal = shortText.length >= 590 ? shortText.slice(0, 590).trim() : shortText;
+  return {
+    productId: productId || extractLikelyProductModel(preferredName || nombre) || "",
+    nombre: preferredName || nombre,
+    shortFinal,
+    fullDescription: descCompleta,
+    imageUrl,
+    fichaUrl,
+    precio,
+  };
+}
+
+async function loadBestStagingProductDetailByName(nombre: string): Promise<ProductDetail | null> {
+  const sourceName = toTrimmedString(nombre);
+  if (!sourceName) return null;
+  const model = extractLikelyProductModel(sourceName);
+  const patterns = Array.from(
+    new Set(
+      [model, sourceName, cleanProductName(sourceName)]
+        .filter(Boolean)
+        .flatMap((seed) => buildCatalogNameSearchPatterns(seed))
+        .slice(0, 6),
+    ),
+  );
+  if (!patterns.length) return null;
+
+  const rows: unknown[] = [];
+  const seen = new Set<string>();
+  for (const pattern of patterns) {
+    const select = encodeURIComponent(`ID,Tipo,Nombre,"Descripción corta","Descripción","Imágenes","Precio normal"`);
+    const q = `inter_products_staging?select=${select}&Nombre=ilike.${encodeIlikePattern(pattern)}&limit=20`;
+    const res = await supabaseFetch(q, { method: "GET" });
+    if (!res.ok || !Array.isArray(res.data)) continue;
+    for (const row of res.data as unknown[]) {
+      const id = toTrimmedString(getRecordValue(row, "ID")) || toTrimmedString(getRecordValue(row, "product_id"));
+      const key = id || toTrimmedString(getRecordValue(row, "Nombre")) || toTrimmedString(getRecordValue(row, "nombre"));
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+  if (!rows.length) return null;
+
+  const wantedModel = extractLikelyProductModel(sourceName);
+  const wantedBand = detectFrequencyBandFromText(sourceName);
+  const wantedTech = detectTechnologyHint(sourceName);
+
+  const ranked = rows
+    .map((row) => {
+      const candidateName = toTrimmedString(getRecordValue(row, "Nombre")) || toTrimmedString(getRecordValue(row, "nombre"));
+      const candidateTipo = toTrimmedString(getRecordValue(row, "Tipo"));
+      const candidateDesc = `${toTrimmedString(getRecordValue(row, "Descripción corta"))}\n${toTrimmedString(getRecordValue(row, "Descripción"))}`;
+      const candidateImages = toTrimmedString(getRecordValue(row, "Imágenes")) || toTrimmedString(getRecordValue(row, "image_url"));
+      const candidatePrice = toTrimmedString(getRecordValue(row, "Precio normal")) || toTrimmedString(getRecordValue(row, "precio"));
+      let score = 0;
+      if (wantedModel && extractLikelyProductModel(candidateName) === wantedModel) score += 120;
+      if (compactCatalogModelText(cleanProductName(candidateName)) === compactCatalogModelText(cleanProductName(sourceName))) score += 60;
+      if (wantedBand) score += matchesSelectedFrequencyBand(candidateName, wantedBand) ? 30 : -15;
+      if (wantedTech) score += matchesSelectedTechnology(candidateName, wantedTech) ? 28 : -12;
+      if (candidateTipo && normalizeText(candidateTipo) !== "variation") score += 15;
+      if (candidateImages) score += 24;
+      if (candidatePrice) score += 18;
+      if (htmlToParagraphText(candidateDesc).length >= 180) score += 20;
+      return { row, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return await buildProductDetailFromStagingRow(ranked[0]?.row, sourceName);
 }
 
 function buildStagingParentNameCandidates(nombre: string) {
@@ -5113,22 +5205,31 @@ async function loadProductDetailUY(productId: string) {
   return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
 }
 
-async function loadProductDetailByCountry(country: Country, productId: string): Promise<ProductDetail | null> {
+async function loadProductDetailByCountry(country: Country, productId: string, preferredName?: string): Promise<ProductDetail | null> {
   if (!productId) return null;
   if (country === "UY") return (await loadProductDetailUY(productId)) as ProductDetail | null;
   const base = (await loadProductDetail(productId)) as ProductDetail | null;
-  const commercial = await loadCatalogProductCommercialData({ productId, nombre: base?.nombre ?? "" });
+  const sourceName = toTrimmedString(preferredName) || base?.nombre || "";
+  const commercial = await loadCatalogProductCommercialData({ productId, nombre: sourceName || base?.nombre || "" });
+  const stagingByName =
+    !base || !base.imageUrl || !base.precio || !((base.fullDescription || base.shortFinal || "").trim())
+      ? await loadBestStagingProductDetailByName(sourceName || commercial?.descripcionCorta || commercial?.descripcion || "")
+      : null;
   if (!base && !commercial) return null;
   const fallbackDescription = htmlToParagraphText(`${commercial?.descripcionCorta ?? ""}\n${commercial?.descripcion ?? ""}`.trim());
   const fallbackShort = fallbackDescription ? fallbackDescription.slice(0, 590).trim() : "";
+  const baseText = htmlToParagraphText(`${base?.fullDescription || ""}\n${base?.shortFinal || ""}`.trim());
+  const stagingText = htmlToParagraphText(`${stagingByName?.fullDescription || ""}\n${stagingByName?.shortFinal || ""}`.trim());
+  const useStagingText = stagingText.length > baseText.length + 80;
   return {
     productId,
-    nombre: base?.nombre ?? productId,
-    shortFinal: base?.shortFinal || fallbackShort,
-    fullDescription: base?.fullDescription || fallbackDescription,
-    imageUrl: base?.imageUrl || commercial?.imageUrl,
-    fichaUrl: base?.fichaUrl,
-    precio: commercial?.precio || base?.precio,
+    nombre: sourceName || base?.nombre || stagingByName?.nombre || productId,
+    shortFinal: (useStagingText ? stagingByName?.shortFinal : base?.shortFinal) || base?.shortFinal || stagingByName?.shortFinal || fallbackShort,
+    fullDescription:
+      (useStagingText ? stagingByName?.fullDescription : base?.fullDescription) || base?.fullDescription || stagingByName?.fullDescription || fallbackDescription,
+    imageUrl: base?.imageUrl || stagingByName?.imageUrl || commercial?.imageUrl,
+    fichaUrl: base?.fichaUrl || stagingByName?.fichaUrl,
+    precio: commercial?.precio || base?.precio || stagingByName?.precio,
   };
 }
 
@@ -6906,7 +7007,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       state.catalog.adviceContext = undefined;
       const chosen = state.catalog.lastList[n - 1];
       state.catalog.selectedProductId = chosen.product_id;
-      const detail = await loadProductDetailByCountry("CL", chosen.product_id);
+      const detail = await loadProductDetailByCountry("CL", chosen.product_id, chosen.nombre);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
       return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind, country: "CL" });
     }
@@ -6919,7 +7020,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     if (match.value) {
       state.catalog.adviceContext = undefined;
       state.catalog.selectedProductId = match.value;
-      const detail = await loadProductDetailByCountry("CL", match.value);
+      const detail = await loadProductDetailByCountry("CL", match.value, productOptions.find((p) => p.value === match.value)?.label);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
       return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind, country: "CL" });
     }
@@ -7393,7 +7494,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       state.catalog.adviceContext = undefined;
       const chosen = state.catalog.lastList[n - 1];
       state.catalog.selectedProductId = chosen.product_id;
-      const detail = await loadProductDetailByCountry("UY", chosen.product_id);
+      const detail = await loadProductDetailByCountry("UY", chosen.product_id, chosen.nombre);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
       return buildProductFichaMessages(detail, { country: "UY", requestKind: state.catalog.requestKind });
     }
@@ -7406,7 +7507,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     if (match.value) {
       state.catalog.adviceContext = undefined;
       state.catalog.selectedProductId = match.value;
-      const detail = await loadProductDetailByCountry("UY", match.value);
+      const detail = await loadProductDetailByCountry("UY", match.value, productOptions.find((p) => p.value === match.value)?.label);
       if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
       return buildProductFichaMessages(detail, { country: "UY", requestKind: state.catalog.requestKind });
     }
