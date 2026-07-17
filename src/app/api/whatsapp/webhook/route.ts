@@ -3097,7 +3097,23 @@ function buildDirectCatalogMissReply(args: {
 
 function isRadioEquipmentTipoProducto(tipoProducto?: string) {
   const t = normalizeText(tipoProducto || "");
-  return t.includes("equipo") && t.includes("radio");
+  if (!t) return false;
+  if (isAccessoryTipoProducto(tipoProducto) || isBodycamTipoProducto(tipoProducto)) return false;
+  return (
+    (t.includes("equipo") && t.includes("radio")) ||
+    t.includes("equipos radio") ||
+    t.includes("radios") ||
+    t.includes("radio movil") ||
+    t.includes("radio móvil") ||
+    t.includes("radio portatil") ||
+    t.includes("radio portátil") ||
+    t.includes("portatil") ||
+    t.includes("portátil") ||
+    t.includes("movil") ||
+    t.includes("móvil") ||
+    t.includes("repetidor") ||
+    t.includes("base")
+  );
 }
 
 function isBodycamTipoProducto(tipoProducto?: string) {
@@ -9181,8 +9197,19 @@ export async function POST(request: Request) {
           }
         } else
         if (state.activeBranch === "menu") {
+          const hasCatalogContinuationContext = Boolean(
+            state.catalog.selectedProductId ||
+            state.catalog.lastList?.length ||
+            state.catalog.pending ||
+            state.catalog.quote ||
+            state.catalog.filters.tipo_producto ||
+            state.catalog.requestKind,
+          );
           const choice = casualChoice;
-          if (choice) {
+          if (hasCatalogContinuationContext && !isMenuCommand(inboundText) && !branchIntent.wantsMenu && (!branchIntent.branch || branchIntent.branch === "catalogo")) {
+            state.activeBranch = "catalogo";
+            reply = country === "UY" ? await handleCatalogUY(state, inboundText, userKey) : await handleCatalog(state, inboundText, userKey);
+          } else if (choice) {
             reply = await runMainMenuAction(state, userKey, choice, inboundText);
           } else if (unsupportedCommercialProduct) {
             const unsupportedReply = await buildUnsupportedCommercialReplyDynamic(country, unsupportedCommercialProduct, inboundText);
