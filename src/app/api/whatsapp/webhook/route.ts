@@ -2969,6 +2969,23 @@ function isAccessoryLikeProductName(name: string) {
   ].some((token) => t.includes(normalizeText(token)));
 }
 
+function isRadioEquipmentLikeProductName(name: string) {
+  const t = normalizeText(name);
+  if (!t) return false;
+  if (isAccessoryLikeProductName(name)) return false;
+  if (scoreBodycamCandidateName(name) > 0) return false;
+  return (
+    t.includes("equipo radio") ||
+    t.includes("equipos radio") ||
+    t.includes("radio portatil") ||
+    t.includes("radio portátil") ||
+    t.includes("radio movil") ||
+    t.includes("radio móvil") ||
+    t.includes("repetidor") ||
+    ((t.includes("motorola") || t.includes("hytera") || t.includes("kenwood") || t.includes("icom") || t.includes("vertex")) && /\b[a-z]{1,6}\s?-?\s?\d{2,6}[a-z]?\b/i.test(name))
+  );
+}
+
 function detectDirectCatalogTargetKind(input: string, filters: CatalogFilters, leadContext?: CatalogState["leadContext"]) {
   const t = normalizeText(input);
   if (leadContext?.categoryKey === "camara_corporal" || isBodycamTipoProducto(filters.tipo_producto)) return "bodycam" as const;
@@ -3019,7 +3036,7 @@ function scoreDirectCatalogCandidate(
   const queryNorm = normalizeText(modelQuery);
   const isAccessory = isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre);
   const isBodycam = isBodycamTipoProducto(candidate.tipo_producto) || scoreBodycamCandidateName(candidate.nombre) > 0;
-  const isRadioEquipment = isRadioEquipmentTipoProducto(candidate.tipo_producto);
+  const isRadioEquipment = isRadioEquipmentTipoProducto(candidate.tipo_producto) || isRadioEquipmentLikeProductName(candidate.nombre);
   let score = 0;
 
   if (compactId === compactQuery) score += 140;
@@ -3059,7 +3076,7 @@ function scoreDirectCatalogCandidate(
 function matchesDirectCatalogKind(candidate: CatalogProductCandidate, targetKind: "equipment" | "accessory" | "bodycam") {
   const isAccessory = isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre);
   const isBodycam = isBodycamTipoProducto(candidate.tipo_producto) || scoreBodycamCandidateName(candidate.nombre) > 0;
-  const isRadioEquipment = isRadioEquipmentTipoProducto(candidate.tipo_producto);
+  const isRadioEquipment = isRadioEquipmentTipoProducto(candidate.tipo_producto) || isRadioEquipmentLikeProductName(candidate.nombre);
   if (targetKind === "equipment") return isRadioEquipment && !isAccessory && !isBodycam;
   if (targetKind === "accessory") return isAccessory;
   return isBodycam && !isAccessory;
