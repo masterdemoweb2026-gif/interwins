@@ -6664,6 +6664,54 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     });
   }
 
+  if (state.catalog.selectedProductId) {
+    const choice = parseProductFichaActionChoice(input);
+    if (t.includes("arrend")) {
+      return await startRentalPriceLeadFlow(state, userPhone);
+    }
+    if (choice === 1 || t.includes("cotiz")) {
+      return await startCatalogQuoteForm(state, userPhone, "CL");
+    }
+    if (choice === 3 || isMenuCommand(input)) {
+      returnToCasualState(state);
+      markMenuShown(state);
+      return buildMainMenuText("CL", "return");
+    }
+    if (choice === 2 || isBackToProductsListCommand(input)) {
+      const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
+      state.catalog.selectedProductId = undefined;
+      state.catalog.returnList = undefined;
+      if (sourceList?.length) {
+        state.catalog.lastList = sourceList;
+        return buildProductsListMessage(sourceList, "Motorola DP250");
+      }
+      return "Indícame el número del producto que quieres ver o escribe: Nueva búsqueda.";
+    }
+    if (isStockQuestion(input)) {
+      return await startCatalogQuoteForm(state, userPhone, "CL", {
+        intro: "Para confirmar stock inmediato y tiempos de entrega, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.",
+      });
+    }
+    if (choice === 4 || t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
+      const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
+      state.catalog.selectedProductId = undefined;
+      state.catalog.lastList = undefined;
+      state.catalog.returnList = undefined;
+      state.catalog.adviceContext = undefined;
+      state.catalog.filters = { modalidad: keepRental ? "Arriendo" : "Venta" };
+      state.catalog.pending = undefined;
+      state.catalog.skipRadioTechFrequency = undefined;
+      return keepRental
+        ? "Muy bien. Hagamos una nueva búsqueda de arriendo. ¿Qué tipo de equipo necesitas?"
+        : "Muy bien. Hagamos una nueva búsqueda. ¿Qué tipo de producto necesitas?";
+    }
+    if (t.includes("volver")) {
+      state.catalog.selectedProductId = undefined;
+    } else {
+      return "Puedo ayudarte con eso. Si quieres validar stock y tiempos de entrega, lo mejor es avanzar con la cotización. También puedes volver al menú o hacer una nueva búsqueda.";
+    }
+  }
+
   if (!state.catalog.filters.tipo_producto) {
     const tipos = await listDistinctTipoProducto();
     if (!tipos.length) return "¿Qué tipo de producto buscas? (Ej: Equipos Radio, Repetidores, Accesorios)";
@@ -6739,54 +6787,6 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
       const top = opts.slice(0, 5);
       state.catalog.pending = { attr: "frecuencia", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Qué frecuencia te sirve?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
-    }
-  }
-
-  if (state.catalog.selectedProductId) {
-    const choice = parseProductFichaActionChoice(input);
-    if (t.includes("arrend")) {
-      return await startRentalPriceLeadFlow(state, userPhone);
-    }
-    if (choice === 1 || t.includes("cotiz")) {
-      return await startCatalogQuoteForm(state, userPhone, "CL");
-    }
-    if (choice === 3 || isMenuCommand(input)) {
-      returnToCasualState(state);
-      markMenuShown(state);
-      return buildMainMenuText("CL", "return");
-    }
-    if (choice === 2 || isBackToProductsListCommand(input)) {
-      const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
-      state.catalog.selectedProductId = undefined;
-      state.catalog.returnList = undefined;
-      if (sourceList?.length) {
-        state.catalog.lastList = sourceList;
-        return buildProductsListMessage(sourceList, "Motorola DP250");
-      }
-      return "Indícame el número del producto que quieres ver o escribe: Nueva búsqueda.";
-    }
-    if (isStockQuestion(input)) {
-      return await startCatalogQuoteForm(state, userPhone, "CL", {
-        intro: "Para confirmar stock inmediato y tiempos de entrega, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.",
-      });
-    }
-    if (choice === 4 || t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
-      const keepRental = normalizeText(state.catalog.filters.modalidad || "").includes("arriendo");
-      state.catalog.selectedProductId = undefined;
-      state.catalog.lastList = undefined;
-      state.catalog.returnList = undefined;
-      state.catalog.adviceContext = undefined;
-      state.catalog.filters = { modalidad: keepRental ? "Arriendo" : "Venta" };
-      state.catalog.pending = undefined;
-      state.catalog.skipRadioTechFrequency = undefined;
-      return keepRental
-        ? "Muy bien. Hagamos una nueva búsqueda de arriendo. ¿Qué tipo de equipo necesitas?"
-        : "Muy bien. Hagamos una nueva búsqueda. ¿Qué tipo de producto necesitas?";
-    }
-    if (t.includes("volver")) {
-      state.catalog.selectedProductId = undefined;
-    } else {
-      return "Puedo ayudarte con eso. Si quieres validar stock y tiempos de entrega, lo mejor es avanzar con la cotización. También puedes volver al menú o hacer una nueva búsqueda.";
     }
   }
 
@@ -7193,6 +7193,48 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     });
   }
 
+  if (state.catalog.selectedProductId) {
+    const choice = parseProductFichaActionChoice(input);
+    if (choice === 1 || t.includes("cotiz")) {
+      return await startCatalogQuoteForm(state, userPhone, "UY");
+    }
+    if (choice === 3 || isMenuCommand(input)) {
+      returnToCasualState(state);
+      markMenuShown(state);
+      return buildMainMenuText("UY", "return");
+    }
+    if (choice === 2 || isBackToProductsListCommand(input)) {
+      const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
+      state.catalog.selectedProductId = undefined;
+      state.catalog.returnList = undefined;
+      if (sourceList?.length) {
+        state.catalog.lastList = sourceList;
+        return buildProductsListMessage(sourceList, "DEP250");
+      }
+      return "Indícame el número del producto que quieres ver o escribe: Nueva búsqueda.";
+    }
+    if (isStockQuestion(input)) {
+      return await startCatalogQuoteForm(state, userPhone, "UY", {
+        intro: "Para confirmar stock inmediato y tiempos de entrega, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.",
+      });
+    }
+    if (choice === 4 || t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
+      state.catalog.selectedProductId = undefined;
+      state.catalog.lastList = undefined;
+      state.catalog.returnList = undefined;
+      state.catalog.adviceContext = undefined;
+      state.catalog.filters = { modalidad: "Venta" };
+      state.catalog.pending = undefined;
+      state.catalog.skipRadioTechFrequency = undefined;
+      return "Muy bien. Hagamos una nueva búsqueda. ¿Qué tipo de producto necesitas?";
+    }
+    if (t.includes("volver")) {
+      state.catalog.selectedProductId = undefined;
+    } else {
+      return "Puedo ayudarte con eso. Si quieres validar stock y tiempos de entrega, lo mejor es avanzar con la cotización. También puedes volver al menú o hacer una nueva búsqueda.";
+    }
+  }
+
   if (!state.catalog.filters.tipo_producto) {
     const tipos = await listDistinctTipoProductoUY();
     if (!tipos.length) return "¿Qué tipo de producto buscas? (Ej: Equipos, Accesorios, Cámaras)";
@@ -7268,48 +7310,6 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       const top = opts.slice(0, 5);
       state.catalog.pending = { attr: "frecuencia", options: top.map((o) => ({ label: o, value: o })) };
       return ["¿Qué frecuencia te sirve?", "", ...top.map((o, i) => `${i + 1}) ${o}`)].join("\n");
-    }
-  }
-
-  if (state.catalog.selectedProductId) {
-    const choice = parseProductFichaActionChoice(input);
-    if (choice === 1 || t.includes("cotiz")) {
-      return await startCatalogQuoteForm(state, userPhone, "UY");
-    }
-    if (choice === 3 || isMenuCommand(input)) {
-      returnToCasualState(state);
-      markMenuShown(state);
-      return buildMainMenuText("UY", "return");
-    }
-    if (choice === 2 || isBackToProductsListCommand(input)) {
-      const sourceList = state.catalog.returnList?.length ? state.catalog.returnList : state.catalog.lastList;
-      state.catalog.selectedProductId = undefined;
-      state.catalog.returnList = undefined;
-      if (sourceList?.length) {
-        state.catalog.lastList = sourceList;
-        return buildProductsListMessage(sourceList, "DEP250");
-      }
-      return "Indícame el número del producto que quieres ver o escribe: Nueva búsqueda.";
-    }
-    if (isStockQuestion(input)) {
-      return await startCatalogQuoteForm(state, userPhone, "UY", {
-        intro: "Para confirmar stock inmediato y tiempos de entrega, avancemos con la cotización y un ejecutivo te validará el inventario en minutos.",
-      });
-    }
-    if (choice === 4 || t.includes("nueva busqueda") || t.includes("nueva búsqueda")) {
-      state.catalog.selectedProductId = undefined;
-      state.catalog.lastList = undefined;
-      state.catalog.returnList = undefined;
-      state.catalog.adviceContext = undefined;
-      state.catalog.filters = { modalidad: "Venta" };
-      state.catalog.pending = undefined;
-      state.catalog.skipRadioTechFrequency = undefined;
-      return "Muy bien. Hagamos una nueva búsqueda. ¿Qué tipo de producto necesitas?";
-    }
-    if (t.includes("volver")) {
-      state.catalog.selectedProductId = undefined;
-    } else {
-      return "Puedo ayudarte con eso. Si quieres validar stock y tiempos de entrega, lo mejor es avanzar con la cotización. También puedes volver al menú o hacer una nueva búsqueda.";
     }
   }
 
