@@ -4817,6 +4817,8 @@ async function tryDirectCatalogModelLookup(state: UserState, country: Country, i
 
   if (chosen) {
     const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
+    state.catalog.pending = undefined;
+    state.catalog.adviceContext = undefined;
     state.catalog.selectedProductId = chosen.product_id;
     state.catalog.lastList = shown;
     state.catalog.returnList = previousList?.length ? previousList : undefined;
@@ -4825,6 +4827,9 @@ async function tryDirectCatalogModelLookup(state: UserState, country: Country, i
     return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind, country });
   }
 
+  state.catalog.pending = undefined;
+  state.catalog.selectedProductId = undefined;
+  state.catalog.adviceContext = undefined;
   state.catalog.lastList = shown;
   state.catalog.returnList = undefined;
   const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
@@ -6672,6 +6677,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     }
   }
 
+  if (state.catalog.lastList?.length && state.catalog.pending && !state.catalog.selectedProductId) {
+    state.catalog.pending = undefined;
+  }
+
   if (state.catalog.pending) {
     const pending = state.catalog.pending;
     if (isCatalogAdviceRequest(input) || isCatalogComparisonRequest(input)) {
@@ -7164,6 +7173,10 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
       state.catalog.reviewMode = "cotizacion";
       return await buildCotizacionProfileReviewMessage(state);
     }
+  }
+
+  if (state.catalog.lastList?.length && state.catalog.pending && !state.catalog.selectedProductId) {
+    state.catalog.pending = undefined;
   }
 
   if (state.catalog.pending) {
