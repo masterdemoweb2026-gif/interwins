@@ -1392,9 +1392,30 @@ function isDirectCatalogLookupIntent(text: string) {
     t.includes("soporte tecnico") ||
     t.includes("soporte técnico");
   if (hasServiceContext) return false;
+  const hasAvailabilityContext =
+    t.includes("tienen") ||
+    t.includes("tiene") ||
+    t.includes("hay") ||
+    t.includes("manejan") ||
+    t.includes("ofrecen") ||
+    t.includes("disponible") ||
+    t.includes("disponibilidad") ||
+    t.includes("busco") ||
+    t.includes("buscando") ||
+    t.includes("necesito") ||
+    t.includes("quiero") ||
+    t.includes("me interesa");
+  const compactText = compactCatalogModelText(t);
+  const compactModel = compactCatalogModelText(modelQuery);
+  const hasGreetingAndModel =
+    (t.startsWith("hola ") || t.startsWith("buenas ") || t.startsWith("buen dia ") || t.startsWith("buenos dias ")) &&
+    compactModel.length >= 4 &&
+    compactText.includes(compactModel);
   return (
     detectQuoteIntent(text) ||
     isQuestionLikeCommercialText(text) ||
+    hasAvailabilityContext ||
+    hasGreetingAndModel ||
     t.includes("ficha") ||
     t.includes("detalle") ||
     t.includes("especificacion") ||
@@ -1409,12 +1430,7 @@ function isDirectCatalogLookupIntent(text: string) {
     t.includes("equipo") ||
     t.includes("equipos") ||
     t.includes("venden") ||
-    t.includes("vende") ||
-    t.includes("busco") ||
-    t.includes("buscando") ||
-    t.includes("necesito") ||
-    t.includes("quiero") ||
-    t.includes("me interesa")
+    t.includes("vende")
   );
 }
 
@@ -2452,6 +2468,11 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   state.catalog.filters.modalidad = args?.modalidad ?? (isRental ? "Arriendo" : "Venta");
   if (args?.seedText) {
     await applyCatalogEntityHintsToState(state, country, args.seedText, { mode: isRental ? "arriendo" : "cotizacion" });
+  }
+
+  if (args?.seedText && !state.catalog.quote && !state.catalog.pending && !state.catalog.selectedProductId) {
+    const directModelReply = await tryDirectCatalogModelLookup(state, country, args.seedText);
+    if (directModelReply) return directModelReply;
   }
 
   if (state.catalog.selectedProductId) {
