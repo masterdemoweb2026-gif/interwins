@@ -1597,9 +1597,11 @@ function isRentalPriceIntent(text: string) {
   return isRentalIntent(t) && commercialHints;
 }
 
-function getArriendoPriceLeadIntro() {
+function getArriendoPriceLeadIntro(productName?: string) {
+  const cleanName = cleanProductName(toTrimmedString(productName));
   return [
-    "¡Hola! Como los valores de nuestros sistemas y equipos varían según la configuración técnica y el alcance, un especialista de nuestra área comercial se encargará de preparar tu cotización.",
+    cleanName ? `Perfecto. Podemos ayudarte con el arriendo de ${cleanName}.` : "Perfecto. Podemos ayudarte con el arriendo del equipo que necesitas.",
+    "Como los valores de nuestros sistemas y equipos varían según la configuración técnica y el alcance, un especialista de nuestra área comercial se encargará de preparar tu cotización.",
     "",
     "¿A qué número de teléfono o correo prefieres que te enviemos el detalle de precios? Déjanos tus datos de contacto y te responderemos a la brevedad.",
   ].join("\n");
@@ -2533,6 +2535,12 @@ async function startArriendoFlowFromText(state: UserState, userKey: string, seed
 }
 
 async function startRentalPriceLeadFlow(state: UserState, userPhone: string) {
+  const country = state.country ?? "CL";
+  const previousCatalog = state.catalog;
+  const selectedProductId = previousCatalog.selectedProductId ?? "";
+  const productDetail = selectedProductId ? await loadProductDetailByCountry(country, selectedProductId) : null;
+  const productName = productDetail?.nombre ? cleanProductName(productDetail.nombre) : "";
+  const savedLeadContext = previousCatalog.leadContext;
   const previous = state.activeBranch;
   state.activeBranch = "catalogo";
   resetBranchState(state, previous);
@@ -2542,9 +2550,13 @@ async function startRentalPriceLeadFlow(state: UserState, userPhone: string) {
   state.catalog.arriendoStage = undefined;
   state.catalog.optionalCompanyHandled = false;
   state.catalog.arriendoPriceMenuActive = undefined;
-  const contextLine = buildCatalogLeadContextSummary(state.catalog.leadContext);
+  state.catalog.leadContext = savedLeadContext;
+  const contextLine = buildCatalogLeadContextSummary(savedLeadContext);
   return await startContactForm(state, userPhone, "cl_arriendo_precio", {
-    intro: contextLine ? [contextLine, "", getArriendoPriceLeadIntro()].join("\n") : getArriendoPriceLeadIntro(),
+    intro: contextLine ? [contextLine, "", getArriendoPriceLeadIntro(productName)].join("\n") : getArriendoPriceLeadIntro(productName),
+    presetData: {
+      ...(productName ? { producto: productName } : {}),
+    },
   });
 }
 
@@ -2697,17 +2709,17 @@ function prependReplyContext(reply: Reply, intro: string): Reply {
 function buildMainMenuEntryIntro(action: MainMenuAction, country: Country) {
   if (action === "catalogo") {
     const options = [
-      "Muy bien. Estás en Compra de equipos y accesorios. Ahora te ayudaré a elegir el tipo de producto para continuar.",
-      "Claro, vamos con Compra de equipos y accesorios. Primero selecciona el tipo de producto que necesitas.",
-      "Excelente. Ya entramos a Compra de equipos y accesorios. Ahora elige el tipo de producto para seguir.",
+      "Perfecto. Si ya tienes un modelo o producto en mente, escríbemelo y te comparto su información. Si prefieres explorar, también puedo guiarte por categorías.",
+      "Muy bien. Puedo ayudarte a encontrar el equipo que buscas o, si aún lo estás definiendo, orientarte paso a paso.",
+      "Excelente. Dime el modelo que necesitas o, si prefieres, elegimos juntos la categoría más conveniente.",
     ];
     return options[crypto.randomInt(0, options.length)]!;
   }
   if (action === "arriendo") {
     const options = [
-      "Muy bien. Estás en Arriendo de equipos de radiocomunicación. Ahora te mostraré las alternativas disponibles para avanzar.",
-      "Claro, vamos con Arriendo de equipos de radiocomunicación. Elige la alternativa que mejor se ajuste a lo que necesitas.",
-      "Excelente. Ya entramos a Arriendo de equipos de radiocomunicación. Ahora selecciona cómo quieres continuar.",
+      "Perfecto. Si ya sabes qué equipo quieres arrendar, escríbeme el modelo y revisamos la mejor forma de cotizarlo.",
+      "Muy bien. Puedo orientarte con opciones de arriendo o, si ya tienes un equipo en mente, ayudarte a derivarlo de inmediato con el área comercial.",
+      "Excelente. Cuéntame qué equipo necesitas arrendar y te ayudo a avanzar de la forma más directa.",
     ];
     return options[crypto.randomInt(0, options.length)]!;
   }
@@ -2747,13 +2759,14 @@ async function runMainMenuAction(state: UserState, userKey: string, action: Main
   const country = state.country ?? "CL";
   let reply: Reply = "";
   const forwardInput = isLikelyMainMenuSelectionOnly(text, country) ? "" : text;
+  const skipIntroForDirectLookup = (action === "catalogo" || action === "arriendo") && isDirectCatalogLookupIntent(text);
 
   if (action === "arriendo") {
     if (country === "CL" && isRentalPriceIntent(text)) {
       return await startRentalPriceLeadFlow(state, userKey);
     }
     reply = await startArriendoFlow(state, userKey);
-    return prependReplyContext(reply, buildMainMenuEntryIntro(action, country));
+    return skipIntroForDirectLookup ? reply : prependReplyContext(reply, buildMainMenuEntryIntro(action, country));
   }
 
   state.activeBranch = action;
@@ -2789,7 +2802,7 @@ async function runMainMenuAction(state: UserState, userKey: string, action: Main
     reply = buildMainMenuText(country, "return");
   }
 
-  return prependReplyContext(reply, buildMainMenuEntryIntro(action, country));
+  return skipIntroForDirectLookup ? reply : prependReplyContext(reply, buildMainMenuEntryIntro(action, country));
 }
 
 function classifyFreeText(text: string, country: Country): Branch | null {
@@ -6731,7 +6744,10 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
 
   if (state.catalog.selectedProductId) {
     const choice = parseProductFichaActionChoice(input);
-    if (choice === 1 || t.includes("cotiz") || t.includes("arrend")) {
+    if (t.includes("arrend")) {
+      return await startRentalPriceLeadFlow(state, userPhone);
+    }
+    if (choice === 1 || t.includes("cotiz")) {
       return await startCatalogQuoteForm(state, userPhone, "CL");
     }
     if (choice === 3 || isMenuCommand(input)) {
@@ -8123,6 +8139,7 @@ async function buildContactFormReviewMessage(state: UserState) {
       "",
       "*Solicitud*",
       `- Tipo: ${getContactFormRequestLabel(form.kind, form.data)}`,
+      form.data.producto ? `- Producto: ${form.data.producto}` : "",
       "",
       "*Datos de contacto*",
       form.data.telefono ? `- Teléfono: ${form.data.telefono}` : "",
