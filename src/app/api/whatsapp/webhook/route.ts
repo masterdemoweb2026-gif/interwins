@@ -9187,7 +9187,7 @@ export async function POST(request: Request) {
           } else if (unsupportedCommercialProduct) {
             const unsupportedReply = await buildUnsupportedCommercialReplyDynamic(country, unsupportedCommercialProduct, inboundText);
             reply = [unsupportedReply, "", getNaturalMenuReminderText()].join("\n\n");
-          } else if (detectQuoteIntent(inboundText)) {
+          } else if (detectQuoteIntent(inboundText) || branchIntent.branch === "catalogo") {
             reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
             const overviewReply = await buildOpenBusinessOverviewReply(country, inboundText);
