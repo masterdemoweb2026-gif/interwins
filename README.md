@@ -64,6 +64,22 @@ El estado conversacional por usuario se persiste en la tabla `message_buffer` (c
 - `AI_MODEL` (string, opcional) Default: `DeepSeek V4 Flash`
 - Compatibilidad hacia atrás: también se aceptan `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL` y, temporalmente, `MINIMAX_API_KEY` / `MINIMAX_BASE_URL`
 
+### NLU (comprensión de intención)
+
+Capa que interpreta el mensaje del cliente **antes** de la máquina de estados, para que no dependa de seguir el menú. Extrae en una sola pasada la rama, el tipo de solicitud (cotización/arriendo), el modelo, la banda, la tecnología, la cantidad y la ciudad, y con eso pre-rellena los filtros del catálogo: el bot se salta las preguntas cuya respuesta ya tiene.
+
+Implementada en `src/lib/nlu.ts`. Usa el mismo gateway que la redacción (`AI_API_KEY` / `AI_BASE_URL`).
+
+- `NLU_ENABLED` (boolean string, opcional) `false` para apagarla y volver 100% a la heurística anterior (default `true`)
+- `NLU_MODEL` (string, opcional) Modelo para clasificar. Se separa de `AI_MODEL` a propósito: el enrutado necesita latencia baja. Default: el valor de `AI_MODEL`
+- `NLU_TIMEOUT_MS` (number string, opcional) Timeout de la llamada de clasificación (default `3500`)
+
+**Degradación segura:** si no hay `AI_API_KEY`, si la llamada falla, si vence el timeout o si el JSON es inválido, `classifyIntent` devuelve `null` y el webhook continúa con la detección por regex de siempre. Los mensajes triviales (números de menú, `menu`, `hola`, `si`) nunca llegan al LLM.
+
+**Límites por diseño:** el NLU solo clasifica y extrae datos. Nunca redacta precios ni inventa productos — los datos comerciales siempre salen de Supabase. Todo valor que devuelve el modelo pasa por listas blancas antes de tocar el estado.
+
+Las decisiones quedan trazadas en el debug inbox con el prefijo `[NLU]`.
+
 ### App
 
 - `NEXT_PUBLIC_APP_URL` (string, opcional) Solo para mostrar la URL del webhook en la página de inicio

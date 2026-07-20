@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { inboxAdd } from "@/lib/debugInbox";
+import { classifyIntent, NLU_MIN_CONFIDENCE, type NluResult } from "@/lib/nlu";
 
 export const runtime = "nodejs";
 
@@ -550,6 +551,12 @@ type UserState = {
     awaitingAction?: boolean;
     awaitingReuseConfirm?: boolean;
   };
+  /**
+   * Intención entendida por la capa NLU para el mensaje que se está procesando.
+   * Se reescribe en cada mensaje entrante; nunca se arrastra entre turnos, para
+   * que los slots de un mensaje viejo no contaminen el siguiente.
+   */
+  lastNlu?: NluResult;
 };
 
 function getCambiumQuoteStep(data: CambiumQuote["data"]): CambiumQuoteStep {
@@ -1887,6 +1894,109 @@ function detectBranchIntent(text: string, country: Country): { branch: Branch | 
   return { branch: null, wantsMenu };
 }
 
+/**
+ * Ejecuta la capa NLU y deja el resultado en el estado del mensaje actual.
+ *
+ * Devuelve null si el NLU está apagado, el mensaje es trivial (números de menú)
+ * o la llamada falla. En todos esos casos el flujo sigue con los regex.
+ */
+async function runNlu(state: UserState, country: Country, text: string) {
+  state.lastNlu = undefined;
+  try {
+    const selectedProductName = state.catalog.selectedProductId
+      ? state.catalog.lastList?.find((p) => p.product_id === state.catalog.selectedProductId)?.nombre
+      : undefined;
+    const nlu = await classifyIntent(text, {
+      country,
+      activeBranch: state.activeBranch,
+      requestKind: state.catalog.requestKind,
+      filters: state.catalog.filters,
+      selectedProductName: selectedProductName ? cleanProductName(selectedProductName) : undefined,
+      lastListNames: state.catalog.lastList?.map((p) => cleanProductName(p.nombre)),
+    });
+    state.lastNlu = nlu ?? undefined;
+    if (nlu) {
+      inboxAdd({
+        source: "gowa",
+        signatureValid: null,
+        text: `[NLU] branch=${nlu.branch ?? "null"} kind=${nlu.requestKind ?? "-"} model=${nlu.productModel ?? "-"} conf=${nlu.confidence}`,
+      });
+    }
+    return nlu;
+  } catch {
+    return null;
+  }
+}
+
+/** ¿La intención del NLU es suficientemente segura para actuar sin volver al menú? */
+function isConfidentNlu(nlu?: NluResult | null): nlu is NluResult {
+  return Boolean(nlu && nlu.confidence >= NLU_MIN_CONFIDENCE);
+}
+
+/**
+ * Intención de rama con el NLU al frente y los regex como respaldo.
+ *
+ * Corrige de raíz la precedencia rígida de `detectBranchIntent`, donde la sola
+ * palabra "proyecto" desviaba a Asesoría un mensaje que en realidad era una
+ * compra ("necesito 10 radios para mi proyecto minero").
+ */
+function detectBranchIntentSmart(text: string, country: Country, nlu?: NluResult | null) {
+  const fallback = detectBranchIntent(text, country);
+  if (!isConfidentNlu(nlu)) return fallback;
+
+  const wantsMenu = fallback.wantsMenu || Boolean(nlu.wantsMenu);
+  if (nlu.branch === "menu") return { branch: null as Branch | null, wantsMenu: true };
+  if (!nlu.branch) return { branch: fallback.branch, wantsMenu };
+  if (!isBranchAvailable(country, nlu.branch)) return { branch: fallback.branch, wantsMenu };
+  return { branch: nlu.branch as Branch, wantsMenu };
+}
+
+/**
+ * ¿El mensaje es una intención comercial de catálogo (comprar, arrendar,
+ * precio, stock, ficha)? Con NLU disponible manda el NLU; si no, los regex.
+ *
+ * Unifica la asimetría anterior, donde `detectQuoteIntent` reconocía "precio"
+ * pero `detectBranchIntent` no, y la misma frase se enrutaba distinto según la
+ * rama en la que estuviera parado el usuario.
+ */
+function isCatalogIntentSmart(text: string, nlu?: NluResult | null) {
+  if (isConfidentNlu(nlu)) {
+    if (nlu.branch && nlu.branch !== "catalogo" && nlu.branch !== "menu") return false;
+    return nlu.branch === "catalogo" || Boolean(nlu.productModel) || Boolean(nlu.asksPrice) || Boolean(nlu.requestKind);
+  }
+  return detectQuoteIntent(text);
+}
+
+/** Quita las claves undefined para que un spread no borre valores ya presentes. */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/** Convierte los slots del NLU al formato de pistas que ya consume el catálogo. */
+function nluToCatalogHints(nlu?: NluResult | null): CatalogEntityHints {
+  if (!isConfidentNlu(nlu)) return {};
+  return {
+    quantity: nlu.quantity,
+    brand: nlu.brand,
+    location: nlu.location,
+    categoryKey: nlu.categoryKey,
+    portabilidadHint: nlu.portabilidad,
+    frequencyBand: nlu.frequencyBand,
+    technologyHint: nlu.technology,
+  };
+}
+
+/**
+ * Modelo a buscar en el catálogo. El NLU entiende "el dm400 vhf" como
+ * modelo DM400 + banda VHF; `extractCatalogModelQuery` solo devolvía un token
+ * suelto y perdía el calificador.
+ */
+function resolveCatalogModelQuery(state: UserState, text: string) {
+  const fromNlu = isConfidentNlu(state.lastNlu) ? String(state.lastNlu.productModel ?? "").trim() : "";
+  if (fromNlu) return normalizeText(fromNlu).replace(/[^a-z0-9]/g, "");
+  return extractCatalogModelQuery(text);
+}
+
 function detectQuoteIntent(text: string) {
   const t = normalizeText(text);
   if (!t) return false;
@@ -2409,7 +2519,8 @@ async function applyCatalogEntityHintsToState(
   input: string,
   options?: { mode?: CatalogRequestKind },
 ) {
-  const hints = extractCatalogEntityHints(input);
+  // El NLU pisa a los regex: entiende el contexto y no solo palabras sueltas.
+  const hints: CatalogEntityHints = { ...extractCatalogEntityHints(input), ...stripUndefined(nluToCatalogHints(state.lastNlu)) };
   state.catalog.leadContext = mergeCatalogLeadContext(state.catalog.leadContext, hints);
   let changed = false;
   const modalidad = state.catalog.filters.modalidad ?? (options?.mode === "arriendo" ? "Arriendo" : options?.mode === "cotizacion" ? "Venta" : undefined);
@@ -2563,12 +2674,22 @@ async function startRentalPriceLeadFlow(state: UserState, userPhone: string) {
 async function startCatalogIntentFlow(state: UserState, userKey: string, text: string) {
   const country = state.country ?? "CL";
   if (text) {
-    state.catalog.leadContext = mergeCatalogLeadContext(state.catalog.leadContext, extractCatalogEntityHints(text));
+    const hints: CatalogEntityHints = { ...extractCatalogEntityHints(text), ...stripUndefined(nluToCatalogHints(state.lastNlu)) };
+    state.catalog.leadContext = mergeCatalogLeadContext(state.catalog.leadContext, hints);
   }
-  if (country === "CL" && isRentalPriceIntent(text)) {
+
+  const nlu = isConfidentNlu(state.lastNlu) ? state.lastNlu : null;
+  // El NLU distingue "arrendar" de "comprar" leyendo la frase completa; los
+  // regex se quedaban con la primera palabra clave que encontraran.
+  const isRental = nlu?.requestKind ? nlu.requestKind === "arriendo" : isRentalIntent(text);
+  const asksPrice = nlu ? Boolean(nlu.asksPrice) : isCatalogPriceRequest(text);
+
+  if (country === "CL" && isRental && asksPrice && !nlu?.productModel) {
+    // Pregunta por tarifas de arriendo sin un modelo concreto: el precio de
+    // arriendo no se publica, así que derivamos directo al formulario.
     return await startRentalPriceLeadFlow(state, userKey);
   }
-  if (country === "CL" && isRentalIntent(text)) {
+  if (country === "CL" && isRental) {
     return await startArriendoFlowFromText(state, userKey, text);
   }
   return await startCotizarFlow(state, userKey, text);
@@ -4763,9 +4884,9 @@ async function queryDirectCatalogCandidatesBroad(
 }
 
 async function tryDirectCatalogModelLookup(state: UserState, country: Country, input: string): Promise<Reply | null> {
-  const modelQuery = extractCatalogModelQuery(input);
+  const modelQuery = resolveCatalogModelQuery(state, input);
   if (!modelQuery) return null;
-  const inputHints = extractCatalogEntityHints(input);
+  const inputHints: CatalogEntityHints = { ...extractCatalogEntityHints(input), ...stripUndefined(nluToCatalogHints(state.lastNlu)) };
 
   const strictFound = state.catalog.filters.tipo_producto ? await (country === "UY" ? queryProductsByNameUY(state.catalog.filters, modelQuery) : queryProductsByName(state.catalog.filters, modelQuery)) : [];
   const relaxedFound =
@@ -9199,7 +9320,11 @@ export async function POST(request: Request) {
       startedPresence = true;
 
       let reply: Reply = "";
-      const rawBranchIntent = detectBranchIntent(inboundText, country);
+      // Capa NLU: entiende la intención aunque el usuario no siga el menú.
+      // Devuelve null (y el flujo sigue con los regex) si está apagada, si el
+      // mensaje es trivial o si la llamada falla.
+      const nlu = await runNlu(state, country, inboundText);
+      const rawBranchIntent = detectBranchIntentSmart(inboundText, country, nlu);
       const branchIntent =
         state.activeBranch === "catalogo" && isRentalRequest(state) && rawBranchIntent.branch === "puntos_venta"
           ? { ...rawBranchIntent, branch: null as Branch | null }
@@ -9345,7 +9470,7 @@ export async function POST(request: Request) {
           } else if (unsupportedCommercialProduct) {
             const unsupportedReply = await buildUnsupportedCommercialReplyDynamic(country, unsupportedCommercialProduct, inboundText);
             reply = [unsupportedReply, "", getNaturalMenuReminderText()].join("\n\n");
-          } else if (detectQuoteIntent(inboundText) || branchIntent.branch === "catalogo") {
+          } else if (isCatalogIntentSmart(inboundText, nlu) || branchIntent.branch === "catalogo") {
             reply = await runMainMenuAction(state, userKey, "catalogo", inboundText);
           } else {
             const overviewReply = await buildOpenBusinessOverviewReply(country, inboundText);
@@ -9372,14 +9497,14 @@ export async function POST(request: Request) {
             }
           }
         } else {
-          if (detectQuoteIntent(inboundText) && state.activeBranch !== "catalogo") {
+          if (isCatalogIntentSmart(inboundText, nlu) && state.activeBranch !== "catalogo") {
             if (state.catalog.status === "wait_finish_cotizacion") {
               reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
             } else {
               reply = await startCatalogIntentFlow(state, userKey, inboundText);
             }
           } else {
-          const intent = detectBranchIntent(inboundText, country);
+          const intent = branchIntent;
           if (intent.branch && intent.branch !== state.activeBranch) {
             if (state.catalog.status === "wait_finish_cotizacion") {
               reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
