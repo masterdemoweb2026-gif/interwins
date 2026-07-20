@@ -4,6 +4,10 @@
     {
       "path": "/api/catalog/sync/chile?mode=sync",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/catalog/materialize?mode=sync",
+      "schedule": "20 6 * * *"
     }
   ]
 }

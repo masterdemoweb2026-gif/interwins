@@ -4,6 +4,8 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { inboxAdd } from "@/lib/debugInbox";
 import { classifyIntent, NLU_MIN_CONFIDENCE, type NluResult } from "@/lib/nlu";
+import { resolverModelo, type GrupoProducto } from "@/lib/catalog/query";
+import type { IntencionCompra } from "@/lib/catalog/routing";
 
 export const runtime = "nodejs";
 
@@ -1541,6 +1543,49 @@ function buildProductFichaMessages(detail: ProductDetail | null, options?: { req
   return out;
 }
 
+/**
+ * Ficha construida desde `catalog_products`.
+ *
+ * Equivalente a `buildProductFichaMessages`, pero sobre un `GrupoProducto`: la
+ * imagen, la descripción y el precio vienen ya resueltos de la ingesta, sin
+ * cruzar tres tablas por nombre en tiempo de consulta.
+ */
+function buildFichaDesdeGrupo(
+  grupo: GrupoProducto,
+  options?: { mostrarPrecio?: boolean; requestKind?: CatalogRequestKind; incluirAcciones?: boolean },
+) {
+  // El prefijo "ARRIENDO" es una marca interna de catálogo, no parte del nombre
+  // comercial del equipo.
+  const titulo = cleanProductName(grupo.nombre.replace(/^ARRIENDO\s+/i, "").trim());
+  const out: Array<string | OutboundMessage> = [titulo ? `*${titulo}*` : "*Producto*"];
+
+  if (grupo.imagenUrl) out.push({ type: "image", imageUrl: grupo.imagenUrl });
+
+  if (options?.mostrarPrecio !== false && grupo.tienePrecio && grupo.precio) {
+    const { min, max } = grupo.precio;
+    const fmt = (n: number) => `$${Math.round(n).toLocaleString(grupo.moneda === "UYU" ? "es-UY" : "es-CL")}`;
+    out.push(`💰 Precio referencial: ${max > min ? `Desde ${fmt(min)} hasta ${fmt(max)}` : fmt(min)}`);
+  }
+
+  const texto = (grupo.descripcion || grupo.descripcionCorta || "").trim();
+  if (texto) out.push(...chunkText(htmlToParagraphText(texto), 900));
+  if (grupo.fichaUrl) out.push(`📄 Ficha técnica: ${grupo.fichaUrl}`);
+
+  if (grupo.variantes.length > 1) {
+    out.push(
+      ["Versiones disponibles:", "", ...grupo.variantes.map((v, i) => `${i + 1}. ${v.etiqueta}`)].join("\n"),
+    );
+  }
+
+  if (options?.incluirAcciones !== false) {
+    const principal = options?.requestKind === "arriendo" ? "Arrendar este equipo" : "Cotizar este equipo";
+    out.push(
+      ["¿Qué deseas hacer ahora?", "", `1) ${principal}`, "2) Volver a la lista de productos", "3) Volver al menú", "4) Hacer una nueva búsqueda"].join("\n"),
+    );
+  }
+  return out;
+}
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -2584,7 +2629,7 @@ async function startCatalogFlow(state: UserState, userKey: string, args?: { moda
   }
 
   if (args?.seedText && !state.catalog.quote && !state.catalog.pending && !state.catalog.selectedProductId) {
-    const directModelReply = await tryDirectCatalogModelLookup(state, country, args.seedText);
+    const directModelReply = await tryDirectCatalogModelLookup(state, country, args.seedText, userKey);
     if (directModelReply) return directModelReply;
   }
 
@@ -4883,24 +4928,32 @@ async function queryDirectCatalogCandidatesBroad(
     .filter((r) => r.product_id && r.nombre);
 }
 
-async function tryDirectCatalogModelLookup(state: UserState, country: Country, input: string): Promise<Reply | null> {
+/**
+ * Búsqueda directa por modelo contra `catalog_products`.
+ *
+ * Reemplaza el camino que consultaba `inter_products` con `nombre ilike
+ * '*dep*250*'` y rankeaba los resultados: esa consulta mezclaba el radio con
+ * los accesorios que lo mencionan por compatibilidad —30 filas para DEP250, 41
+ * para DEP450— y el ranking a veces prefería un audífono porque tenía imagen y
+ * precio mientras la variación del radio no.
+ *
+ * Ahora el modelo es una columna indexada, así que la identidad es exacta, y la
+ * decisión de qué hacer (mostrar precio, derivar a arriendo o derivar a
+ * cotización) viene de las reglas de negocio en `routing.ts`.
+ */
+async function tryDirectCatalogModelLookup(
+  state: UserState,
+  country: Country,
+  input: string,
+  userPhone: string,
+): Promise<Reply | null> {
   const modelQuery = resolveCatalogModelQuery(state, input);
   if (!modelQuery) return null;
-  const inputHints: CatalogEntityHints = { ...extractCatalogEntityHints(input), ...stripUndefined(nluToCatalogHints(state.lastNlu)) };
 
-  const strictFound = state.catalog.filters.tipo_producto ? await (country === "UY" ? queryProductsByNameUY(state.catalog.filters, modelQuery) : queryProductsByName(state.catalog.filters, modelQuery)) : [];
-  const relaxedFound =
-    strictFound.length || !state.catalog.filters.tipo_producto
-      ? strictFound
-      : await (country === "UY"
-          ? queryProductsByNameUY({ ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined }, modelQuery)
-          : queryProductsByName({ ...state.catalog.filters, frecuencia: undefined, tecnologia: undefined, portabilidad: undefined }, modelQuery));
-  const broadCandidates = relaxedFound.length ? [] : await queryDirectCatalogCandidatesBroad(country, state.catalog.filters, modelQuery);
-  const searchBase: CatalogProductCandidate[] = relaxedFound.length
-    ? relaxedFound.map((item) => ({ ...item }))
-    : broadCandidates;
+  const intencion: IntencionCompra = state.catalog.requestKind === "arriendo" ? "arriendo" : "cotizacion";
+  const resuelto = await resolverModelo({ pais: country, modelo: modelQuery, intencion });
 
-  if (!searchBase.length) {
+  if (!resuelto) {
     return buildDirectCatalogMissReply({
       modelQuery,
       targetKind: detectDirectCatalogTargetKind(input, state.catalog.filters, state.catalog.leadContext),
@@ -4908,78 +4961,49 @@ async function tryDirectCatalogModelLookup(state: UserState, country: Country, i
     });
   }
 
-  const targetKind = detectDirectCatalogTargetKind(input, state.catalog.filters, state.catalog.leadContext);
-  const ranked = dedupeCatalogCandidates(searchBase)
-    .map((candidate) => ({
-      candidate,
-      score: scoreDirectCatalogCandidate(candidate, modelQuery, state.catalog.filters, targetKind),
-    }))
-    .sort((a, b) => b.score - a.score || a.candidate.nombre.localeCompare(b.candidate.nombre, "es"));
+  const { grupo, ruta, alternativas } = resuelto;
 
-  const topScore = ranked[0]?.score ?? 0;
-  const accessoryMatches = searchBase.filter((candidate) => isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre)).length;
-  if (!ranked.length || topScore < 35) {
-    return buildDirectCatalogMissReply({
-      modelQuery,
-      targetKind,
-      requestKind: state.catalog.requestKind,
-      accessoryMatches,
-    });
-  }
-
-  const prioritized = ranked.map((entry) => ({ product_id: entry.candidate.product_id, nombre: entry.candidate.nombre }));
-  const shown =
-    targetKind === "bodycam" && state.catalog.filters.tipo_producto && isBodycamTipoProducto(state.catalog.filters.tipo_producto)
-      ? await pickBestBodycamList(country, prioritized)
-      : prioritized.slice(0, CATALOG_MAX_LIST_ITEMS);
-  const top = ranked[0];
-  const second = ranked[1];
-  const explicitVariantMatches = ranked.filter((entry) =>
-    matchesExplicitDirectCatalogHints(
-      entry.candidate,
-      {
-        frequencyBand: inputHints.frequencyBand,
-        technologyHint: inputHints.technologyHint,
-      },
-      targetKind,
-    ),
-  );
-  const chosen =
-    shown.length === 1
-      ? shown[0]!
-      : explicitVariantMatches.length === 1
-        ? { product_id: explicitVariantMatches[0]!.candidate.product_id, nombre: explicitVariantMatches[0]!.candidate.nombre }
-      : top && top.score >= 110 && (!second || top.score - second.score >= 18)
-        ? { product_id: top.candidate.product_id, nombre: top.candidate.nombre }
-        : null;
-
-  if (chosen) {
-    const previousList = state.catalog.lastList?.length ? state.catalog.lastList : undefined;
-    state.catalog.pending = undefined;
-    state.catalog.adviceContext = undefined;
-    state.catalog.selectedProductId = chosen.product_id;
-    state.catalog.lastList = shown;
-    state.catalog.returnList = previousList?.length ? previousList : undefined;
-    const detail = await loadProductDetailByCountry(country, chosen.product_id, chosen.nombre);
-    if (!detail) return "No pude cargar la ficha de ese producto. Indícame otra opción o escribe Nueva búsqueda.";
-    return buildProductFichaMessages(detail, { requestKind: state.catalog.requestKind, country });
-  }
-
+  // Se ancla el producto en el estado para que las acciones posteriores
+  // ("1) Cotizar este equipo", "2) Volver a la lista") sigan funcionando.
+  const anclaId = grupo.variantes[0]?.wooId ?? grupo.modeloKey;
   state.catalog.pending = undefined;
-  state.catalog.selectedProductId = undefined;
   state.catalog.adviceContext = undefined;
-  state.catalog.lastList = shown;
+  state.catalog.selectedProductId = anclaId;
+  state.catalog.lastList = [{ product_id: anclaId, nombre: grupo.nombre }];
   state.catalog.returnList = undefined;
-  const lines = shown.map((p, i) => `${i + 1}) ${cleanProductName(p.nombre)}`).join("\n");
-  return [
-    `Encontré estas opciones para "${modelQuery.toUpperCase()}":`,
-    "",
-    lines,
-    "",
-    "Indícame qué opción quieres para mostrarte su ficha. También puedes escribir: Nueva búsqueda o Menú.",
-    "Si quieres, también puedo recomendarte una alternativa o explicarte las diferencias entre estos modelos.",
-  ].join("\n");
+
+  // Se menciona la otra modalidad solo si existe, para no inventar disponibilidad.
+  const otraModalidad = alternativas.find((a) => !a.modalidades.some((m) => grupo.modalidades.includes(m)));
+  const notaAlternativa = otraModalidad
+    ? `También lo tenemos en ${otraModalidad.modalidades.includes("ARRIENDO") ? "arriendo" : "venta"} si te sirve.`
+    : "";
+
+  if (ruta.accion === "mostrar_precio") {
+    const ficha = buildFichaDesdeGrupo(grupo, { requestKind: state.catalog.requestKind });
+    return notaAlternativa ? [...ficha, notaAlternativa] : ficha;
+  }
+
+  // Sin precio publicable: se muestra la ficha, se explica el porqué y se
+  // deriva al formulario que corresponde, para no dejar la consulta sin salida.
+  const ficha = buildFichaDesdeGrupo(grupo, { mostrarPrecio: false, incluirAcciones: false });
+  const esArriendo = ruta.accion === "derivar_arriendo";
+  state.catalog.requestKind = esArriendo ? "arriendo" : "cotizacion";
+  state.catalog.filters.modalidad = esArriendo ? "Arriendo" : "Venta";
+
+  const kind: ContactFormKind = esArriendo
+    ? "cl_arriendo_precio"
+    : country === "UY"
+      ? "uy_compra_asesoria"
+      : "cl_compra_asesoria";
+
+  const formulario = await startContactForm(state, userPhone, kind, {
+    intro: [ruta.motivo, notaAlternativa].filter(Boolean).join(" "),
+    presetData: { producto: cleanProductName(grupo.nombre.replace(/^ARRIENDO\s+/i, "").trim()) },
+  });
+
+  return [...ficha, ...(Array.isArray(formulario) ? formulario : [formulario])];
 }
+
 
 async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
@@ -6730,7 +6754,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   }
 
   if (!state.catalog.quote) {
-    const directModelReply = await tryDirectCatalogModelLookup(state, "CL", input);
+    const directModelReply = await tryDirectCatalogModelLookup(state, "CL", input, userPhone);
     if (directModelReply) return directModelReply;
   }
 
@@ -7152,7 +7176,7 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
       state.catalog.adviceContext = undefined;
-      const directReply = await tryDirectCatalogModelLookup(state, "CL", input);
+      const directReply = await tryDirectCatalogModelLookup(state, "CL", input, userPhone);
       if (directReply) return directReply;
     }
 
@@ -7323,7 +7347,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   }
 
   if (!state.catalog.quote) {
-    const directModelReply = await tryDirectCatalogModelLookup(state, "UY", input);
+    const directModelReply = await tryDirectCatalogModelLookup(state, "UY", input, userPhone);
     if (directModelReply) return directModelReply;
   }
 
@@ -7639,7 +7663,7 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
     const modelQuery = extractCatalogModelQuery(input);
     if (modelQuery) {
       state.catalog.adviceContext = undefined;
-      const directReply = await tryDirectCatalogModelLookup(state, "UY", input);
+      const directReply = await tryDirectCatalogModelLookup(state, "UY", input, userPhone);
       if (directReply) return directReply;
     }
 
