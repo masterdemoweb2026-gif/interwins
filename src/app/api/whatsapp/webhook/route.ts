@@ -4,7 +4,8 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { inboxAdd } from "@/lib/debugInbox";
 import { classifyIntent, NLU_MIN_CONFIDENCE, type NluResult } from "@/lib/nlu";
-import { resolverModelo, type GrupoProducto } from "@/lib/catalog/query";
+import { findFicha, resolverModelo, type GrupoProducto } from "@/lib/catalog/query";
+import { listarProductosCompat, listarValoresCompat, listarParesTecnologiaBanda } from "@/lib/catalog/compat";
 import type { IntencionCompra } from "@/lib/catalog/routing";
 
 export const runtime = "nodejs";
@@ -1667,24 +1668,10 @@ function getPurchaseAdviceLeadIntro(country: Country) {
 
 async function loadProductPriceByCountry(country: Country, productId: string, nombre?: string) {
   if (!productId) return "";
-  if (country === "UY") {
-    const table = getUyProductsTable();
-    const q = `${table}?select=precio&limit=1&product_id=eq.${encodeURIComponent(productId)}`;
-    const res = await supabaseFetch(q, { method: "GET" });
-    if (!res.ok || !Array.isArray(res.data)) return "";
-    const row = (res.data as unknown[])[0];
-    if (!row) return "";
-    return toLooseText(getRecordValue(row, "precio"));
-  }
-  const commercial = await loadCatalogProductCommercialData({ productId, nombre: toTrimmedString(nombre) });
-  if (commercial?.precio) return commercial.precio;
-  const select = encodeURIComponent(`"Precio normal"`);
-  const q = `inter_products_staging?select=${select}&ID=eq.${encodeURIComponent(productId)}&limit=1`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return "";
-  const row = (res.data as unknown[])[0];
-  if (!row) return "";
-  return toTrimmedString(getRecordValue(row, "Precio normal"));
+  const grupo = await findFicha(country, productId);
+  if (!grupo?.tienePrecio || !grupo.precio) return "";
+  const { min, max } = grupo.precio;
+  return max > min ? `${min}-${max}` : String(min);
 }
 
 async function buildCatalogPriceListReply(args: { country: Country; list: Array<{ product_id: string; nombre: string }> }) {
@@ -2239,16 +2226,7 @@ function parseArriendoProductChoice(text: string): "equipos_radio" | "accesorio_
 }
 
 async function listDistinctTipoProductoByModalidad(country: Country, modalidad: string): Promise<string[]> {
-  if (country === "UY") {
-    return await listDistinctUyColumn("tipo_producto", { modalidad });
-  }
-  const q = `inter_products?select=tipo_producto&tipo_producto=not.is.null&modalidad=eq.${encodeURIComponent(modalidad)}&limit=1000`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  const values = (res.data as unknown[])
-    .map((r) => toTrimmedString(getRecordValue(r, "tipo_producto")))
-    .filter(Boolean);
-  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "es"));
+  return await listarValoresCompat(country, "tipo_producto", { modalidad });
 }
 
 type SuggestedCatalogTypeKey = "equipos_radio" | "accesorio_radio" | "camara_corporal";
@@ -3176,68 +3154,7 @@ function detectDirectCatalogTargetKind(input: string, filters: CatalogFilters, l
   return "equipment" as const;
 }
 
-function dedupeCatalogCandidates(candidates: CatalogProductCandidate[]) {
-  const seen = new Set<string>();
-  const out: CatalogProductCandidate[] = [];
-  for (const candidate of candidates) {
-    const key = compactCatalogModelText(cleanProductName(candidate.nombre || "") || candidate.nombre || candidate.product_id);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(candidate);
-  }
-  return out;
-}
 
-function scoreDirectCatalogCandidate(
-  candidate: CatalogProductCandidate,
-  modelQuery: string,
-  filters: CatalogFilters,
-  targetKind: "equipment" | "accessory" | "bodycam",
-) {
-  const compactQuery = compactCatalogModelText(modelQuery);
-  const compactName = compactCatalogModelText(candidate.nombre);
-  const compactCleanName = compactCatalogModelText(cleanProductName(candidate.nombre));
-  const compactId = compactCatalogModelText(candidate.product_id);
-  const nameNorm = normalizeText(candidate.nombre);
-  const queryNorm = normalizeText(modelQuery);
-  const isAccessory = isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre);
-  const isBodycam = isBodycamTipoProducto(candidate.tipo_producto) || scoreBodycamCandidateName(candidate.nombre) > 0;
-  const isRadioEquipment = isRadioEquipmentTipoProducto(candidate.tipo_producto) || isRadioEquipmentLikeProductName(candidate.nombre);
-  let score = 0;
-
-  if (compactId === compactQuery) score += 140;
-  if (compactCleanName === compactQuery || compactName === compactQuery) score += 160;
-  if (compactCleanName.startsWith(compactQuery) || compactName.startsWith(compactQuery)) score += 95;
-  if (compactCleanName.includes(compactQuery) || compactName.includes(compactQuery) || compactId.includes(compactQuery)) score += 60;
-  if (queryNorm && new RegExp(`\\b${escapeRegexLiteral(queryNorm).replace(/\s+/g, "\\s+")}\\b`).test(nameNorm)) score += 40;
-
-  if (targetKind === "equipment") {
-    if (isRadioEquipment) score += 70;
-    if (isAccessory) score -= 140;
-    if (isBodycam) score -= 60;
-    if (/\bcompatibilidad\b/.test(nameNorm)) score -= 40;
-  } else if (targetKind === "accessory") {
-    if (isAccessory) score += 80;
-    if (isRadioEquipment) score -= 20;
-  } else {
-    if (isBodycam) score += 90;
-    if (isAccessory) score -= 60;
-  }
-
-  if (filters.frecuencia) {
-    score += matchesSelectedFrequencyBand(candidate.frecuencia || candidate.nombre, filters.frecuencia) ? 28 : -28;
-  }
-  if (filters.tecnologia) {
-    score += matchesSelectedTechnology(candidate.tecnologia || candidate.nombre, filters.tecnologia) ? 24 : -24;
-  }
-  if (filters.modalidad && candidate.modalidad) {
-    const wanted = normalizeText(filters.modalidad);
-    const actual = normalizeText(candidate.modalidad);
-    score += actual.includes(wanted) || (wanted === "venta" && !actual) ? 8 : -12;
-  }
-
-  return score;
-}
 
 function matchesDirectCatalogKind(candidate: CatalogProductCandidate, targetKind: "equipment" | "accessory" | "bodycam") {
   const isAccessory = isAccessoryTipoProducto(candidate.tipo_producto) || isAccessoryLikeProductName(candidate.nombre);
@@ -3248,16 +3165,6 @@ function matchesDirectCatalogKind(candidate: CatalogProductCandidate, targetKind
   return isBodycam && !isAccessory;
 }
 
-function matchesExplicitDirectCatalogHints(
-  candidate: CatalogProductCandidate,
-  hints: Pick<CatalogEntityHints, "frequencyBand" | "technologyHint">,
-  targetKind: "equipment" | "accessory" | "bodycam",
-) {
-  if (!matchesDirectCatalogKind(candidate, targetKind)) return false;
-  if (hints.frequencyBand && !matchesSelectedFrequencyBand(candidate.frecuencia || candidate.nombre, hints.frequencyBand)) return false;
-  if (hints.technologyHint && !matchesSelectedTechnology(candidate.tecnologia || candidate.nombre, hints.technologyHint)) return false;
-  return true;
-}
 
 function buildDirectCatalogMissReply(args: {
   modelQuery: string;
@@ -4641,138 +4548,37 @@ function returnToCasualState(state: UserState) {
 }
 
 async function listDistinctTipoProducto(): Promise<string[]> {
-  const q = `inter_products?select=tipo_producto&tipo_producto=not.is.null&limit=1000`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  const values = (res.data as unknown[])
-    .map((r) => toTrimmedString(getRecordValue(r, "tipo_producto")))
-    .filter(Boolean);
-  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "es"));
+  return await listarValoresCompat("CL", "tipo_producto", {});
 }
 
 async function listTecnologias(filters: CatalogFilters): Promise<string[]> {
   if (!filters.tipo_producto) return [];
-  const res = await supabaseFetch(`rpc/get_tecnologias`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ p_tipo_producto: filters.tipo_producto }),
-  });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[]).map((r) => toTrimmedString(getRecordValue(r, "tecnologia"))).filter(Boolean);
+  return await listarValoresCompat("CL", "tecnologia", filters);
 }
 
 async function listModalidades(filters: CatalogFilters): Promise<string[]> {
   if (!filters.tipo_producto) return [];
-  const res = await supabaseFetch(`rpc/get_modalidades`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      p_tipo_producto: filters.tipo_producto,
-      p_portabilidad: filters.portabilidad ?? null,
-      p_tecnologia: filters.tecnologia ?? null,
-    }),
-  });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[]).map((r) => toTrimmedString(getRecordValue(r, "modalidad"))).filter(Boolean);
+  return await listarValoresCompat("CL", "modalidad", filters);
 }
 
 async function listPortabilidades(filters: CatalogFilters): Promise<string[]> {
   if (!filters.tipo_producto) return [];
-  const res = await supabaseFetch(`rpc/get_portabilidades`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      p_tipo_producto: filters.tipo_producto,
-      p_modalidad: filters.modalidad ?? null,
-      p_tecnologia: filters.tecnologia ?? null,
-    }),
-  });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[]).map((r) => toTrimmedString(getRecordValue(r, "portabilidad"))).filter(Boolean);
+  return await listarValoresCompat("CL", "portabilidad", filters);
 }
 
 async function listFrecuencias(filters: CatalogFilters): Promise<string[]> {
   if (!filters.tipo_producto) return [];
-  const res = await supabaseFetch(`rpc/get_frecuencias`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      p_tipo_producto: filters.tipo_producto,
-      p_modalidad: filters.modalidad ?? null,
-      p_portabilidad: filters.portabilidad ?? null,
-      p_tecnologia: filters.tecnologia ?? null,
-    }),
-  });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[]).map((r) => toTrimmedString(getRecordValue(r, "frecuencia"))).filter(Boolean);
+  return await listarValoresCompat("CL", "frecuencia", filters);
 }
 
 async function queryProducts(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
-  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
-  const queryLimit = isBodycam ? 50 : filters.tecnologia ? 40 : 10;
-  const params: string[] = [
-    `select=product_id,nombre,tecnologia,frecuencia`,
-    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
-    `limit=${queryLimit}`,
-    `order=nombre.asc`,
-  ];
-  if (filters.modalidad) {
-    const m = filters.modalidad.trim();
-    if (normalizeText(m) === "venta") {
-      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
-    } else {
-      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
-    }
-  }
-  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  const freqWanted = (filters.frecuencia ?? "").trim();
-  const freqNorm = normalizeText(freqWanted);
-  const isBand = freqNorm === "uhf" || freqNorm === "vhf";
-  if (filters.frecuencia && !isBand) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
-  const q = `inter_products?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({
-      product_id: toTrimmedString(getRecordValue(r, "product_id")),
-      nombre: toTrimmedString(getRecordValue(r, "nombre")),
-      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
-      frecuencia: toLooseText(getRecordValue(r, "frecuencia")),
-    }))
-    .filter((r) => r.product_id && r.nombre)
-    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
-    .filter((r) => (isBand ? matchesSelectedFrequencyBand(r.frecuencia, filters.frecuencia) : true))
-    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
-    .slice(0, 25)
-    .filter((r) => r.product_id && r.nombre);
+  return await listarProductosCompat("CL", filters, CATALOG_MAX_LIST_ITEMS * 3);
 }
 
 async function queryRadioTechFrequencyPairsCL(filters: CatalogFilters) {
   if (!filters.tipo_producto) return [] as Array<{ tecnologia: string; frecuencia: string }>;
-  const params: string[] = [
-    `select=tecnologia,frecuencia`,
-    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
-    `limit=200`,
-  ];
-  if (filters.modalidad) {
-    const m = filters.modalidad.trim();
-    if (normalizeText(m) === "venta") {
-      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
-    } else {
-      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
-    }
-  }
-  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  const q = `inter_products?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({
-      tecnologia: toLooseText(getRecordValue(r, "tecnologia")),
-      frecuencia: toLooseText(getRecordValue(r, "frecuencia")),
-    }))
-    .filter((r) => r.tecnologia && r.frecuencia);
+  return await listarParesTecnologiaBanda("CL", filters);
 }
 
 async function buildAvailableRadioFrequencyTechnologyOptionsCL(filters: CatalogFilters): Promise<CatalogPendingOption[]> {
@@ -4815,118 +4621,8 @@ async function buildAvailableRadioFrequencyTechnologyOptionsCL(filters: CatalogF
   return out.length > 1 ? out : buildRadioFrequencyTechnologyOptions();
 }
 
-async function queryProductsByName(filters: CatalogFilters, query: string): Promise<Array<{ product_id: string; nombre: string }>> {
-  if (!filters.tipo_producto) return [];
-  const patterns = buildCatalogNameSearchPatterns(query);
-  if (!patterns.length) return [];
-  const pattern = patterns[patterns.length - 1]!;
-  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
-  const queryLimit = isBodycam ? 60 : filters.tecnologia ? 60 : 25;
-  const params: string[] = [
-    `select=product_id,nombre,tecnologia,frecuencia`,
-    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
-    `nombre=ilike.${encodeIlikePattern(pattern)}`,
-    `limit=${queryLimit}`,
-    `order=nombre.asc`,
-  ];
-  if (filters.modalidad) {
-    const m = filters.modalidad.trim();
-    if (normalizeText(m) === "venta") {
-      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
-    } else {
-      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
-    }
-  }
-  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
-  const q = `inter_products?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({
-      product_id: toTrimmedString(getRecordValue(r, "product_id")),
-      nombre: toTrimmedString(getRecordValue(r, "nombre")),
-      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
-    }))
-    .filter((r) => r.product_id && r.nombre)
-    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
-    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
-    .slice(0, 25)
-    .filter((r) => r.product_id && r.nombre);
-}
 
-async function queryProductsByNameBroad(
-  country: Country,
-  modalidad: string | undefined,
-  query: string,
-): Promise<Array<{ product_id: string; nombre: string }>> {
-  const patterns = buildCatalogNameSearchPatterns(query);
-  if (!patterns.length) return [];
-  const pattern = patterns[patterns.length - 1]!;
-  const table = country === "UY" ? getUyProductsTable() : "inter_products";
-  const params: string[] = [
-    `select=product_id,nombre`,
-    `nombre=ilike.${encodeIlikePattern(pattern)}`,
-    `limit=25`,
-    `order=nombre.asc`,
-  ];
-  if (modalidad) {
-    const m = modalidad.trim();
-    if (normalizeText(m) === "venta") {
-      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
-    } else {
-      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
-    }
-  }
-  const q = `${table}?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({
-      product_id: toTrimmedString(getRecordValue(r, "product_id")),
-      nombre: toTrimmedString(getRecordValue(r, "nombre")),
-    }))
-    .filter((r) => r.product_id && r.nombre)
-    .slice(0, 25);
-}
 
-async function queryDirectCatalogCandidatesBroad(
-  country: Country,
-  filters: CatalogFilters,
-  query: string,
-): Promise<CatalogProductCandidate[]> {
-  const patterns = buildCatalogNameSearchPatterns(query);
-  if (!patterns.length) return [];
-  const pattern = patterns[patterns.length - 1]!;
-  const table = country === "UY" ? getUyProductsTable() : "inter_products";
-  const params: string[] = [
-    `select=product_id,nombre,tipo_producto,modalidad,tecnologia,frecuencia`,
-    `nombre=ilike.${encodeIlikePattern(pattern)}`,
-    `limit=40`,
-    `order=nombre.asc`,
-  ];
-  if (filters.modalidad) {
-    const m = filters.modalidad.trim();
-    if (normalizeText(m) === "venta") {
-      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
-    } else {
-      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
-    }
-  }
-  const q = `${table}?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({
-      product_id: toTrimmedString(getRecordValue(r, "product_id")),
-      nombre: toTrimmedString(getRecordValue(r, "nombre")),
-      tipo_producto: toTrimmedString(getRecordValue(r, "tipo_producto")),
-      modalidad: toTrimmedString(getRecordValue(r, "modalidad")),
-      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
-      frecuencia: toTrimmedString(getRecordValue(r, "frecuencia")),
-    }))
-    .filter((r) => r.product_id && r.nombre);
-}
 
 /**
  * Búsqueda directa por modelo contra `catalog_products`.
@@ -4965,7 +4661,7 @@ async function tryDirectCatalogModelLookup(
 
   // Se ancla el producto en el estado para que las acciones posteriores
   // ("1) Cotizar este equipo", "2) Volver a la lista") sigan funcionando.
-  const anclaId = grupo.variantes[0]?.wooId ?? grupo.modeloKey;
+  const anclaId = grupo.wooId;
   state.catalog.pending = undefined;
   state.catalog.adviceContext = undefined;
   state.catalog.selectedProductId = anclaId;
@@ -5007,81 +4703,9 @@ async function tryDirectCatalogModelLookup(
 
 async function queryProductsUY(filters: CatalogFilters): Promise<Array<{ product_id: string; nombre: string }>> {
   if (!filters.tipo_producto) return [];
-  const table = getUyProductsTable();
-  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
-  const queryLimit = isBodycam ? 50 : filters.tecnologia ? 40 : 10;
-  const params: string[] = [
-    `select=product_id,nombre,tecnologia,frecuencia`,
-    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
-    `limit=${queryLimit}`,
-    `order=nombre.asc`,
-  ];
-  if (filters.modalidad) {
-    const m = filters.modalidad.trim();
-    if (normalizeText(m) === "venta") {
-      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
-    } else {
-      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
-    }
-  }
-  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
-  const q = `${table}?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({
-      product_id: toTrimmedString(getRecordValue(r, "product_id")),
-      nombre: toTrimmedString(getRecordValue(r, "nombre")),
-      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
-    }))
-    .filter((r) => r.product_id && r.nombre)
-    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
-    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
-    .slice(0, 25)
-    .filter((r) => r.product_id && r.nombre);
+  return await listarProductosCompat("UY", filters, CATALOG_MAX_LIST_ITEMS * 3);
 }
 
-async function queryProductsByNameUY(filters: CatalogFilters, query: string): Promise<Array<{ product_id: string; nombre: string }>> {
-  if (!filters.tipo_producto) return [];
-  const patterns = buildCatalogNameSearchPatterns(query);
-  if (!patterns.length) return [];
-  const pattern = patterns[patterns.length - 1]!;
-  const table = getUyProductsTable();
-  const isBodycam = normalizeText(filters.tipo_producto || "").includes("camara") || normalizeText(filters.tipo_producto || "").includes("cámara") || normalizeText(filters.tipo_producto || "").includes("body");
-  const queryLimit = isBodycam ? 60 : filters.tecnologia ? 60 : 25;
-  const params: string[] = [
-    `select=product_id,nombre,tecnologia,frecuencia`,
-    `tipo_producto=ilike.${encodeURIComponent(filters.tipo_producto)}`,
-    `nombre=ilike.${encodeIlikePattern(pattern)}`,
-    `limit=${queryLimit}`,
-    `order=nombre.asc`,
-  ];
-  if (filters.modalidad) {
-    const m = filters.modalidad.trim();
-    if (normalizeText(m) === "venta") {
-      params.push(`or=(modalidad.is.null,modalidad.ilike.*${encodeURIComponent(m)}*)`);
-    } else {
-      params.push(`modalidad=ilike.*${encodeURIComponent(m)}*`);
-    }
-  }
-  if (filters.portabilidad) params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  if (filters.frecuencia) params.push(`frecuencia=ilike.*${encodeURIComponent(filters.frecuencia)}*`);
-  const q = `${table}?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  return (res.data as unknown[])
-    .map((r) => ({
-      product_id: toTrimmedString(getRecordValue(r, "product_id")),
-      nombre: toTrimmedString(getRecordValue(r, "nombre")),
-      tecnologia: toTrimmedString(getRecordValue(r, "tecnologia")),
-    }))
-    .filter((r) => r.product_id && r.nombre)
-    .filter((r) => matchesSelectedTechnology(r.tecnologia, filters.tecnologia))
-    .map((r) => ({ product_id: r.product_id, nombre: r.nombre }))
-    .slice(0, 25)
-    .filter((r) => r.product_id && r.nombre);
-}
 async function loadProductDetail(productId: string) {
   const select = encodeURIComponent(`ID,Tipo,Nombre,"Descripción corta","Descripción","Imágenes","Precio normal"`);
   const q = `inter_products_staging?select=${select}&ID=eq.${encodeURIComponent(productId)}&limit=1`;
@@ -5144,63 +4768,6 @@ async function buildProductDetailFromStagingRow(
   };
 }
 
-async function loadBestStagingProductDetailByName(nombre: string): Promise<ProductDetail | null> {
-  const sourceName = toTrimmedString(nombre);
-  if (!sourceName) return null;
-  const model = extractLikelyProductModel(sourceName);
-  const patterns = Array.from(
-    new Set(
-      [model, sourceName, cleanProductName(sourceName)]
-        .filter(Boolean)
-        .flatMap((seed) => buildCatalogNameSearchPatterns(seed))
-        .slice(0, 6),
-    ),
-  );
-  if (!patterns.length) return null;
-
-  const rows: unknown[] = [];
-  const seen = new Set<string>();
-  for (const pattern of patterns) {
-    const select = encodeURIComponent(`ID,Tipo,Nombre,"Descripción corta","Descripción","Imágenes","Precio normal"`);
-    const q = `inter_products_staging?select=${select}&Nombre=ilike.${encodeIlikePattern(pattern)}&limit=20`;
-    const res = await supabaseFetch(q, { method: "GET" });
-    if (!res.ok || !Array.isArray(res.data)) continue;
-    for (const row of res.data as unknown[]) {
-      const id = toTrimmedString(getRecordValue(row, "ID")) || toTrimmedString(getRecordValue(row, "product_id"));
-      const key = id || toTrimmedString(getRecordValue(row, "Nombre")) || toTrimmedString(getRecordValue(row, "nombre"));
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      rows.push(row);
-    }
-  }
-  if (!rows.length) return null;
-
-  const wantedModel = extractLikelyProductModel(sourceName);
-  const wantedBand = detectFrequencyBandFromText(sourceName);
-  const wantedTech = detectTechnologyHint(sourceName);
-
-  const ranked = rows
-    .map((row) => {
-      const candidateName = toTrimmedString(getRecordValue(row, "Nombre")) || toTrimmedString(getRecordValue(row, "nombre"));
-      const candidateTipo = toTrimmedString(getRecordValue(row, "Tipo"));
-      const candidateDesc = `${toTrimmedString(getRecordValue(row, "Descripción corta"))}\n${toTrimmedString(getRecordValue(row, "Descripción"))}`;
-      const candidateImages = toTrimmedString(getRecordValue(row, "Imágenes")) || toTrimmedString(getRecordValue(row, "image_url"));
-      const candidatePrice = toTrimmedString(getRecordValue(row, "Precio normal")) || toTrimmedString(getRecordValue(row, "precio"));
-      let score = 0;
-      if (wantedModel && extractLikelyProductModel(candidateName) === wantedModel) score += 120;
-      if (compactCatalogModelText(cleanProductName(candidateName)) === compactCatalogModelText(cleanProductName(sourceName))) score += 60;
-      if (wantedBand) score += matchesSelectedFrequencyBand(candidateName, wantedBand) ? 30 : -15;
-      if (wantedTech) score += matchesSelectedTechnology(candidateName, wantedTech) ? 28 : -12;
-      if (candidateTipo && normalizeText(candidateTipo) !== "variation") score += 15;
-      if (candidateImages) score += 24;
-      if (candidatePrice) score += 18;
-      if (htmlToParagraphText(candidateDesc).length >= 180) score += 20;
-      return { row, score };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  return await buildProductDetailFromStagingRow(ranked[0]?.row, sourceName);
-}
 
 function buildStagingParentNameCandidates(nombre: string) {
   const raw = toTrimmedString(nombre);
@@ -5289,92 +4856,55 @@ function getUyProductsTable() {
   return (process.env.UY_PRODUCTS_TABLE ?? "inter_products_uy").trim() || "inter_products_uy";
 }
 
-async function listDistinctUyColumn(column: keyof CatalogFilters, filters: CatalogFilters) {
-  const table = getUyProductsTable();
-  const params: string[] = [`select=${encodeURIComponent(String(column))}`, `${String(column)}=not.is.null`, `limit=1000`];
-  if (filters.tipo_producto && column !== "tipo_producto") params.push(`tipo_producto=eq.${encodeURIComponent(filters.tipo_producto)}`);
-  if (filters.tecnologia && column !== "tecnologia") params.push(`tecnologia=eq.${encodeURIComponent(filters.tecnologia)}`);
-  if (filters.modalidad && column !== "modalidad") params.push(`modalidad=eq.${encodeURIComponent(filters.modalidad)}`);
-  if (filters.portabilidad && column !== "portabilidad") params.push(`portabilidad=eq.${encodeURIComponent(filters.portabilidad)}`);
-  if (filters.frecuencia && column !== "frecuencia") params.push(`frecuencia=eq.${encodeURIComponent(filters.frecuencia)}`);
-  const q = `${table}?${params.join("&")}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return [];
-  const values = (res.data as unknown[])
-    .map((r) => toTrimmedString(getRecordValue(r, String(column))))
-    .filter(Boolean);
-  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "es"));
-}
 
 async function listDistinctTipoProductoUY(): Promise<string[]> {
-  return await listDistinctUyColumn("tipo_producto", {});
+  return await listarValoresCompat("UY", "tipo_producto", {});
 }
 
 async function listTecnologiasUY(filters: CatalogFilters): Promise<string[]> {
-  if (!filters.tipo_producto) return [];
-  return await listDistinctUyColumn("tecnologia", filters);
+  return await listarValoresCompat("UY", "tecnologia", filters);
 }
 
 async function listModalidadesUY(filters: CatalogFilters): Promise<string[]> {
-  if (!filters.tipo_producto) return [];
-  return await listDistinctUyColumn("modalidad", filters);
+  return await listarValoresCompat("UY", "modalidad", filters);
 }
 
 async function listPortabilidadesUY(filters: CatalogFilters): Promise<string[]> {
-  if (!filters.tipo_producto) return [];
-  return await listDistinctUyColumn("portabilidad", filters);
+  return await listarValoresCompat("UY", "portabilidad", filters);
 }
 
 async function listFrecuenciasUY(filters: CatalogFilters): Promise<string[]> {
-  if (!filters.tipo_producto) return [];
-  return await listDistinctUyColumn("frecuencia", filters);
+  return await listarValoresCompat("UY", "frecuencia", filters);
 }
 
-async function loadProductDetailUY(productId: string) {
-  const table = getUyProductsTable();
-  const q = `${table}?select=product_id,nombre,descripcion_corta,descripcion,image_url,precio&limit=1&product_id=eq.${encodeURIComponent(productId)}`;
-  const res = await supabaseFetch(q, { method: "GET" });
-  if (!res.ok || !Array.isArray(res.data)) return null;
-  const row = (res.data as unknown[])[0];
-  if (!row) return null;
-  const nombre = toTrimmedString(getRecordValue(row, "nombre"));
-  const descCorta = toTrimmedString(getRecordValue(row, "descripcion_corta"));
-  const desc = toTrimmedString(getRecordValue(row, "descripcion"));
-  const imageUrl = toTrimmedString(getRecordValue(row, "image_url"));
-  const precio = toTrimmedString(getRecordValue(row, "precio"));
-  const fichaUrl = extractFichaTecnicaUrl(`${descCorta}\n${desc}`);
-  const descCompleta = htmlToParagraphText(`${descCorta}\n${desc}`);
-  const descPlano = htmlToParagraphText(desc || descCorta);
-  const shortText = descCorta.trim() ? htmlToParagraphText(descCorta).slice(0, 600).trim() : descPlano.slice(0, 600).trim();
-  const shortFinal = shortText.length >= 590 ? shortText.slice(0, 590).trim() : shortText;
-  return { productId, nombre, shortFinal, fullDescription: descCompleta, imageUrl, fichaUrl, precio };
-}
 
+/**
+ * Ficha de un producto desde `catalog_products`.
+ *
+ * Antes cosía tres tablas en tiempo de consulta: el detalle por ID en staging,
+ * el precio por `ilike` sobre `catalogo_productos` con `limit=1` sin orden
+ * —lo que devolvía una fila arbitraria— y, si faltaba imagen, una búsqueda por
+ * nombre que podía traer la foto de un accesorio. Ahora todo eso viene resuelto
+ * de la ingesta.
+ */
 async function loadProductDetailByCountry(country: Country, productId: string, preferredName?: string): Promise<ProductDetail | null> {
   if (!productId) return null;
-  if (country === "UY") return (await loadProductDetailUY(productId)) as ProductDetail | null;
-  const base = (await loadProductDetail(productId)) as ProductDetail | null;
-  const sourceName = toTrimmedString(preferredName) || base?.nombre || "";
-  const commercial = await loadCatalogProductCommercialData({ productId, nombre: sourceName || base?.nombre || "" });
-  const stagingByName =
-    !base || !base.imageUrl || !base.precio || !((base.fullDescription || base.shortFinal || "").trim())
-      ? await loadBestStagingProductDetailByName(sourceName || commercial?.descripcionCorta || commercial?.descripcion || "")
-      : null;
-  if (!base && !commercial) return null;
-  const fallbackDescription = htmlToParagraphText(`${commercial?.descripcionCorta ?? ""}\n${commercial?.descripcion ?? ""}`.trim());
-  const fallbackShort = fallbackDescription ? fallbackDescription.slice(0, 590).trim() : "";
-  const baseText = htmlToParagraphText(`${base?.fullDescription || ""}\n${base?.shortFinal || ""}`.trim());
-  const stagingText = htmlToParagraphText(`${stagingByName?.fullDescription || ""}\n${stagingByName?.shortFinal || ""}`.trim());
-  const useStagingText = stagingText.length > baseText.length + 80;
+  const grupo = await findFicha(country, productId);
+  if (!grupo) return null;
+  const precio = grupo.tienePrecio && grupo.precio
+    ? grupo.precio.max > grupo.precio.min
+      ? `${grupo.precio.min}-${grupo.precio.max}`
+      : String(grupo.precio.min)
+    : "";
+  const descripcion = htmlToParagraphText((grupo.descripcion || grupo.descripcionCorta || "").trim());
   return {
     productId,
-    nombre: sourceName || base?.nombre || stagingByName?.nombre || productId,
-    shortFinal: (useStagingText ? stagingByName?.shortFinal : base?.shortFinal) || base?.shortFinal || stagingByName?.shortFinal || fallbackShort,
-    fullDescription:
-      (useStagingText ? stagingByName?.fullDescription : base?.fullDescription) || base?.fullDescription || stagingByName?.fullDescription || fallbackDescription,
-    imageUrl: base?.imageUrl || stagingByName?.imageUrl || commercial?.imageUrl,
-    fichaUrl: base?.fichaUrl || stagingByName?.fichaUrl,
-    precio: commercial?.precio || base?.precio || stagingByName?.precio,
+    nombre: toTrimmedString(preferredName) || grupo.nombre,
+    shortFinal: descripcion.slice(0, 590).trim(),
+    fullDescription: descripcion,
+    imageUrl: grupo.imagenUrl,
+    fichaUrl: grupo.fichaUrl,
+    precio,
   };
 }
 

@@ -36,6 +36,7 @@ export type ProductoFila = {
   familia: string;
   modalidad: string | null;
   banda: string | null;
+  bandas: string[] | null;
   tecnologia: string | null;
   portabilidad: string | null;
   tipo_producto: string | null;
@@ -61,10 +62,14 @@ export type Variante = {
 
 /** Un producto tal como se habla de él en la conversación. */
 export type GrupoProducto = {
+  /** woo_id de la fila ancla (el padre). Identifica el grupo de forma estable. */
+  wooId: string;
   modelo: string;
   modeloKey: string;
   nombre: string;
   familia: string;
+  tipoProducto?: string;
+  portabilidad?: string;
   modalidades: string[];
   imagenUrl?: string;
   descripcion?: string;
@@ -81,6 +86,7 @@ export type FiltrosBusqueda = {
   modelo?: string;
   texto?: string;
   familia?: string;
+  tipoProducto?: string;
   modalidad?: "VENTA" | "ARRIENDO";
   banda?: "VHF" | "UHF";
   tecnologia?: "DIGITAL" | "ANALOGO";
@@ -90,7 +96,7 @@ export type FiltrosBusqueda = {
 
 const COLUMNAS =
   "pais,woo_id,parent_woo_id,record_type,nombre_completo,nombre_base,variante,modelo,modelo_key," +
-  "compatible_con,familia,modalidad,banda,tecnologia,portabilidad,tipo_producto,imagen_url," +
+  "compatible_con,familia,modalidad,banda,bandas,tecnologia,portabilidad,tipo_producto,imagen_url," +
   "descripcion,descripcion_corta,ficha_url,precio_min,precio_max,moneda,tiene_precio,en_stock";
 
 function getSupabaseUrl() {
@@ -121,8 +127,11 @@ async function consultar(queryString: string): Promise<ProductoFila[]> {
 function condicionesBase(f: FiltrosBusqueda) {
   const partes = [`select=${COLUMNAS}`, `pais=eq.${f.pais}`, `activo=is.true`];
   if (f.familia) partes.push(`familia=eq.${encodeURIComponent(f.familia)}`);
+  if (f.tipoProducto) partes.push(`tipo_producto=eq.${encodeURIComponent(f.tipoProducto)}`);
   if (f.modalidad) partes.push(`modalidad=eq.${f.modalidad}`);
-  if (f.banda) partes.push(`banda=eq.${f.banda}`);
+  // Se filtra por el array: un equipo que cubre ambas bandas debe aparecer en
+  // las dos búsquedas, y uno sin banda aplicable (LTE) en ninguna.
+  if (f.banda) partes.push(`bandas=cs.{${f.banda}}`);
   if (f.tecnologia) partes.push(`tecnologia=eq.${f.tecnologia}`);
   if (f.portabilidad) partes.push(`portabilidad=eq.${encodeURIComponent(f.portabilidad)}`);
   return partes;
@@ -196,10 +205,13 @@ export function agrupar(filas: ProductoFila[]): GrupoProducto[] {
     const rango = construirRango(precios);
 
     salida.push({
+      wooId: padre.woo_id,
       modelo: padre.modelo ?? "",
       modeloKey: padre.modelo_key ?? "",
       nombre: padre.nombre_base || padre.nombre_completo,
       familia: padre.familia,
+      tipoProducto: integrantes.find((f) => f.tipo_producto)?.tipo_producto ?? undefined,
+      portabilidad: integrantes.find((f) => f.portabilidad)?.portabilidad ?? undefined,
       modalidades: [...new Set(integrantes.map((f) => f.modalidad).filter((m): m is string => Boolean(m)))],
       imagenUrl: integrantes.find((f) => f.imagen_url)?.imagen_url ?? undefined,
       descripcion: integrantes.find((f) => f.descripcion)?.descripcion ?? undefined,
@@ -264,11 +276,26 @@ export async function findAccesoriosCompatibles(pais: Pais, modelo: string, limi
   return agrupar(await consultar(partes.join("&")));
 }
 
-/** Ficha de una fila puntual, para cuando el usuario ya eligió una variante. */
+/**
+ * Ficha del producto al que pertenece una fila.
+ *
+ * Se resuelve en dos pasos a propósito: primero la fila pedida, después todas
+ * las de su mismo producto. Traer solo la fila dejaría la ficha sin sus
+ * variantes, y el cliente que llega por el menú vería el equipo sin poder
+ * elegir versión, mientras que el que llega escribiendo el modelo sí puede.
+ */
 export async function findFicha(pais: Pais, wooId: string): Promise<GrupoProducto | null> {
   const filas = await consultar(`select=${COLUMNAS}&pais=eq.${pais}&woo_id=eq.${encodeURIComponent(wooId)}&limit=1`);
-  if (!filas.length) return null;
-  return agrupar(filas)[0] ?? null;
+  const fila = filas[0];
+  if (!fila) return null;
+
+  const hermanas = await consultar(
+    `select=${COLUMNAS}&pais=eq.${pais}&activo=is.true` +
+      `&nombre_base=eq.${encodeURIComponent(fila.nombre_base)}` +
+      (fila.modalidad ? `&modalidad=eq.${fila.modalidad}` : "") +
+      `&limit=60`,
+  );
+  return agrupar(hermanas.length ? hermanas : filas)[0] ?? null;
 }
 
 /**

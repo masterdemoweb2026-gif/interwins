@@ -113,6 +113,8 @@ export type CatalogProduct = {
   marca?: string;
   modalidad?: Modalidad;
   banda?: Banda;
+  /** Todas las bandas que cubre. Vacío cuando no aplica (LTE) o se desconoce. */
+  bandas: Banda[];
   tecnologia?: Tecnologia;
   portabilidad?: string;
   tipoProducto?: string;
@@ -188,6 +190,23 @@ const PALABRAS_TECNOLOGIA = ["digitales", "digital", "analogos", "analogo", "ana
 function varianteEsTecnologia(variante: string) {
   const primera = normalizar(variante).split(",")[0]?.trim() ?? "";
   return PALABRAS_TECNOLOGIA.some((p) => primera === p || primera.startsWith(p));
+}
+
+/**
+ * Todas las bandas que cubre un texto de frecuencia.
+ *
+ * Necesario porque `banda` (singular) colapsa tres situaciones distintas en
+ * null: un equipo que cubre ambas ("UHF, VHF", como el R5), uno al que no le
+ * aplica la banda ("4G / LTE", como el TLK100) y uno desconocido. Al filtrar
+ * por VHF el primero debe aparecer y el segundo no, así que la distinción tiene
+ * que sobrevivir a la normalización.
+ */
+export function detectarBandas(texto: string): Banda[] {
+  const t = normalizar(texto);
+  const bandas: Banda[] = [];
+  if (/\bvhf\b/.test(t)) bandas.push("VHF");
+  if (/\buhf\b/.test(t)) bandas.push("UHF");
+  return bandas;
 }
 
 export function detectarBanda(texto: string): Banda | undefined {
@@ -394,6 +413,15 @@ export function construirCatalogo(
       familia: esAccesorio ? "accesorio" : familia,
       marca: marca || undefined,
       modalidad: detectarModalidad(nombreCompleto, attr("modalidad") || curado?.modalidad || curadoPadre?.modalidad),
+      bandas: (() => {
+        const propias = detectarBandas(attrs["frecuencia"] ?? "");
+        if (propias.length) return propias;
+        const delSufijo = detectarBandas(variante);
+        if (delSufijo.length) return delSufijo;
+        const heredadas = detectarBandas(attr("frecuencia"));
+        if (heredadas.length) return heredadas;
+        return detectarBandas(txt(curado?.frecuencia ?? ""));
+      })(),
       banda:
         detectarBanda(attrs["frecuencia"] ?? "") ??
         detectarBanda(variante) ??

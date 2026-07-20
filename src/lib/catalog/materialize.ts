@@ -16,6 +16,7 @@ import {
   claveModelo,
   clavePrecio,
   detectarBanda,
+  detectarBandas,
   detectarFamilia,
   detectarTecnologia,
   extraerFichaUrl,
@@ -43,6 +44,7 @@ export type CatalogRow = {
   marca: string | null;
   modalidad: string | null;
   banda: string | null;
+  bandas: string[];
   tecnologia: string | null;
   portabilidad: string | null;
   tipo_producto: string | null;
@@ -156,6 +158,7 @@ export function construirFilasCL(
       marca: p.marca ?? null,
       modalidad: p.modalidad ?? null,
       banda: p.banda ?? null,
+      bandas: p.bandas,
       tecnologia: p.tecnologia ?? null,
       portabilidad: p.portabilidad ?? null,
       tipo_producto: p.tipoProducto ?? null,
@@ -214,6 +217,7 @@ export function construirFilasUY(filas: UyRow[]): CatalogRow[] {
       marca: null,
       modalidad: normalizar(s(fila.modalidad) ?? "").includes("arriendo") ? "ARRIENDO" : "VENTA",
       banda: detectarBanda(s(fila.frecuencia) ?? "") ?? null,
+      bandas: detectarBandas(s(fila.frecuencia) ?? ""),
       tecnologia: detectarTecnologia(s(fila.tecnologia) ?? "") ?? null,
       portabilidad: s(fila.portabilidad),
       tipo_producto: tipoProducto,
