@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { inboxAdd } from "@/lib/debugInbox";
 import { classifyIntent, NLU_MIN_CONFIDENCE, type NluResult } from "@/lib/nlu";
 import { findFicha, resolverModelo, type GrupoProducto } from "@/lib/catalog/query";
+import { buscarPuntosDeVenta, redactarRespuestaPuntos } from "@/lib/geo/buscarPuntos";
 import { listarProductosCompat, listarValoresCompat, listarParesTecnologiaBanda } from "@/lib/catalog/compat";
 import type { IntencionCompra } from "@/lib/catalog/routing";
 
@@ -5241,93 +5242,7 @@ async function listProjectsByCountry(country: Country, offset: number) {
   return loadUyProjectsData().projects.slice(offset, offset + 5).map((r) => ({ id: r.id, titulo: r.titulo }));
 }
 
-async function searchDealers(query: string) {
-  const q = normalizeText(query);
-  if (!q) return [];
-  const like = encodeURIComponent(`*${query.trim()}*`);
-  const params = [
-    `select=nombre_punto,region,direccion,comuna,telefono`,
-    `or=(region.ilike.${like},comuna.ilike.${like},direccion.ilike.${like},nombre_punto.ilike.${like})`,
-    `limit=5`,
-  ].join("&");
-  const res = await supabaseFetch(`dealers?${params}`, { method: "GET" });
-  if (res.ok && Array.isArray(res.data)) {
-    return (res.data as unknown[]).map((r) => ({
-      nombre_punto: toTrimmedString(getRecordValue(r, "nombre_punto")),
-      region: toTrimmedString(getRecordValue(r, "region")),
-      direccion: toTrimmedString(getRecordValue(r, "direccion")),
-      comuna: toTrimmedString(getRecordValue(r, "comuna")),
-      telefono: toTrimmedString(getRecordValue(r, "telefono")),
-    }));
-  }
 
-  const fallback = await supabaseFetch(`dealers?select=nombre_punto,region,direccion,comuna,telefono&limit=200`, { method: "GET" });
-  if (!fallback.ok || !Array.isArray(fallback.data)) return [];
-
-  const tokens = tokenizeLocationQuery(query);
-  const scored = (fallback.data as unknown[])
-    .map((r) => {
-      const row = {
-        nombre_punto: toTrimmedString(getRecordValue(r, "nombre_punto")),
-        region: toTrimmedString(getRecordValue(r, "region")),
-        direccion: toTrimmedString(getRecordValue(r, "direccion")),
-        comuna: toTrimmedString(getRecordValue(r, "comuna")),
-        telefono: toTrimmedString(getRecordValue(r, "telefono")),
-      };
-      const hay = normalizeText([row.nombre_punto, row.region, row.direccion, row.comuna].filter(Boolean).join(" "));
-      const score = scoreTokenMatch(tokens, hay);
-      return { row, score };
-    })
-    .filter((x) => x.row.nombre_punto && (x.row.direccion || x.row.comuna || x.row.region))
-    .filter((x) => (tokens.length ? x.score >= 1 : true))
-    .sort((a, b) => b.score - a.score);
-
-  return scored.slice(0, 5).map((x) => x.row);
-}
-
-async function searchPuntosVenta(query: string) {
-  const q = normalizeText(query);
-  if (!q) return [];
-  const like = encodeURIComponent(`*${query.trim()}*`);
-
-  const tableCandidates = ["punto_venta", "puntos_venta", "puntos_de_venta"];
-  for (const table of tableCandidates) {
-    const params = [
-      `select=titulo,direccion,categoria`,
-      `or=(titulo.ilike.${like},direccion.ilike.${like},categoria.ilike.${like})`,
-      `limit=5`,
-    ].join("&");
-    const res = await supabaseFetch(`${table}?${params}`, { method: "GET" });
-    if (!res.ok || !Array.isArray(res.data)) continue;
-    const rows = (res.data as unknown[])
-      .map((r) => ({
-        titulo: toTrimmedString(getRecordValue(r, "titulo")),
-        direccion: toTrimmedString(getRecordValue(r, "direccion")),
-        categoria: toTrimmedString(getRecordValue(r, "categoria")),
-      }))
-      .filter((r) => r.titulo && r.direccion);
-    if (rows.length) return rows;
-  }
-  const fallback = await supabaseFetch(`punto_venta?select=titulo,direccion,categoria&limit=300`, { method: "GET" });
-  if (!fallback.ok || !Array.isArray(fallback.data)) return [];
-  const tokens = tokenizeLocationQuery(query);
-  const scored = (fallback.data as unknown[])
-    .map((r) => {
-      const row = {
-        titulo: toTrimmedString(getRecordValue(r, "titulo")),
-        direccion: toTrimmedString(getRecordValue(r, "direccion")),
-        categoria: toTrimmedString(getRecordValue(r, "categoria")),
-      };
-      const hay = normalizeText([row.titulo, row.direccion, row.categoria].filter(Boolean).join(" "));
-      const score = scoreTokenMatch(tokens, hay);
-      return { row, score };
-    })
-    .filter((x) => x.row.titulo && x.row.direccion)
-    .filter((x) => (tokens.length ? x.score >= 1 : true))
-    .sort((a, b) => b.score - a.score);
-
-  return scored.slice(0, 5).map((x) => x.row);
-}
 
 async function answerServicioTecnico(query: string) {
   const q = query.trim();
@@ -8619,22 +8534,23 @@ async function handlePoints(state: UserState, text: string, userPhone: string) {
   if (!q) return "¿En qué región o ciudad estás? Así te muestro los puntos de venta más cercanos.";
   state.points.lastQuery = q;
   state.points.awaitingDealerOffer = false;
-  const [, puntosVenta] = await Promise.all([searchDealers(q), searchPuntosVenta(q)]);
+  // Busca por comuna, región o zona, consultando `punto_venta` y `dealers`
+  // juntas. Antes se llamaba a ambas pero el resultado de `dealers` se
+  // descartaba en la desestructuración, así que "Región Metropolitana" —que
+  // calza con 10 dealers— respondía "no encontré puntos de venta".
+  const resultado = await buscarPuntosDeVenta(q, 5);
 
-  if (!puntosVenta.length) {
+  if (!resultado.puntos.length) {
     return [
-      "No encontré puntos de venta con ese dato.",
+      `No tengo registrado un punto de venta para "${q}".`,
       "",
-      "¿Me dices otra comuna/ciudad cercana o la zona (Zona Norte / Zona Centro / Zona Sur)?",
+      "¿Me dices la comuna, la ciudad o la región donde estás? También puedes indicarme la zona (Norte / Centro / Sur).",
       "",
       getNaturalMenuReminderText(),
     ].join("\n");
   }
-  const blocks = puntosVenta
-    .slice(0, 3)
-    .map((p) => [`📍 ${p.titulo}`, p.categoria ? `   Zona: ${p.categoria}` : "", `   Dirección: ${p.direccion}`].filter(Boolean).join("\n"));
 
-  const formatted = blocks.join("\n\n");
+  const formatted = redactarRespuestaPuntos(resultado);
   state.points.awaitingDealerOffer = true;
   return [
     formatted,
