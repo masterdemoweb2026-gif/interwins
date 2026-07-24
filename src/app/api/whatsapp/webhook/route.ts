@@ -753,9 +753,14 @@ function readLocalTextFile(relPath: string) {
 function isPuntosVentaIntentNormalized(normalizedText: string) {
   const s = (normalizedText || "").replace(/[^a-z0-9]+/g, " ").trim();
   if (!s) return false;
-  if (/\bpuntos?\s+(de\s+)?ventas?\b/.test(s)) return true;
+  // "ve[nt]+as?" tolera el tipeo real de WhatsApp: "venta", "ventas", "veta",
+  // "venta s". Un cliente escribió "puntos de veta" y cayó al mensaje genérico.
+  if (/\bpuntos?\s+(de\s+)?ve[nt]+as?\b/.test(s)) return true;
   if (/\bdealers?\b/.test(s)) return true;
   if (/\bdistribuidores?\b/.test(s)) return true;
+  if (/\bsucursal(es)?\b/.test(s)) return true;
+  if (/\btiendas?\b/.test(s)) return true;
+  if (/\bdonde\s+(los?\s+|las?\s+)?(puedo\s+)?compr/.test(s)) return true;
   return false;
 }
 
@@ -1818,17 +1823,19 @@ function isRepeatedServiceTechQuestion(state: UserState, text: string, nowMs = D
 
 function isMenuCommand(text: string) {
   const t = normalizeText(text);
-  return (
-    t === "menu" ||
-    t === "menú" ||
-    t.includes("menu principal") ||
-    t.includes("menú principal") ||
-    t === "inicio" ||
-    t === "volver al menu" ||
-    t === "volver al menú" ||
-    t === "volver al menu principal" ||
-    t === "volver al menú principal"
-  );
+  if (!t) return false;
+  if (t === "menu" || t === "menú" || t === "inicio") return true;
+  if (t.includes("menu principal") || t.includes("menú principal")) return true;
+  // Frases cortas con un verbo de regreso + "menu"/"inicio": "volvamos al
+  // menu", "vamos al inicio", "quiero volver al menú", "llevame al menu".
+  // La versión anterior solo aceptaba frases exactas, y "volvamos al menu"
+  // dentro de puntos de venta se buscaba literalmente como si fuera una comuna.
+  const compact = t.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const words = compact.split(" ");
+  if (words.length > 6) return false;
+  const mencionaDestino = words.includes("menu") || words.includes("inicio");
+  const mencionaRegreso = /(volv|vamos|regres|\bir\b|llev|salir|principal|quiero)/.test(compact);
+  return mencionaDestino && mencionaRegreso;
 }
 
 function isExitConversationCommand(text: string) {
@@ -1939,6 +1946,12 @@ async function runNlu(state: UserState, country: Country, text: string) {
     const selectedProductName = state.catalog.selectedProductId
       ? state.catalog.lastList?.find((p) => p.product_id === state.catalog.selectedProductId)?.nombre
       : undefined;
+    // Si hay un formulario esperando respuesta, se le pasa la pregunta al NLU
+    // para que juzgue si el mensaje la responde o es una consulta distinta.
+    const pendingFormQuestion =
+      state.contactForm && state.contactForm.step !== "final" && !state.contactForm.reviewMode
+        ? getContactFormStepPrompt(state.contactForm.step as Exclude<ContactFormStep, "final">, state.contactForm.kind)
+        : undefined;
     const nlu = await classifyIntent(text, {
       country,
       activeBranch: state.activeBranch,
@@ -1946,6 +1959,7 @@ async function runNlu(state: UserState, country: Country, text: string) {
       filters: state.catalog.filters,
       selectedProductName: selectedProductName ? cleanProductName(selectedProductName) : undefined,
       lastListNames: state.catalog.lastList?.map((p) => cleanProductName(p.nombre)),
+      pendingFormQuestion,
     });
     state.lastNlu = nlu ?? undefined;
     if (nlu) {
@@ -2243,6 +2257,32 @@ type CatalogEntityHints = Partial<{
 }>;
 
 const COMMERCIAL_BRANDS = ["motorola", "hytera", "kenwood", "icom", "vertex", "cambium", "avigilon", "videobadge", "videotag"] as const;
+
+/**
+ * Marcas de radio que la gente pregunta pero que InterWins NO comercializa.
+ * Verificado contra el catálogo real: todos los equipos son Motorola (más la
+ * línea Vertex, que es de Motorola Solutions). Cuando un cliente pregunta por
+ * una de estas, corresponde aclararlo de inmediato y ofrecer el equivalente —
+ * mandarlo al embudo de filtros sin decir nada lo hace creer que sí la vendemos.
+ */
+const MARCAS_NO_TRABAJADAS = [
+  "kenwood", "hytera", "icom", "yaesu", "baofeng", "tait", "sepura",
+  "uniden", "anytone", "tyt", "retevis", "wouxun", "midland", "alinco", "hyt",
+] as const;
+
+function detectarMarcaNoTrabajada(text: string) {
+  const tokens = normalizeText(text).split(/[^a-z0-9]+/g).filter(Boolean);
+  const hit = tokens.find((tk) => (MARCAS_NO_TRABAJADAS as readonly string[]).includes(tk));
+  return hit ? hit.charAt(0).toUpperCase() + hit.slice(1) : "";
+}
+
+function buildMarcaNoTrabajadaIntro(marca: string) {
+  return [
+    `Te lo aclaro de inmediato para no confundirte: no trabajamos con equipos ${marca}.`,
+    "Nuestro catálogo es de radios Motorola y sus accesorios.",
+    "Si te sirve, te muestro alternativas Motorola equivalentes:",
+  ].join(" ");
+}
 const QUANTITY_WORD_VALUES: Record<string, number> = {
   un: 1,
   una: 1,
@@ -2590,8 +2630,21 @@ async function applyCatalogEntityHintsToState(
   return changed;
 }
 
-async function startCatalogFlow(state: UserState, userKey: string, args?: { modalidad?: string; mode?: "cotizar" | "arriendo"; seedText?: string }) {
+async function startCatalogFlow(
+  state: UserState,
+  userKey: string,
+  args?: { modalidad?: string; mode?: "cotizar" | "arriendo"; seedText?: string },
+): Promise<Reply> {
   const country = state.country ?? "CL";
+
+  // "Tienen equipos Kenwood?" — se aclara la marca ANTES de mostrar el embudo.
+  // Se reintenta sin el texto semilla: la aclaración va arriba y el embudo de
+  // categorías queda abajo como camino hacia el equivalente Motorola.
+  const marcaAjena = args?.seedText ? detectarMarcaNoTrabajada(args.seedText) : "";
+  if (marcaAjena) {
+    const reply = await startCatalogFlow(state, userKey, { ...args, seedText: undefined });
+    return prependReplyContext(reply, buildMarcaNoTrabajadaIntro(marcaAjena));
+  }
   const previous = state.activeBranch;
   state.activeBranch = "catalogo";
   resetBranchState(state, previous);
@@ -4647,7 +4700,15 @@ async function tryDirectCatalogModelLookup(
   const modelQuery = resolveCatalogModelQuery(state, input);
   if (!modelQuery) return null;
 
-  const intencion: IntencionCompra = state.catalog.requestKind === "arriendo" ? "arriendo" : "cotizacion";
+  // La intención del MENSAJE manda sobre la del estado: si el usuario venía de
+  // un flujo de arriendo y ahora escribe "quiero comprar un R5", el estado
+  // arrastra requestKind="arriendo" y la ficha ofrecía "Arrendar este equipo"
+  // para un producto de venta. El NLU lee la frase completa; los regex de
+  // compra/arriendo quedan de respaldo.
+  const nluKind = isConfidentNlu(state.lastNlu) ? state.lastNlu.requestKind : undefined;
+  const textKind = isRentalIntent(input) ? "arriendo" : detectQuoteIntent(input) ? "cotizacion" : undefined;
+  const intencion: IntencionCompra =
+    nluKind ?? textKind ?? (state.catalog.requestKind === "arriendo" ? "arriendo" : "cotizacion");
   const resuelto = await resolverModelo({ pais: country, modelo: modelQuery, intencion });
 
   if (!resuelto) {
@@ -4676,8 +4737,19 @@ async function tryDirectCatalogModelLookup(
     : "";
 
   if (ruta.accion === "mostrar_precio") {
-    const ficha = buildFichaDesdeGrupo(grupo, { requestKind: state.catalog.requestKind });
-    return notaAlternativa ? [...ficha, notaAlternativa] : ficha;
+    // Mostrar precio implica venta: se alinea el estado para que la acción
+    // principal de la ficha sea "Cotizar este equipo" y no quede pegada la
+    // etiqueta de arriendo de un flujo anterior. Si después el usuario escribe
+    // "quiero arrendarlo", el manejador de la ficha ya lo deriva al formulario
+    // de arriendo (t.includes("arrend") en handleCatalog).
+    state.catalog.requestKind = "cotizacion";
+    state.catalog.filters.modalidad = "Venta";
+    // Pidió arriendo pero el equipo solo existe en venta: se dice de frente.
+    const notaSoloVenta =
+      intencion === "arriendo" ? `El ${grupo.modelo || cleanProductName(grupo.nombre)} lo manejamos solo en modalidad de venta.` : "";
+    const ficha = buildFichaDesdeGrupo(grupo, { requestKind: "cotizacion" });
+    const notas = [notaSoloVenta, notaAlternativa].filter(Boolean);
+    return notas.length ? [notas.join(" "), ...ficha] : ficha;
   }
 
   // Sin precio publicable: se muestra la ficha, se explica el porqué y se
@@ -6016,6 +6088,19 @@ async function handleCatalog(state: UserState, text: string, userPhone: string):
   const rentalRequest = isRentalRequest(state);
   const unsupportedCommercialProduct = extractUnsupportedCommercialProduct(input);
 
+  // Marca ajena mencionada en medio del flujo ("y kenwood tienen?"): se aclara
+  // y se reinicia el embudo hacia el equivalente. No aplica con una cotización
+  // en curso, donde el texto es la respuesta a un campo del formulario.
+  if (input && !state.catalog.quote && state.catalog.status !== "wait_finish_cotizacion") {
+    const marcaAjena = detectarMarcaNoTrabajada(input);
+    if (marcaAjena) {
+      return await startCatalogFlow(state, userPhone, {
+        mode: rentalRequest ? "arriendo" : "cotizar",
+        seedText: undefined,
+      }).then((r) => prependReplyContext(r, buildMarcaNoTrabajadaIntro(marcaAjena)));
+    }
+  }
+
   if (state.catalog.status === "wait_finish_cotizacion") {
     if (t.includes("cancel")) {
       state.catalog = { filters: {}, status: "idle" };
@@ -6733,6 +6818,16 @@ async function handleCatalogUY(state: UserState, text: string, userPhone: string
   const t = normalizeText(input);
   let selectedPendingOption: CatalogPendingOption | null = null;
   const unsupportedCommercialProduct = extractUnsupportedCommercialProduct(input);
+
+  // Misma aclaración de marca que en el flujo de Chile.
+  if (input && !state.catalog.quote && state.catalog.status !== "wait_finish_cotizacion") {
+    const marcaAjena = detectarMarcaNoTrabajada(input);
+    if (marcaAjena) {
+      return await startCatalogFlow(state, userPhone, { seedText: undefined }).then((r) =>
+        prependReplyContext(r, buildMarcaNoTrabajadaIntro(marcaAjena)),
+      );
+    }
+  }
 
   if (state.catalog.status === "wait_finish_cotizacion") {
     if (t.includes("cancel")) {
@@ -8062,6 +8157,27 @@ async function handleContactForm(state: UserState, text: string, userPhone: stri
     }
     const fieldToEdit = detectContactFieldToEdit(input);
     if (fieldToEdit) {
+      // Si el mensaje ya trae el dato nuevo ("mi celular es otro, es el
+      // +56990039061"), se aplica de inmediato en vez de pedirlo otra vez.
+      const country = getContactFormCountry(form.kind);
+      let inlineValue = "";
+      if (fieldToEdit === "telefono") {
+        const match = input.match(/\+?\d[\d\s.-]{6,}\d/);
+        if (match) {
+          const resolved = resolvePhoneInput(match[0], country);
+          if (!resolved.error && resolved.phone) inlineValue = resolved.phone;
+        }
+      } else if (fieldToEdit === "correo") {
+        inlineValue = extractEmailCandidate(input);
+      }
+      if (inlineValue) {
+        const error = applyContactFieldValue(form, fieldToEdit, inlineValue);
+        if (!error) {
+          state.contactForm = form;
+          await upsertUserProfile(userPhone, mapContactFormToUserProfile(form.data));
+          return await buildContactFormReviewMessage(state);
+        }
+      }
       form.reviewEditField = fieldToEdit;
       state.contactForm = form;
       return getContactFormStepPrompt(fieldToEdit, form.kind);
@@ -8814,8 +8930,31 @@ export async function POST(request: Request) {
         const t0 = normalizeText(inboundText);
         const wantsNav = isMenuCommand(inboundText) || branchIntent.wantsMenu || Boolean(isNumericChoice(t0, 4));
         const wantsCancel = t0.includes("cancel");
+        // "Continuar": retoma el formulario repitiendo la pregunta del paso.
+        // Necesario porque el aviso de abajo lo ofrece, y sin esta captura la
+        // palabra "continuar" se guardaría como valor del campo.
+        const wantsResume = t0 === "continuar" || t0 === "seguir" || t0 === "sigamos" || t0.startsWith("continuar");
+        // El NLU juzgó que el mensaje NO responde la pregunta del formulario
+        // (ej: el bot pregunta la empresa y el cliente pide información de
+        // productos). Antes ese mensaje se ignoraba y se re-preguntaba el paso,
+        // dejando al cliente hablando solo.
+        const esConsultaAparte =
+          Boolean(state.contactForm) &&
+          !state.contactForm?.reviewMode &&
+          isConfidentNlu(nlu) &&
+          nlu.answersPendingQuestion === false;
         if (wantsNav && !wantsCancel) {
           reply = getFormInProgressText();
+        } else if (wantsResume && state.contactForm && !state.contactForm.reviewMode && state.contactForm.step !== "final") {
+          reply = getContactFormStepPrompt(state.contactForm.step as Exclude<ContactFormStep, "final">, state.contactForm.kind);
+        } else if (esConsultaAparte && state.contactForm) {
+          const etiqueta = getContactFormRequestLabel(state.contactForm.kind, state.contactForm.data);
+          reply = [
+            "Buena pregunta — te ayudo con eso apenas cerremos lo que tenemos pendiente.",
+            "",
+            `Ahora mismo estás completando una solicitud de ${etiqueta}.`,
+            "Escribe Continuar para retomarla donde quedó, o Cancelar para dejarla y atender tu consulta.",
+          ].join("\n");
         } else
         if (state.contactForm) {
           reply = await handleContactForm(state, inboundText, userKey);
@@ -8826,7 +8965,10 @@ export async function POST(request: Request) {
         } else {
           reply = getFormInProgressText();
         }
-      } else if (isMenuCommand(inboundText)) {
+      } else if (isMenuCommand(inboundText) || (branchIntent.wantsMenu && !branchIntent.branch)) {
+        // La segunda condición honra el wantsMenu que detecta el NLU: cubre
+        // formulaciones que ningún regex anticipa ("mejor volvamos atrás al
+        // principio"), siempre que no venga acompañado de una rama concreta.
         if (state.catalog.status === "wait_finish_cotizacion") {
           reply = "Tienes una cotización en curso. ¿Quieres terminarla o cancelarla? Responde: Terminar / Cancelar.";
         } else {

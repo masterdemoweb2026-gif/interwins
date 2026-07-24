@@ -32,6 +32,13 @@ export type NluResult = {
   wantsCompare?: boolean;
   wantsMenu?: boolean;
   wantsHuman?: boolean;
+  /**
+   * Solo cuando el contexto trae una pregunta de formulario pendiente:
+   * true = el mensaje la responde; false = es una consulta distinta.
+   * Permite que el bot no trague "¿Qué productos venden en Uruguay?" como si
+   * fuera el nombre de una empresa.
+   */
+  answersPendingQuestion?: boolean;
   /** 0..1 — el router solo actúa sin preguntar por sobre NLU_MIN_CONFIDENCE. */
   confidence: number;
 };
@@ -48,6 +55,12 @@ export type NluContext = {
   selectedProductName?: string;
   /** Nombres de la última lista mostrada, para resolver "el 2" o "el primero". */
   lastListNames?: string[];
+  /**
+   * Pregunta de formulario que el bot acaba de hacer y espera respuesta
+   * (ej: "¿Para qué empresa es la solicitud?"). Activa el juicio
+   * answersPendingQuestion en la respuesta.
+   */
+  pendingFormQuestion?: string;
 };
 
 /** Confianza mínima para que el router actúe directamente sin volver al menú. */
@@ -195,6 +208,11 @@ function buildSystemPrompt(country: "CL" | "UY") {
     "6. wantsHuman=true si pide hablar con una persona, ejecutivo, vendedor o asesor humano.",
     "7. confidence alta (>=0.8) solo si el mensaje es inequívoco. Si dudas entre dos ramas, baja la confianza.",
     "8. Nunca inventes modelos, precios ni disponibilidad. Solo extraes lo que el cliente escribió.",
+    "9. Si el CONTEXTO incluye 'Pregunta pendiente del formulario', agrega la clave \"answersPendingQuestion\":",
+    "   true si el mensaje responde esa pregunta (aunque sea breve, como un nombre o 'Particular'),",
+    "   false si el mensaje es una consulta o petición distinta que ignora la pregunta.",
+    "   Ejemplo: pregunta pendiente '¿Para qué empresa es la solicitud?' + mensaje 'Entregame información de la empresa Interwins' -> false.",
+    "   En caso de duda usa true, para no interrumpir al cliente que sí está respondiendo.",
   ].join("\n");
 }
 
@@ -266,6 +284,9 @@ function buildContextBlock(ctx: NluContext) {
   if (ctx.lastListNames?.length) {
     lines.push(`Última lista mostrada: ${ctx.lastListNames.slice(0, 8).map((n, i) => `${i + 1}) ${n}`).join(" | ")}`);
   }
+  if (ctx.pendingFormQuestion) {
+    lines.push(`Pregunta pendiente del formulario: ${ctx.pendingFormQuestion}`);
+  }
   if (!lines.length) return "";
   return ["CONTEXTO DE LA CONVERSACIÓN (úsalo para resolver mensajes de continuación como '¿y en VHF?'):", ...lines].join("\n");
 }
@@ -336,6 +357,9 @@ function parseNluResult(payload: unknown, country: "CL" | "UY"): NluResult | nul
     wantsCompare: pickBool(payload.wantsCompare),
     wantsMenu: pickBool(payload.wantsMenu),
     wantsHuman: pickBool(payload.wantsHuman),
+    // Tri-estado a propósito: undefined cuando el modelo no lo evaluó. Solo un
+    // false explícito debe interrumpir un formulario.
+    answersPendingQuestion: typeof payload.answersPendingQuestion === "boolean" ? payload.answersPendingQuestion : undefined,
     confidence,
   };
 
@@ -346,7 +370,10 @@ function parseNluResult(payload: unknown, country: "CL" | "UY"): NluResult | nul
     result.categoryKey ||
     result.requestKind ||
     result.wantsMenu ||
-    result.wantsHuman;
+    result.wantsHuman ||
+    // El juicio sobre la pregunta pendiente es señal por sí solo: un mensaje
+    // que solo responde "Particular" no trae rama ni entidades.
+    result.answersPendingQuestion !== undefined;
   return hasSignal ? result : null;
 }
 
